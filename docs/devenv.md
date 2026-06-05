@@ -17,19 +17,46 @@ Pick your platform:
 
 ### Bazzite / Fedora / RHEL
 
+Bazzite and other Fedora Atomic distros have a read-only rootfs, so the standard Nix installer can't create `/nix`. **Use a distrobox:**
+
 ```bash
-curl -fsSL https://install.determinate.systems/nix | sh -s -- install
-# Add to shell rc: . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
-curl -devenv https://devenv.sh/install.sh | sh
-# Or: nix profile install nixpkgs#devenv
+# Create a Fedora container for Nix work
+distrobox create --image fedora:39 --name nix-dev
+distrobox enter nix-dev
+
+# Inside the container (writable rootfs — Nix installs cleanly):
+sudo dnf install -y nix
+. /etc/profile.d/nix.sh
+
+# Install devenv
+nix profile install nixpkgs#devenv
+
+# Now do dev work — your home folder is auto-bind-mounted
+cd ~/projects/rustworn
+direnv allow
+cargo run
 ```
 
-Then install direnv for auto-activation:
+For direnv auto-activation inside the distrobox:
 ```bash
-sudo rpm-ostree install direnv
-# (or use distrobox)
+sudo dnf install -y direnv
 echo 'eval "$(direnv hook bash)"' >> ~/.bashrc
 ```
+
+On non-Atomic Fedora / RHEL (workstation, server) you can install Nix system-wide:
+```bash
+curl -fsSL https://install.determinate.systems/nix | sh -s -- install
+nix profile install nixpkgs#devenv
+sudo dnf install -y direnv
+echo 'eval "$(direnv hook bash)"' >> ~/.bashrc
+```
+
+**Why not system-wide on Bazzite?** The Determinate installer fails with:
+```
+Error saving receipt: RecordingReceipt("/nix", Os { code: 30, kind: ReadOnlyFilesystem, ... })
+Failed to execute command "systemctl" "start" "nix.mount"
+```
+That's `/` being read-only. The distrobox approach gives Nix a writable container rootfs.
 
 ### Ubuntu / Debian
 
