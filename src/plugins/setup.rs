@@ -6,7 +6,7 @@
 use bevy::prelude::*;
 use log::info;
 
-use crate::components::{BaseVelocity, Health, Player, Velocity};
+use crate::components::{BaseVelocity, Health, MainCamera, Player, Velocity};
 use crate::resources::{CascadeState, GameSettings, RunState};
 
 /// The placeholder player's color — Exo orange, our protogen mascot.
@@ -25,7 +25,7 @@ impl Plugin for SetupPlugin {
 }
 
 fn spawn_camera_and_player(mut commands: Commands) {
-    commands.spawn(Camera2d);
+    commands.spawn((Camera2d, MainCamera));
 
     commands.spawn((
         // Visual: a 40x40 orange square. Real sprite lands in Phase 1.

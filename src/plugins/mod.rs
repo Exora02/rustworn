@@ -5,6 +5,8 @@
 //! `Plugin::build()` that registers everything it needs. Long-term
 //! modules (see PLAN.md §8) live alongside the minimal Phase 0 set.
 
+pub mod player;
 pub mod setup;
 
+pub use player::PlayerPlugin;
 pub use setup::SetupPlugin;

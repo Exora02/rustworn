@@ -11,7 +11,8 @@
 
 # Editor / IDE noise
 .idea/
-.vscode/
+# .vscode/ — committed for this project so contributors get the same
+# rust-analyzer / formatting config. See .vscode/settings.json.
 *.swp
 *.swo
 *~

@@ -37,3 +37,9 @@ pub struct BaseVelocity(pub Vec2);
 /// Marker: this entity's velocity is scaled during Cascade Mode.
 #[derive(Component, Default)]
 pub struct CascadeAffected;
+
+/// Marker for the main camera. Tags the camera so we can find it in
+/// queries without relying on Camera2d alone (which Bevy may attach to
+/// auxiliary views for UI layers in the future).
+#[derive(Component)]
+pub struct MainCamera;
