@@ -50,16 +50,34 @@ set -euo pipefail
 
 log() { printf "  \033[1;34m[nuked-dev]\033[0m %s\n" "$*"; }
 
-# 1. System packages
+# 1. System packages (nix is NOT in Fedora's official repos — use the
+# upstream installer instead, see step 2 below).
+if ! command -v git &>/dev/null; then
+    log "Installing git + direnv + curl + sudo..."
+    sudo dnf install -y git direnv curl sudo
+else
+    log "git/direnv/curl already installed."
+fi
+
+# 2. Install Nix via the official installer. --no-daemon is the
+# right mode for distrobox (no systemd available).
 if ! command -v nix &>/dev/null; then
-    log "Installing nix + direnv + git + curl + sudo..."
-    sudo dnf install -y nix direnv git curl sudo
-    . /etc/profile.d/nix.sh
+    log "Installing Nix via the official installer..."
+    sh <(curl -L https://nixos.org/nix/install) --no-daemon
+    # Make Nix available in this shell and future shells.
+    if [ -f ~/.nix-profile/etc/profile.d/nix.sh ]; then
+        . ~/.nix-profile/etc/profile.d/nix.sh
+    fi
+    if ! grep -q 'nix-profile/etc/profile.d/nix.sh' ~/.bashrc 2>/dev/null; then
+        echo '' >> ~/.bashrc
+        echo '# Nix' >> ~/.bashrc
+        echo '. ~/.nix-profile/etc/profile.d/nix.sh' >> ~/.bashrc
+    fi
 else
     log "nix already installed."
 fi
 
-# 2. Make direnv auto-activate in future shells
+# 3. Make direnv auto-activate in future shells
 if ! grep -q 'direnv hook bash' ~/.bashrc 2>/dev/null; then
     log "Adding direnv hook to ~/.bashrc..."
     {
@@ -71,16 +89,15 @@ else
     log "direnv hook already in ~/.bashrc."
 fi
 
-# 3. Install devenv
+# 4. Install devenv
 if ! command -v devenv &>/dev/null; then
     log "Installing devenv via nix profile (this downloads ~500MB)..."
-    . /etc/profile.d/nix.sh
     nix profile install nixpkgs#devenv
 else
     log "devenv already installed."
 fi
 
-# 4. Verify
+# 5. Verify
 log "Versions:"
 echo "  nix:    $(nix --version 2>/dev/null || echo 'NOT FOUND')"
 echo "  devenv: $(devenv version 2>/dev/null || echo 'NOT FOUND')"
