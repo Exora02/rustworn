@@ -1,20 +1,17 @@
 # Dev Environment Setup
 
-How to get RUSTWORN building and running on Windows, Linux, and the VPS.
+How to get RUSTWORN building and running on Windows, Linux, the VPS, and Bazzite.
 
 ## TL;DR
 
 | Platform | Goal | Command |
 |---|---|---|
+| **Any dev machine** | full game run | `devenv shell && cargo run` — see [docs/devenv.md](./devenv.md) |
 | **VPS (headless)** | type-check / link | `cargo check` or `cargo build` |
-| **Windows (dev)** | full game run | `cargo run` from a local checkout |
-| **Linux desktop** | full game run | `cargo run` |
+| **Windows (dev)** | full game run | `cargo run` from a local checkout (or use devenv in WSL2) |
+| **Linux desktop** | full game run | `cargo run` (or use devenv) |
 
-The VPS is the build server. Your local machine is the runtime. Code lives on the VPS, syncs to local via Forgejo.
-
----
-
-## 1. VPS (Ubuntu 24.04) — already done
+The VPS is the build server. Your local machine is the runtime. **For local dev, prefer [devenv.sh](./devenv.md)** — one Nix config that works on Bazzite, Ubuntu, WSL2, and macOS.
 
 The VPS is set up with everything needed to compile Bevy 0.16:
 

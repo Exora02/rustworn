@@ -9,6 +9,12 @@
 # Bevy asset output
 /assets/.imported
 
+# devenv / direnv
+/.direnv/
+/devenv.lock
+/devenv.flake.nix
+/result*
+
 # Editor / IDE noise
 .idea/
 # .vscode/ — committed for this project so contributors get the same

@@ -21,14 +21,20 @@ cargo run           # needs a display; won't work over Tailscale
 
 The project is pinned to Rust 1.85+ via `rust-toolchain.toml`. If you `cd` into the directory and your toolchain is older, rustup will fetch the right one automatically.
 
-## Quick start (local — Windows / VS Code)
+## Quick start (local — any dev machine)
 
-See [docs/setup.md](./docs/setup.md) for full instructions. The short version:
+```bash
+git clone git@github.com:Exora02/slop_rustworn.git   # or pull from VPS
+cd rustworn
+direnv allow              # auto-activates devenv.sh on cd
+cargo run                 # builds + runs
+```
 
-1. Install Rust 1.85+ via [rustup](https://rustup.rs/)
-2. Install VS Code + the `rust-analyzer` extension
-3. Clone the repo somewhere reachable from Tailscale (or sync via Forgejo)
-4. `cargo run` from a local checkout
+One `devenv.nix` config provides Rust + mold + wayland + vulkan + alsa + everything Bevy needs. Works on Bazzite, Ubuntu, WSL2, macOS. See [docs/devenv.md](./docs/devenv.md) for install steps.
+
+## Quick start (local — Windows / VS Code without WSL)
+
+See [docs/setup.md](./docs/setup.md) for the manual path (Visual Studio Build Tools + Rust). Prefer WSL2 + devenv if you can.
 
 ## Project structure
 
@@ -37,8 +43,13 @@ rustworn/
 ├── PLAN.md                       # full game design — read this first
 ├── Cargo.toml                    # dependencies, profiles
 ├── rust-toolchain.toml           # pinned Rust version
+├── devenv.nix                    # cross-platform dev environment (Nix)
+├── devenv.yaml                   # devenv inputs pin
+├── .envrc                        # direnv auto-activation
 ├── README.md                     # you are here
 ├── .gitignore
+├── .gitattributes
+├── .vscode/                      # rust-analyzer + format config
 ├── .cargo/config.toml            # mold linker config (Linux)
 ├── src/
 │   ├── main.rs                   # thin binary, calls rustworn::run()
@@ -48,10 +59,12 @@ rustworn/
 │   ├── resources.rs              # CascadeState, RunState, GameSettings
 │   └── plugins/
 │       ├── mod.rs                # plugin registry
-│       └── setup.rs              # startup: camera + placeholder player
+│       ├── setup.rs              # startup: camera + placeholder player
+│       └── player.rs             # movement, input, camera follow
 ├── assets/                       # sprites, sounds, fonts (empty for now)
 └── docs/
-    ├── setup.md                  # dev environment walkthrough
+    ├── setup.md                  # dev environment walkthrough (manual path)
+    ├── devenv.md                 # devenv.sh — recommended cross-platform setup
     └── phase_0_prototype.md      # Phase 0 implementation plan
 ```
 
@@ -60,7 +73,8 @@ rustworn/
 | Want to… | Read this |
 |---|---|
 | Understand the game design | `PLAN.md` |
-| Set up a fresh dev environment | `docs/setup.md` |
+| Set up a fresh dev environment (recommended) | `docs/devenv.md` |
+| Set up a dev environment manually (Windows native, etc.) | `docs/setup.md` |
 | Implement the first playable slice | `docs/phase_0_prototype.md` |
 | Add a new ECS component | follow the pattern in `src/components.rs` |
 | Add a new Bevy plugin | follow the pattern in `src/plugins/setup.rs` |
