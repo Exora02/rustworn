@@ -32,6 +32,19 @@ cargo run                 # builds + runs
 
 One `devenv.nix` config provides Rust + mold + wayland + vulkan + alsa + everything Bevy needs. Works on Bazzite, Ubuntu, WSL2, macOS. See [docs/devenv.md](./docs/devenv.md) for install steps.
 
+### Bazzite specific
+
+Bazzite's read-only rootfs can't host Nix directly. One-shot setup:
+
+```bash
+git clone git@github.com:Exora02/slop_rustworn.git
+cd rustworn
+./scripts/setup-nuked-dev.sh
+distrobox enter nuked-dev
+```
+
+The script creates a `nuked-dev` distrobox, installs Nix + devenv + direnv + cargo inside, and prints a quick-reference at the end. Idempotent — safe to re-run.
+
 ## Quick start (local — Windows / VS Code without WSL)
 
 See [docs/setup.md](./docs/setup.md) for the manual path (Visual Studio Build Tools + Rust). Prefer WSL2 + devenv if you can.
@@ -62,6 +75,8 @@ rustworn/
 │       ├── setup.rs              # startup: camera + placeholder player
 │       └── player.rs             # movement, input, camera follow
 ├── assets/                       # sprites, sounds, fonts (empty for now)
+├── scripts/
+│   └── setup-nuked-dev.sh        # one-shot Bazzite distrobox setup
 └── docs/
     ├── setup.md                  # dev environment walkthrough (manual path)
     ├── devenv.md                 # devenv.sh — recommended cross-platform setup
