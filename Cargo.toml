@@ -1,0 +1,67 @@
+[package]
+name = "rustworn"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "A 2D top-down roguelike in Bevy. Cascade Mode included."
+license = "MIT OR Apache-2.0"
+publish = false
+
+[lib]
+name = "rustworn"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rustworn"
+path = "src/main.rs"
+
+[dependencies]
+# Bevy 0.16 — 2D is the default; we cherry-pick backend / asset /
+# rendering features so the binary stays slim and compiles faster.
+# 0.16 was the last release line whose feature map we know cold.
+bevy = { version = "=0.16.1", default-features = false, features = [
+    "bevy_asset",
+    "bevy_audio",
+    "bevy_render",
+    "bevy_scene",
+    "bevy_sprite",
+    "bevy_state",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_window",
+    "bevy_winit",
+    "wayland",
+    "x11",
+    "webgpu",
+    "png",         # for sprite assets
+    "serialize",
+    "tonemapping_luts",
+] }
+
+# Panic handler that prints a useful backtrace in release builds.
+human-panic = "2.0"
+
+# Logging facade — Bevy uses this under the hood, we depend on it
+# directly so we can use `info!`, `warn!`, etc. in our own code.
+log = "0.4"
+
+[profile.dev]
+# Bevy debug rebuilds are painful without these. opt-level 1 keeps the
+# binary fast enough to test gameplay while shaving ~40% off link time.
+opt-level = 1
+incremental = true
+debug = 1
+
+# For "I just want to run it, no debugger attached".
+[profile.dev-fast]
+inherits = "dev"
+opt-level = 0
+debug = false
+incremental = true
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+debug = false
+strip = true

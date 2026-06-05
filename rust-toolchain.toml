@@ -1,0 +1,6 @@
+[toolchain]
+# Pinned to a known-good Rust version for Bevy 0.16.
+# Bevy 0.16 requires >= 1.81; 1.85+ is a safe choice with all MSRVs met.
+channel = "stable"
+components = ["rustfmt", "clippy", "rust-src"]
+profile = "minimal"

@@ -1,0 +1,30 @@
+# Rust build artifacts
+/target
+**/*.rs.bk
+*.pdb
+
+# Cargo lockfile — KEEP IT COMMITTED for binary crates (we are a binary)
+# Cargo.lock
+
+# Bevy asset output
+/assets/.imported
+
+# Editor / IDE noise
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS junk
+Thumbs.db
+desktop.ini
+
+# Local env / secrets
+.env
+.env.local
+*.local
+
+# Logs
+*.log
