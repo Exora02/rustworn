@@ -484,7 +484,7 @@ struct EnemyBundle {
 Before I scaffold anything, I need your call on:
 
 1. **Twist**: Cascade Mode (my recommendation) vs. Lich's Ledger vs. Carry Decay?
-2. **Visual style**: pixel art (Gungeon-style), vector (Vampire Survivors), painterly? Not lore, just the rendering technique. Affects asset pipeline.
+2. ~~**Visual style**: pixel art (Gungeon-style), vector (Vampire Survivors), painterly?~~ → **DECIDED 2026-06-05: defer to Phase 1+**. Keep colored squares for Phase 0/1, pick style once we know what the game feels like. Sound design decision: validate feel before committing to asset pipeline.
 3. **Phase 0 scope confirmation**: 2-3 weeks for combat feel — is that your target, or do you want to skip ahead?
 4. **Tooling**: rust-analyzer + Bevy CLI + a tilemap editor? I'll write a `setup.md` with the dev environment if you say go.
 5. **Solo only or solo-first**: confirming async multiplayer is Phase 5 stretch, not Phase 0.
