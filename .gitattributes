@@ -1,0 +1,33 @@
+# Normalize line endings on checkout, but keep them LF in the repo.
+# Cross-platform Rust projects are notorious for CRLF/LF weirdness —
+# this rule prevents Windows contributors from accidentally committing
+# mixed line endings.
+
+* text=auto eol=lf
+
+# Rust source — LF, no surprises
+*.rs text eol=lf
+
+# Shell scripts — LF
+*.sh text eol=lf
+
+# TOML, YAML, JSON
+*.toml text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+
+# Markdown — LF (no CRLF weirdness in diffs)
+*.md text eol=lf
+
+# Binary asset types — never touch
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ogg binary
+*.wav binary
+*.mp3 binary
+*.ttf binary
+*.otf binary
