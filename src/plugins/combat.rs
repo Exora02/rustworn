@@ -361,6 +361,16 @@ fn projectile_damage_system(
             ) {
                 continue;
             }
+            // Skip enemies already at 0 HP from a same-frame hit
+            // (e.g., shotgun 5 pellets landing on a 2-HP dasher:
+            // pellet #4 despawns it, pellet #5's HitFlash insert
+            // would otherwise panic on the now-queued-for-despawn
+            // entity when the command queue flushes). The pellet
+            // keeps flying in case there's another enemy in its
+            // path; it just doesn't double-process a corpse.
+            if health.current <= 0.0 {
+                continue;
+            }
             health.current = (health.current - proj.damage).max(0.0);
             hit = true;
             // Day 13-14: white pulse on every hit (kill or not).
