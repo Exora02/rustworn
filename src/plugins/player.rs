@@ -537,6 +537,12 @@ fn restart_system(
         // first click on the fresh run fires immediately (same as
         // the initial spawn in setup.rs).
         weapon.fire_timer = Timer::from_seconds(0.0, TimerMode::Once);
+        // Phase 1 (burst): also reset the in-flight burst counter.
+        // If the player died mid-burst (e.g. on round 2 of a 3-round
+        // burst), the next run shouldn't inherit a half-spent
+        // burst — the new run should boot with a fresh weapon
+        // ready to fire on click.
+        weapon.burst_rounds_remaining = 0;
         // Drop any leftover dash / hit / knockback state from the
         // previous run. The player boots clean, no i-frames, no
         // knockback direction, no cooldown.

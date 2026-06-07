@@ -83,27 +83,53 @@ pub const PLAYER_COLOR: Color = Color::srgb(0.925, 0.525, 0.012); // ~#ec8603
 /// than looked up per archetype) so the fire system has a single
 /// source of truth and the switch system can refresh all fields at
 /// once.
+///
+/// Phase 1 (burst): `burst_rounds` and `burst_rounds_remaining`
+/// carry the multi-shot-per-click behavior. Pistol and shotgun
+/// have `burst_rounds = 1` (a single click = a single shot; the
+/// "burst" of 1 happens in zero time, the fire system treats
+/// it the same as a one-shot). Burst has `burst_rounds = 3`,
+/// so a single click fires 3 sequential rounds with a
+/// `BurstRoundGapS` gap between each. `burst_rounds_remaining`
+/// tracks the in-flight burst: 0 when no burst is in progress
+/// (weapon ready to fire on next click), N>0 when the burst
+/// has N more rounds to fire (the fire system auto-fires the
+/// next round when the gap timer elapses, without waiting
+/// for a click).
 #[derive(Component)]
 pub struct Weapon {
     pub archetype: WeaponArchetype,
     pub damage: f32,
-    pub fire_rate: f32, // shots per second
+    pub fire_rate: f32, // shots per second (used for post-burst cooldown)
     pub projectile_speed: f32,
     pub pellet_count: u32,
     pub spread_rad: f32,
+    pub burst_rounds: u32,
     pub fire_timer: Timer,
+    pub burst_rounds_remaining: u32,
 }
 
 /// Available weapon archetypes. Pistol is the single-shot starter;
-/// Shotgun (Phase 1) fires 5 pellets in a tight spread. Future
-/// weapons (Burst, Beam, Launcher, ...) will swap in by extending
-/// the match in `weapon_stats_for` (combat.rs) — nothing else
+/// Shotgun (Phase 1) fires 5 pellets in a tight spread. Burst
+/// (Phase 1) fires 3 sequential rounds per click at a 0.1s
+/// between-round gap — a "tapping" weapon that rewards rhythmic
+/// timing and feels different from the other two. Future
+/// weapons (Beam, Launcher, ...) will swap in by extending the
+/// match in `weapon_stats_for` (combat.rs) — nothing else
 /// needs to know the archetype enum.
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WeaponArchetype {
     #[default]
     Pistol,
     Shotgun,
+    /// Phase 1 burst: 3 sequential rounds per click, 0.7 dmg
+    /// per round, 0.1s between rounds, 0.5s post-burst cooldown
+    /// (fire_rate = 2.0). Effective DPS: 0.7 × 3 / 0.7s = 3.0,
+    /// same as pistol — but the damage arrives in a 3-hit
+    /// spike rather than a steady tick. The player feels the
+    /// "punch" of the burst more than the shotgun's spread
+    /// (which feels like a "cloud").
+    Burst,
 }
 
 /// A projectile in flight. Owns its lifetime so the cleanup system

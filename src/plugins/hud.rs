@@ -46,18 +46,20 @@ const HP_BAR_HEIGHT: f32 = 16.0;
 const FIRE_RATE_BG: Color = Color::srgb(0.10, 0.10, 0.10);
 const FIRE_RATE_PISTOL: Color = Color::srgb(0.95, 0.85, 0.30);
 const FIRE_RATE_SHOTGUN: Color = Color::srgb(0.95, 0.30, 0.30);
+const FIRE_RATE_BURST: Color = Color::srgb(0.30, 0.85, 0.95);
 const FIRE_RATE_WIDTH: f32 = 60.0;
 const FIRE_RATE_HEIGHT: f32 = 8.0;
 
 /// Color the fire-rate bar fill by the current weapon archetype.
-/// Pistol reads as a calm yellow, shotgun as a hot red — the
-/// shotgun's color also telegraphs the lower fire rate (1/sec vs
-/// 3/sec) since the bar fills visibly slower, but the color is the
-/// fast-glance read.
+/// Pistol reads as a calm yellow, shotgun as a hot red, burst
+/// as a cool cyan — the cyan also reads as "fast" in arcade
+/// color shorthand (think ice/laser), matching the burst's
+/// quick-tap rhythm.
 fn fire_rate_color(archetype: WeaponArchetype) -> Color {
     match archetype {
         WeaponArchetype::Pistol => FIRE_RATE_PISTOL,
         WeaponArchetype::Shotgun => FIRE_RATE_SHOTGUN,
+        WeaponArchetype::Burst => FIRE_RATE_BURST,
     }
 }
 

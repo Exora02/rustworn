@@ -56,6 +56,11 @@ fn spawn_camera_and_player(mut commands: Commands, settings: Res<GameSettings>) 
             // finished timer so the first click fires immediately.
             // Phase 1 (shotgun): `pellet_count` + `spread_rad` round
             // out the Weapon fields. Pistol = 1 pellet, no spread.
+            // Phase 1 (burst): `burst_rounds` + `burst_rounds_remaining`
+            // round out the Weapon state. Pistol starts with
+            // burst_rounds = 1 (single-shot) and remaining = 0
+            // (no burst in progress). The burst_archetype gets
+            // 3 rounds the first time the player switches to it.
             Weapon {
                 archetype: WeaponArchetype::Pistol,
                 damage: settings.weapon_damage,
@@ -63,7 +68,9 @@ fn spawn_camera_and_player(mut commands: Commands, settings: Res<GameSettings>) 
                 projectile_speed: settings.weapon_projectile_speed,
                 pellet_count: 1,
                 spread_rad: 0.0,
+                burst_rounds: 1,
                 fire_timer: Timer::from_seconds(0.0, TimerMode::Once),
+                burst_rounds_remaining: 0,
             },
         ))
         .with_children(|parent| {

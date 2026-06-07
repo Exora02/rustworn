@@ -59,26 +59,36 @@ impl Plugin for CombatPlugin {
     }
 }
 
-// Phase 1 (shotgun): per-archetype stat lookup. The single source of
-// truth for "what does this weapon do" lives here; the Weapon
-// component on the player gets refreshed from this table by
+// Phase 1 (shotgun + burst): per-archetype stat lookup. The single
+// source of truth for "what does this weapon do" lives here; the
+// Weapon component on the player gets refreshed from this table by
 // `weapon_switch_system` and by initial spawn in `setup.rs`.
 //
 // Numbers are picked to feel distinct:
-//   - Pistol: 3 shots/sec, 1.0 dmg/projectile, 700 u/s, 1 pellet
+//   - Pistol: 3 shots/sec, 1.0 dmg/projectile, 700 u/s, 1 pellet,
+//     1 round per click
 //   - Shotgun: 1 shot/sec, 0.5 dmg/pellet (5 pellets = 2.5 total),
-//     600 u/s, 5 pellets spread across 0.35 rad (~20°)
+//     600 u/s, 5 pellets spread across 0.35 rad (~20°), 1 round
+//     per click
+//   - Burst: 2 shots/sec (post-burst cooldown), 0.7 dmg/round,
+//     700 u/s, 1 pellet, 3 rounds per click with a 0.1s gap
+//     between rounds. Effective DPS: 0.7 × 3 / 0.7s = 3.0,
+//     same as pistol — but the damage arrives in a 3-hit
+//     spike rather than a steady tick.
 //
 // The shotgun's per-shot DPS (2.5) is slightly below the pistol's
 // (3.0) but the spread makes the shotgun much more forgiving against
 // groups of enemies — close-range it deletes clusters, mid-range
 // the spread misses, far-range it's worse than the pistol. That
-// trade-off is the design.
-fn weapon_stats_for(archetype: WeaponArchetype) -> (f32, f32, f32, u32, f32) {
-    // (damage, fire_rate, projectile_speed, pellet_count, spread_rad)
+// trade-off is the design. Burst occupies a third niche: precise
+// like the pistol, but with a "punch" on click that the pistol
+// lacks.
+fn weapon_stats_for(archetype: WeaponArchetype) -> (f32, f32, f32, u32, f32, u32) {
+    // (damage, fire_rate, projectile_speed, pellet_count, spread_rad, burst_rounds)
     match archetype {
-        WeaponArchetype::Pistol => (1.0, 3.0, 700.0, 1, 0.0),
-        WeaponArchetype::Shotgun => (0.5, 1.0, 600.0, 5, 0.35),
+        WeaponArchetype::Pistol => (1.0, 3.0, 700.0, 1, 0.0, 1),
+        WeaponArchetype::Shotgun => (0.5, 1.0, 600.0, 5, 0.35, 1),
+        WeaponArchetype::Burst => (0.7, 2.0, 700.0, 1, 0.0, 3),
     }
 }
 
@@ -140,13 +150,15 @@ fn weapon_switch_system(
         return;
     };
 
-    // Press priority: 1/2 (direct) first, then Q (cycle). If both
+    // Press priority: 1/2/3 (direct) first, then Q (cycle). If both
     // Q and a number key are pressed on the same frame, the number
     // key wins (explicit slot is more direct than "next").
     let target: Option<WeaponArchetype> = if keys.just_pressed(KeyCode::Digit1) {
         Some(WeaponArchetype::Pistol)
     } else if keys.just_pressed(KeyCode::Digit2) {
         Some(WeaponArchetype::Shotgun)
+    } else if keys.just_pressed(KeyCode::Digit3) {
+        Some(WeaponArchetype::Burst)
     } else if keys.just_pressed(KeyCode::KeyQ) {
         Some(next_archetype(weapon.archetype))
     } else {
@@ -162,23 +174,32 @@ fn weapon_switch_system(
         return;
     }
 
-    let (damage, fire_rate, projectile_speed, pellet_count, spread_rad) = weapon_stats_for(target);
+    let (damage, fire_rate, projectile_speed, pellet_count, spread_rad, burst_rounds) =
+        weapon_stats_for(target);
     weapon.archetype = target;
     weapon.damage = damage;
     weapon.fire_rate = fire_rate;
     weapon.projectile_speed = projectile_speed;
     weapon.pellet_count = pellet_count;
     weapon.spread_rad = spread_rad;
+    weapon.burst_rounds = burst_rounds;
+    // Mid-burst switch: cancel the in-flight burst so the new
+    // weapon starts fresh. Without this, switching to the
+    // pistol mid-burst would queue 2 more pistol rounds 0.1s
+    // apart, which is unintuitive.
+    weapon.burst_rounds_remaining = 0;
     // Zero-duration finished timer so the next click fires
     // immediately.
     weapon.fire_timer = Timer::from_seconds(0.0, TimerMode::Once);
 }
 
-// Cycle order: Pistol → Shotgun → Pistol. New weapons slot in here.
+// Cycle order: Pistol → Shotgun → Burst → Pistol. New weapons
+// slot in here.
 fn next_archetype(current: WeaponArchetype) -> WeaponArchetype {
     match current {
         WeaponArchetype::Pistol => WeaponArchetype::Shotgun,
-        WeaponArchetype::Shotgun => WeaponArchetype::Pistol,
+        WeaponArchetype::Shotgun => WeaponArchetype::Burst,
+        WeaponArchetype::Burst => WeaponArchetype::Pistol,
     }
 }
 
@@ -201,6 +222,23 @@ fn next_archetype(current: WeaponArchetype) -> WeaponArchetype {
 // outer ones are rotated. Deterministic (no random angle) so the
 // spread pattern is identical every shot — players can learn the
 // pattern and aim with it.
+//
+// Phase 1 (burst): the state machine for `burst_rounds > 1`.
+//
+//   click       → fire round 1, set remaining = total - 1, set
+//                 fire_timer to round gap (0.1s)
+//   gap elapses → fire next round, decrement remaining, if 0
+//                 set fire_timer to full cooldown, else set to
+//                 round gap again
+//   cooldown    → wait, weapon is busy
+//   gap elapses → fire remaining > 0 path auto-fires the next
+//                 round WITHOUT waiting for a click — the burst
+//                 is "in flight" once started
+//
+// `burst_rounds_remaining == 0` and a click both satisfy the
+// "should I fire this frame?" check; either one triggers a fire.
+// Mid-burst, the click is ignored (the auto-fire path handles it)
+// so spamming the mouse doesn't shorten the burst.
 fn weapon_fire_system(
     mouse: Res<ButtonInput<MouseButton>>,
     aim: Res<AimDirection>,
@@ -214,13 +252,22 @@ fn weapon_fire_system(
     if in_hitstop(&hitstop) || in_game_over(&run) {
         return;
     }
-    if !mouse.just_pressed(MouseButton::Left) {
-        return;
-    }
     let Ok((mut weapon, player_transform)) = weapons.single_mut() else {
         return;
     };
     if !weapon.fire_timer.finished() {
+        return;
+    }
+
+    // Phase 1 (burst): decide whether to fire this frame.
+    //   - if a burst is in progress (remaining > 0), fire the
+    //     next round
+    //   - if a click just happened, start a new burst (or fire
+    //     a single shot for pistol/shotgun)
+    //   - otherwise, do nothing
+    let burst_in_progress = weapon.burst_rounds_remaining > 0;
+    let click = mouse.just_pressed(MouseButton::Left);
+    if !burst_in_progress && !click {
         return;
     }
 
@@ -237,12 +284,9 @@ fn weapon_fire_system(
         }
     }
 
-    // Reset cooldown. The combat plugin's tick system will count it down
-    // each frame; the next fire becomes possible once the timer elapses.
-    let interval = 1.0 / weapon.fire_rate;
-    weapon.fire_timer = Timer::from_seconds(interval, TimerMode::Once);
-
-    // Default to +Y if the player hasn't aimed yet.
+    // Spawn one round of the weapon (1 round for pistol/shotgun,
+    // 1 round for each tap of the burst). The actual
+    // `pellet_count` × spread is handled below in the spawn loop.
     let center_dir = if aim.0 == Vec2::ZERO { Vec2::Y } else { aim.0 };
     let player_pos = player_transform.translation.truncate();
 
@@ -289,6 +333,33 @@ fn weapon_fire_system(
                 team: Team::Player,
             },
         ));
+    }
+
+    // Update burst state. After this fire:
+    //   - if a burst was in progress, decrement remaining
+    //   - if a click started a new burst, set remaining to
+    //     total - 1 (we just fired 1 round, total-1 left)
+    //   - if neither, the weapon is single-shot (burst_rounds = 1)
+    //     and remaining stays 0
+    if burst_in_progress {
+        weapon.burst_rounds_remaining -= 1;
+    } else if click && weapon.burst_rounds > 1 {
+        // Start of a new burst. We just fired round 1, so N-1
+        // remain. (For single-shot weapons, burst_rounds == 1
+        // and this branch doesn't fire, so remaining stays 0.)
+        weapon.burst_rounds_remaining = weapon.burst_rounds - 1;
+    }
+
+    // Set the next fire_timer. Two cases:
+    //   - remaining > 0: more rounds in this burst, wait the
+    //     round gap
+    //   - remaining == 0: burst complete (or single-shot
+    //     weapon), wait the post-shot cooldown
+    if weapon.burst_rounds_remaining > 0 {
+        weapon.fire_timer = Timer::from_seconds(settings.burst_round_gap_s, TimerMode::Once);
+    } else {
+        let interval = 1.0 / weapon.fire_rate;
+        weapon.fire_timer = Timer::from_seconds(interval, TimerMode::Once);
     }
 }
 

@@ -168,6 +168,16 @@ pub struct GameSettings {
     pub screen_shake_duration_s: f32,
     // Day 15-16 — polish
     pub projectile_cap: u32,
+    // Phase 1 — burst weapon. Time between rounds in a single
+    // burst (3 rounds per click on the burst archetype). 0.1s
+    // is fast enough that the player perceives the burst as
+    // "one big shot" but slow enough that the three rounds
+    // are distinct visual events (you can see each bullet
+    // fly). Smaller than this and it feels like a single
+    // multi-pellet shot like the shotgun; larger and the
+    // burst becomes "click, click, click, click" which
+    // defeats the point.
+    pub burst_round_gap_s: f32,
 }
 
 impl Default for GameSettings {
@@ -254,6 +264,9 @@ impl Default for GameSettings {
             // hits it, but low enough that pathological cases
             // don't tank the frame rate on weaker machines.
             projectile_cap: 50,
+            // Phase 1 — burst round gap. See `Weapon::burst_rounds`
+            // for the full design.
+            burst_round_gap_s: 0.1,
         }
     }
 }
