@@ -11,7 +11,7 @@ use log::warn;
 use crate::components::{
     AiBehavior, BaseColor, BaseVelocity, CascadeAffected, Collider, DasherPhase, DasherState,
     DeathPuff, Enemy, EnemyAI, EnemyArchetype, Health, HitFlash, Invulnerable, Knockback, Player,
-    Projectile, ShooterState, Spawner, Team, Velocity,
+    Projectile, ShooterState, SniperState, Spawner, Team, Velocity,
 };
 use crate::resources::{GameSettings, Hitstop, RunState, ScreenShake};
 
@@ -39,6 +39,28 @@ const SHOOTER_COLOR: Color = Color::srgb(0.20, 0.75, 0.75); // ~#33bfbf
 /// bullet so the player can tell who's firing at them at a glance.
 const SHOOTER_PROJECTILE_COLOR: Color = Color::srgb(0.45, 0.90, 0.90); // ~#73e6e6
 
+/// Phase 1 sniper color. Yellow so it reads as "caution /
+/// warning" in arcade-game color shorthand (think hazard tape,
+/// construction signs). The AI lerps this toward a hot red
+/// as the charge fills — the visual telegraph that a big
+/// shot is incoming. Distinct from the red chaser, purple
+/// dasher, and teal shooter so the four archetypes are
+/// immediately identifiable by color.
+const SNIPER_COLOR: Color = Color::srgb(0.95, 0.85, 0.25); // ~#f2d940
+
+/// Sniper charged color (the end of the telegraph ramp).
+/// Hot red so the player gets a clear "shot is coming NOW"
+/// signal — the last 10% of the charge is a solid red
+/// sprite, no yellow visible.
+const SNIPER_CHARGED_COLOR: Color = Color::srgb(0.95, 0.20, 0.15); // ~#f22626
+
+/// Sniper projectile color. Bright orange so the bullet is
+/// distinct from the shooter's teal and the player's warm
+/// white. The orange also reinforces the "this is a dangerous
+/// shot" signal — same color family as the sniper's charge
+/// ramp.
+const SNIPER_PROJECTILE_COLOR: Color = Color::srgb(1.0, 0.55, 0.10); // ~#ff8c1a
+
 /// Chaser sprite size. Slightly smaller than the player (40x40) so the
 /// chaser feels more compact and the player has a small reach advantage
 /// when kiting.
@@ -62,6 +84,11 @@ const SHOOTER_SIZE: f32 = 30.0;
 /// projectile (6x12) so the shooter's bullets read as smaller
 /// and faster-fading, reinforcing "these are weaker than yours".
 const SHOOTER_PROJECTILE_SIZE: Vec2 = Vec2::new(5.0, 8.0);
+
+/// Sniper sprite size. Same as the other three archetypes for
+/// uniform silhouette — the difference is color + behavior
+/// (sniper charges a big slow bullet).
+const SNIPER_SIZE: f32 = 30.0;
 
 pub struct EnemyPlugin;
 
@@ -133,6 +160,7 @@ fn spawn_enemy(
         EnemyArchetype::Chaser => spawn_chaser(commands, settings, player_pos),
         EnemyArchetype::Dasher => spawn_dasher(commands, settings, player_pos),
         EnemyArchetype::Shooter => spawn_shooter(commands, settings, player_pos),
+        EnemyArchetype::Sniper => spawn_sniper(commands, settings, player_pos),
     }
 }
 
@@ -269,13 +297,100 @@ fn spawn_shooter(commands: &mut Commands, settings: &GameSettings, player_pos: V
     ));
 }
 
-// Spawn a `Team::Enemy` projectile at `enemy_pos` aimed at the
-// player. Mirrors the player projectile's shape in
-// `weapon_fire_system` but with the team flip: the bullet needs
-// `BaseVelocity` + `CascadeAffected` so the cascade scaler
-// touches it, and its `Projectile::team` is `Enemy` so the
-// player-damage system (new in this patch) will damage the
-// player on contact.
+// Phase 1 sniper. Same base bundle as the dasher (sprite +
+// BaseColor + CascadeAffected + Collider + Health + Velocity +
+// BaseVelocity) plus a `SniperState` carrying the charge +
+// post-fire timer. Starts in the "post-fire cooldown" state
+// (not charging) so a wave of snipers doesn't all open fire
+// on the same frame — the spawn-time spread is the cooldown
+// duration itself, so the first shot from a fresh sniper
+// lands ~1.0s after spawn.
+fn spawn_sniper(commands: &mut Commands, settings: &GameSettings, player_pos: Vec2) {
+    let (spawn_pos, _) = random_spawn_position(settings, player_pos);
+
+    commands.spawn((
+        Sprite {
+            color: SNIPER_COLOR,
+            custom_size: Some(Vec2::splat(SNIPER_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.0),
+        Enemy,
+        EnemyAI {
+            behavior: AiBehavior::Sniper,
+        },
+        Collider {
+            half_extents: Vec2::splat(SNIPER_SIZE * 0.5),
+        },
+        Health::new(settings.sniper_max_hp),
+        Velocity::default(),
+        BaseVelocity::default(),
+        // Phase 1 cascade: snipers are CascadeAffected so the
+        // velocity_apply_system scales their approach speed
+        // by 0.25× during a Cascade window. The sniper's
+        // own projectiles also carry the marker so the
+        // bullets slow too.
+        CascadeAffected,
+        BaseColor(SNIPER_COLOR),
+        SniperState {
+            // Start in cooldown (not charging) so the wave
+            // doesn't all open fire on the same frame.
+            charge_timer: Timer::from_seconds(
+                settings.sniper_post_fire_cooldown_s,
+                TimerMode::Once,
+            ),
+            is_charging: false,
+        },
+    ));
+}
+
+// Spawn a `Team::Enemy` sniper projectile at `enemy_pos` aimed
+// at the player. Mirrors `spawn_shooter_projectile` but with
+// sniper-tuned values: bigger sprite, slower speed, higher
+// damage. The bigger sprite matters for AABB collision — the
+// player has to actually dodge this one, not just sidestep.
+fn spawn_sniper_projectile(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    enemy_pos: Vec2,
+    dir: Vec2,
+) {
+    let muzzle = SNIPER_SIZE * 0.5 + settings.sniper_projectile_size_y * 0.5 + 2.0;
+    let spawn_pos = enemy_pos + dir * muzzle;
+    let angle = dir.y.atan2(dir.x) - std::f32::consts::FRAC_PI_2;
+
+    let speed = settings.sniper_projectile_speed;
+
+    commands.spawn((
+        Sprite {
+            color: SNIPER_PROJECTILE_COLOR,
+            custom_size: Some(Vec2::new(
+                settings.sniper_projectile_size_x,
+                settings.sniper_projectile_size_y,
+            )),
+            ..default()
+        },
+        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.5)
+            .with_rotation(Quat::from_rotation_z(angle)),
+        BaseVelocity(dir * speed),
+        Velocity(dir * speed),
+        CascadeAffected,
+        Collider {
+            half_extents: Vec2::new(
+                settings.sniper_projectile_size_x * 0.5,
+                settings.sniper_projectile_size_y * 0.5,
+            ),
+        },
+        Projectile {
+            damage: settings.sniper_projectile_damage,
+            lifetime: Timer::from_seconds(
+                settings.sniper_projectile_lifetime_s,
+                TimerMode::Once,
+            ),
+            team: Team::Enemy,
+        },
+    ));
+}
 fn spawn_shooter_projectile(
     commands: &mut Commands,
     settings: &GameSettings,
@@ -372,17 +487,21 @@ fn enemy_ai_system(
     player_query: Query<&Transform, With<Player>>,
     // `Option<&mut DasherState>` lets the same query match both
     // archetypes — chasers get None, dashers get Some. The new
-    // `Option<&mut ShooterState>` adds the third archetype the
-    // same way: chasers and dashers get None, shooters get Some.
-    // We add `mut commands` so the Shooter path can spawn its
-    // own projectiles inline.
+    // `Option<&mut SniperState>` adds the 4th archetype the
+    // same way: chasers/dashers/shooters get None, snipers get
+    // Some. `&mut Sprite` lets the sniper's AI lerp the sprite
+    // color from yellow to red during the charge (the visual
+    // telegraph) — non-sniper entities never have their color
+    // touched in this system.
     mut enemies: Query<
         (
             &Transform,
             &EnemyAI,
             &mut BaseVelocity,
+            &mut Sprite,
             Option<&mut DasherState>,
             Option<&mut ShooterState>,
+            Option<&mut SniperState>,
         ),
         With<Enemy>,
     >,
@@ -395,7 +514,7 @@ fn enemy_ai_system(
     };
     let player_pos = player_transform.translation.truncate();
 
-    for (enemy_transform, ai, mut base, dasher_state, shooter_state) in &mut enemies {
+    for (enemy_transform, ai, mut base, mut sprite, dasher_state, shooter_state, sniper_state) in &mut enemies {
         match ai.behavior {
             AiBehavior::Chaser => {
                 let to_player = player_pos - enemy_transform.translation.truncate();
@@ -490,10 +609,137 @@ fn enemy_ai_system(
                 // when it finally gets in range; it fires once
                 // and resumes the normal cadence.
                 state.fire_timer.tick(time.delta());
-                if dist <= settings.shooter_preferred_range && state.fire_timer.finished() {
+                if dist <= settings.shooter_preferred_range
+                    && state.fire_timer.finished()
+                {
                     spawn_shooter_projectile(&mut commands, &settings, enemy_pos, dir);
                     let interval = 1.0 / settings.shooter_fire_rate;
                     state.fire_timer = Timer::from_seconds(interval, TimerMode::Once);
+                }
+            }
+            AiBehavior::Sniper => {
+                let Some(mut state) = sniper_state else {
+                    // Defensive: a sniper without SniperState
+                    // shouldn't exist (spawn_sniper always
+                    // attaches one) but skipping is safer than
+                    // panicking.
+                    continue;
+                };
+                let enemy_pos = enemy_transform.translation.truncate();
+                let to_player = player_pos - enemy_pos;
+                let dist = to_player.length();
+                let dir = if to_player.length_squared() > 0.0 {
+                    to_player.normalize()
+                } else {
+                    Vec2::ZERO
+                };
+
+                // Sniper movement: approach until at preferred
+                // range, then plant and charge. While in
+                // cooldown (between shots), the sniper still
+                // moves toward the player so it can re-plant
+                // for the next charge — but slower than its
+                // approach speed, so a determined player can
+                // keep pushing during the cooldown window.
+                let speed = if dist > settings.sniper_preferred_range {
+                    settings.sniper_move_speed
+                } else {
+                    0.0
+                };
+                base.0 = dir * speed;
+
+                // Charge / fire / cooldown state machine.
+                //
+                //   !is_charging, timer not finished → in
+                //     cooldown after a recent shot, keep
+                //     ticking the timer (and approaching the
+                //     player if needed)
+                //   !is_charging, timer finished → cooldown
+                //     done, transition to charging
+                //   is_charging, timer not finished → mid-
+                //     charge, tick the timer, update the
+                //     sprite color telegraph (lerp from
+                //     SNIPER_COLOR to SNIPER_CHARGED_COLOR
+                //     over the charge duration)
+                //   is_charging, timer finished → fire the
+                //     bullet, transition to cooldown
+                state.charge_timer.tick(time.delta());
+
+                if !state.is_charging {
+                    // Cooldown phase
+                    if state.charge_timer.finished() {
+                        // Transition: cooldown done, start
+                        // charging. Reset the timer to the
+                        // full charge duration.
+                        state.is_charging = true;
+                        state.charge_timer = Timer::from_seconds(
+                            settings.sniper_charge_duration_s,
+                            TimerMode::Once,
+                        );
+                    }
+                    // While in cooldown, the sprite stays
+                    // at SNIPER_COLOR (no telegraph).
+                } else {
+                    // Charging phase. Lerp the sprite color
+                    // from base yellow to charged red over
+                    // the charge duration — the visual
+                    // telegraph that a shot is incoming.
+                    let dur = state.charge_timer.duration().as_secs_f32();
+                    if dur > 0.0 {
+                        let progress = (1.0
+                            - state.charge_timer.remaining_secs() / dur)
+                            .clamp(0.0, 1.0);
+                        let base_srgba = SNIPER_COLOR.to_srgba();
+                        let charged_srgba = SNIPER_CHARGED_COLOR.to_srgba();
+                        sprite.color = Color::srgba(
+                            base_srgba.red + (charged_srgba.red - base_srgba.red) * progress,
+                            base_srgba.green
+                                + (charged_srgba.green - base_srgba.green) * progress,
+                            base_srgba.blue
+                                + (charged_srgba.blue - base_srgba.blue) * progress,
+                            base_srgba.alpha,
+                        );
+                    }
+                    // When cooldown ends and we transition
+                    // back to !is_charging, the sprite stays
+                    // at the post-fire value (charged red)
+                    // for one frame, then snaps back to
+                    // base yellow on the next frame's "while
+                    // in cooldown, sprite stays at base"
+                    // branch. (We don't explicitly reset it
+                    // here — the next frame's branch handles
+                    // it because the visual only matters
+                    // when is_charging is true.)
+                    // Actually we DO need to reset it: the
+                    // cooldown should show the sniper at
+                    // base color, not stuck at red. Add the
+                    // reset.
+                    if state.charge_timer.finished() {
+                        // Fire! Spawn a sniper projectile
+                        // aimed at the player and transition
+                        // to cooldown. We aim at the
+                        // CURRENT player position (not the
+                        // position when the charge started)
+                        // — the sniper re-aims each frame
+                        // during the charge (handled in the
+                        // AI tick above, not here, since
+                        // `dir` is recomputed each frame).
+                        spawn_sniper_projectile(
+                            &mut commands,
+                            &settings,
+                            enemy_pos,
+                            dir,
+                        );
+                        state.is_charging = false;
+                        state.charge_timer = Timer::from_seconds(
+                            settings.sniper_post_fire_cooldown_s,
+                            TimerMode::Once,
+                        );
+                        // Reset sprite to base yellow so
+                        // the cooldown phase doesn't show
+                        // a red sniper between shots.
+                        sprite.color = SNIPER_COLOR;
+                    }
                 }
             }
         }
@@ -571,11 +817,13 @@ fn enemy_contact_damage_system(
         }
 
         // Dispatch contact damage by archetype. Add a new arm for
-        // every enemy type — chaser is 1, dasher is 2, shooter is 1.
+        // every enemy type — chaser is 1, dasher is 2, shooter is 1,
+        // sniper is 1.
         let damage = match enemy_ai.behavior {
             AiBehavior::Chaser => settings.chaser_contact_damage,
             AiBehavior::Dasher => settings.dasher_contact_damage,
             AiBehavior::Shooter => settings.shooter_contact_damage,
+            AiBehavior::Sniper => settings.sniper_contact_damage,
         };
         health.current = (health.current - damage).max(0.0);
         warn!(

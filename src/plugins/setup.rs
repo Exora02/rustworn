@@ -121,5 +121,17 @@ fn spawn_camera_and_player(mut commands: Commands, settings: Res<GameSettings>) 
         spawn: EnemyArchetype::Shooter,
     });
 
-    info!("RUSTWORN booted — player + chaser/dasher/shooter spawners spawned at origin");
+    // Phase 1: sniper spawner. Same parallel pattern. A fresh
+    // sniper spawns in the post-fire cooldown state (not
+    // charging) so the wave doesn't all open fire on the same
+    // frame — see `spawn_sniper`. Sniper max range is 400 vs
+    // shooter's 250, so the two ranged archetypes naturally
+    // space out and the player faces pressure from multiple
+    // distances.
+    commands.spawn(Spawner {
+        interval: Timer::from_seconds(settings.spawner_interval_s, TimerMode::Repeating),
+        spawn: EnemyArchetype::Sniper,
+    });
+
+    info!("RUSTWORN booted — player + chaser/dasher/shooter/sniper spawners spawned at origin");
 }

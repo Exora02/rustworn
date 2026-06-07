@@ -161,6 +161,26 @@ pub struct GameSettings {
     pub shooter_projectile_lifetime_s: f32,
     pub shooter_max_hp: f32,
     pub shooter_contact_damage: f32,
+    // Phase 1 — sniper enemy. Stops at long range and charges
+    // a single high-damage shot, telegraphed by a color shift.
+    // 2 damage per bullet (player has 4 HP base, so 2 sniper
+    // hits = death). Bullet speed 250 is slower than the
+    // shooter's 300 — but the sniper's bullet is bigger and
+    // does more damage, so the trade is "easier to dodge, more
+    // punishing if you don't". Post-fire cooldown of 1.0s
+    // gives the player a window to close the gap and land a
+    // free hit before the next charge starts.
+    pub sniper_move_speed: f32,
+    pub sniper_preferred_range: f32,
+    pub sniper_charge_duration_s: f32,
+    pub sniper_post_fire_cooldown_s: f32,
+    pub sniper_projectile_speed: f32,
+    pub sniper_projectile_damage: f32,
+    pub sniper_projectile_lifetime_s: f32,
+    pub sniper_projectile_size_x: f32,
+    pub sniper_projectile_size_y: f32,
+    pub sniper_max_hp: f32,
+    pub sniper_contact_damage: f32,
     // Day 13-14 — HUD + juice
     pub hit_flash_duration_s: f32,
     pub hitstop_duration_s: f32,
@@ -247,6 +267,30 @@ impl Default for GameSettings {
             shooter_projectile_lifetime_s: 1.5,
             shooter_max_hp: 2.0,
             shooter_contact_damage: 1.0,
+            // Phase 1 — sniper. Move-speed 70 (slowest of the
+            // four — the sniper never wants to close the gap
+            // quickly, it wants to plant and charge). Range 400
+            // is further than the shooter (250) so the two
+            // archetypes naturally space out and the player
+            // faces ranged pressure from multiple distances.
+            // Charge 1.5s is long enough to read and react
+            // (the color shift starts yellow and ramps to
+            // red over the full 1.5s) but short enough that
+            // the sniper doesn't feel like a wait.
+            // Post-fire cooldown 1.0s gives the player a clear
+            // window to push in. Bullet speed 250 is dodgeable
+            // even without i-frames.
+            sniper_move_speed: 70.0,
+            sniper_preferred_range: 400.0,
+            sniper_charge_duration_s: 1.5,
+            sniper_post_fire_cooldown_s: 1.0,
+            sniper_projectile_speed: 250.0,
+            sniper_projectile_damage: 2.0,
+            sniper_projectile_lifetime_s: 2.0,
+            sniper_projectile_size_x: 8.0,
+            sniper_projectile_size_y: 14.0,
+            sniper_max_hp: 1.0, // one pistol hit kills (1 HP)
+            sniper_contact_damage: 1.0,
             // Day 13-14 — enemy hit flash is a 0.1s white pulse,
             // killing blows trigger a 50ms global hitstop, and
             // taking damage shakes the camera for 0.2s at intensity 12.

@@ -189,6 +189,18 @@ pub enum AiBehavior {
     /// in `enemy_projectile_damage_system`). Lighter contact
     /// damage than the dasher, lower HP than the chaser.
     Shooter,
+    /// Phase 1 sniper: stops at long range and charges a big
+    /// shot, telegraphed by a color shift from the sniper's
+    /// base color (yellow) to a hot red as the charge fills.
+    /// Fires one slow high-damage bullet at the end of the
+    /// charge. After firing, repeats. The "anticipation"
+    /// pattern — the player sees the charge, decides whether
+    /// to close the gap, sidestep the bullet, or use the
+    /// charge window to land a free hit. First enemy that
+    /// tests "stop moving and do something dangerous" (the
+    /// shooter stops too, but its firing is continuous and
+    /// unmarked).
+    Sniper,
 }
 
 /// Phase 1 dasher state. Tracks which phase of the
@@ -212,6 +224,21 @@ pub struct DasherState {
 #[derive(Component)]
 pub struct ShooterState {
     pub fire_timer: Timer,
+}
+
+/// Phase 1 sniper state. Tracks the charge-up phase and the
+/// post-fire cooldown. The sniper's AI ticks the charge
+/// timer; when it elapses, the sniper fires a big slow
+/// bullet and resets the timer to a post-fire cooldown
+/// (longer than the charge so the player has a window to
+/// retaliate). The sprite color shift from base → red as
+/// the charge fills is driven by the AI from the same
+/// timer — the visual telegraph is the player's only
+/// warning that a shot is incoming.
+#[derive(Component)]
+pub struct SniperState {
+    pub charge_timer: Timer,
+    pub is_charging: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -253,6 +280,11 @@ pub enum EnemyArchetype {
     /// the AI system dispatches on the `EnemyAI` component, the
     /// spawner just picks the archetype.
     Shooter,
+    /// Phase 1 sniper: long-range, charges up for ~1.5s, fires
+    /// one big slow bullet (2 dmg) with a telegraphed color
+    /// shift. The "anticipation" pattern — different from any
+    /// other enemy. Player has to read the charge and dodge.
+    Sniper,
 }
 
 /// Axis-aligned bounding box for contact-damage detection. `half_extents`
