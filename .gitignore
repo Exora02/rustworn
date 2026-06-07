@@ -14,6 +14,7 @@
 /devenv.lock
 /devenv.flake.nix
 /result*
+/.devenv/
 
 # Editor / IDE noise
 .idea/
