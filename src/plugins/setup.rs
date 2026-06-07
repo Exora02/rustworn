@@ -7,8 +7,8 @@ use bevy::prelude::*;
 use log::info;
 
 use crate::components::{
-    AimIndicator, BaseVelocity, Collider, Health, MainCamera, Player, Spawner, Velocity, Weapon,
-    WeaponArchetype, PLAYER_COLOR,
+    AimIndicator, BaseVelocity, Collider, EnemyArchetype, Health, MainCamera, Player, Spawner,
+    Velocity, Weapon, WeaponArchetype, PLAYER_COLOR,
 };
 use crate::resources::{CascadeState, GameSettings, RunState, ScreenShake};
 
@@ -83,12 +83,24 @@ fn spawn_camera_and_player(mut commands: Commands, settings: Res<GameSettings>) 
             ));
         });
 
-    // Day 8-10: spawner entity — persists for the run, ticks every
-    // `spawner_interval_s` and creates a chaser at a random angle from
-    // the player, at a random distance in [min_distance, max_distance].
+    // Day 8-10: chaser spawner entity — persists for the run, ticks
+    // every `spawner_interval_s` and creates a chaser at a random
+    // angle from the player, at a random distance in [min_distance,
+    // max_distance].
     commands.spawn(Spawner {
         interval: Timer::from_seconds(settings.spawner_interval_s, TimerMode::Repeating),
+        spawn: EnemyArchetype::Chaser,
     });
 
-    info!("RUSTWORN booted — placeholder player + spawner spawned at origin");
+    // Phase 1: dasher spawner. Same interval, separate entity — the
+    // two spawners tick independently, so the player sees a chaser
+    // every 3s and a dasher every 3s in alternating (well, parallel)
+    // waves. Phase 2 will fold this into a single wave-spawner
+    // entity that picks archetypes from a wave definition.
+    commands.spawn(Spawner {
+        interval: Timer::from_seconds(settings.spawner_interval_s, TimerMode::Repeating),
+        spawn: EnemyArchetype::Dasher,
+    });
+
+    info!("RUSTWORN booted — player + chaser/dasher spawners spawned at origin");
 }

@@ -134,9 +134,12 @@ pub enum Team {
 #[derive(Component)]
 pub struct Enemy;
 
-/// AI behavior state. Phase 0 only has the chaser; the enum is set up
-/// so future archetypes (Shooter, Orbit, Sniper) can swap in by
-/// extending the AI dispatch.
+/// AI behavior state. Chaser is the simple "move toward player"
+/// behavior from Phase 0. Dasher (Phase 1) alternates between a
+/// slow approach and a fast lunge, forcing the player to time
+/// their dashes against the burst. The enum is set up so future
+/// archetypes (Shooter, Orbit, Sniper) can swap in by extending
+/// the AI dispatch.
 #[derive(Component, Default, Clone, Copy, Debug)]
 pub struct EnemyAI {
     pub behavior: AiBehavior,
@@ -146,15 +149,59 @@ pub struct EnemyAI {
 pub enum AiBehavior {
     #[default]
     Chaser,
+    /// Phase 1 dasher: slow approach for a beat, then a fast
+    /// straight-line lunge, then a brief recovery. The dash is
+    /// fast enough that the player has to react (not just react
+    /// to the chaser). Lower HP than the chaser, slightly more
+    /// contact damage.
+    Dasher,
+}
+
+/// Phase 1 dasher state. Tracks which phase of the
+/// approach → dash → recover cycle the dasher is in, and the
+/// timer that gates the next phase transition. Lives on the
+/// enemy entity (rather than a resource) so multiple dashers
+/// can be in different phases simultaneously.
+#[derive(Component)]
+pub struct DasherState {
+    pub phase: DasherPhase,
+    pub phase_timer: Timer,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DasherPhase {
+    /// Slow movement toward the player. Lasts `approach_duration_s`
+    /// seconds, then transitions to Dash.
+    Approach,
+    /// Fast straight-line lunge toward the player (the player can
+    /// hear this one coming). Lasts `dash_duration_s` seconds, then
+    /// transitions to Recover.
+    Dash,
+    /// Brief pause after the dash — gives the player a window to
+    /// counter-attack and makes the dash feel committed (a
+    /// committed move is scarier than a continuous one).
+    Recover,
 }
 
 /// Periodic spawner. Owns a Timer; when it elapses, the spawner system
-/// creates one chaser at a random angle from the player and resets the
-/// timer. Persists for the whole run (no despawn) — Day 15-16 polish
-/// will add a max-alive cap and per-spawner despawn.
+/// creates one enemy at a random angle from the player and resets the
+/// timer. The `spawn` field picks which archetype comes out — Chaser
+/// (Phase 0) or Dasher (Phase 1). Persists for the whole run (no
+/// despawn) — Day 15-16 polish will add a max-alive cap and
+/// per-spawner despawn.
 #[derive(Component)]
 pub struct Spawner {
     pub interval: Timer,
+    pub spawn: EnemyArchetype,
+}
+
+/// What a Spawner produces. Mirrors AiBehavior (every spawned enemy
+/// has a corresponding AI behavior) but lives separately so the
+/// spawner doesn't need to know about AI internals.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EnemyArchetype {
+    Chaser,
+    Dasher,
 }
 
 /// Axis-aligned bounding box for contact-damage detection. `half_extents`

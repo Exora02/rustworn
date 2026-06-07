@@ -9,8 +9,8 @@ use bevy::prelude::*;
 use log::warn;
 
 use crate::components::{
-    AiBehavior, BaseVelocity, Collider, DeathPuff, Enemy, EnemyAI, Health, HitFlash, Invulnerable,
-    Knockback, Player, Spawner, Velocity,
+    AiBehavior, BaseVelocity, Collider, DasherPhase, DasherState, DeathPuff, Enemy, EnemyAI,
+    EnemyArchetype, Health, HitFlash, Invulnerable, Knockback, Player, Spawner, Velocity,
 };
 use crate::resources::{GameSettings, Hitstop, RunState, ScreenShake};
 
@@ -19,10 +19,24 @@ use crate::resources::{GameSettings, Hitstop, RunState, ScreenShake};
 /// add later.
 const CHASER_COLOR: Color = Color::srgb(0.84, 0.16, 0.16); // ~#d62828
 
+/// Phase 1 dasher color. Purple/magenta so it's visually distinct
+/// from the red chaser — the player learns "red = chaser, purple
+/// = dasher" in one glance. The hue also telegraphs "burst damage"
+/// (purple is the universal "fast/danger" color in arcade games).
+const DASHER_COLOR: Color = Color::srgb(0.62, 0.20, 0.85); // ~#9e33d9
+
 /// Chaser sprite size. Slightly smaller than the player (40x40) so the
 /// chaser feels more compact and the player has a small reach advantage
 /// when kiting.
 const CHASER_SIZE: f32 = 30.0;
+
+/// Dasher sprite size. Same as the chaser — the visual difference
+/// is color and behavior, not silhouette. Equal size also keeps
+/// the AABB collision math symmetric (the contact-damage system
+/// uses a `CHASER_SIZE_HALF` constant for chasers; we'd want a
+/// `DASHER_SIZE_HALF` parallel or a single `ENEMY_HALF` if they
+/// stay the same).
+const DASHER_SIZE: f32 = 30.0;
 
 pub struct EnemyPlugin;
 
@@ -52,11 +66,11 @@ impl Plugin for EnemyPlugin {
 // ─── Spawner ─────────────────────────────────────────────────────────────
 
 // Each frame, advance every spawner's timer. When the timer elapses,
-// spawn a chaser at a random angle from the player at a random distance
-// in [min_distance, max_distance], then reset the timer. Frozen
-// during global hitstop so kills don't immediately spawn a new
-// wave of chasers mid-freeze. Frozen during game over for the same
-// reason.
+// spawn an enemy of the spawner's `archetype` at a random angle from
+// the player at a random distance in [min_distance, max_distance],
+// then reset the timer. Frozen during global hitstop so kills don't
+// immediately spawn a new wave mid-freeze. Frozen during game over
+// for the same reason.
 fn spawner_tick_system(
     time: Res<Time>,
     settings: Res<GameSettings>,
@@ -79,35 +93,25 @@ fn spawner_tick_system(
         if !spawner.interval.finished() {
             continue;
         }
-        spawn_chaser(&mut commands, &settings, player_pos);
+        spawn_enemy(&mut commands, &settings, player_pos, spawner.spawn);
+    }
+}
+
+// Dispatch on the spawner's archetype. New archetypes slot in here.
+fn spawn_enemy(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    player_pos: Vec2,
+    archetype: EnemyArchetype,
+) {
+    match archetype {
+        EnemyArchetype::Chaser => spawn_chaser(commands, settings, player_pos),
+        EnemyArchetype::Dasher => spawn_dasher(commands, settings, player_pos),
     }
 }
 
 fn spawn_chaser(commands: &mut Commands, settings: &GameSettings, player_pos: Vec2) {
-    // Tiny xorshift64 LCG — no extra dep, plenty of variety for a
-    // placeholder spawn pattern. Seeded from the system clock so two
-    // runs always get different sequences.
-    let mut state = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0xCAFEBABE);
-
-    let next_unit = |s: &mut u64| -> f32 {
-        let mut x = *s;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        *s = x;
-        // Top 24 bits normalized to [0, 1).
-        ((x >> 40) as f32) / ((1u32 << 24) as f32)
-    };
-
-    // Random angle and distance for the spawn.
-    let angle = next_unit(&mut state) * std::f32::consts::TAU;
-    let distance = settings.spawner_min_distance
-        + next_unit(&mut state) * (settings.spawner_max_distance - settings.spawner_min_distance);
-    let offset = Vec2::new(angle.cos(), angle.sin()) * distance;
-    let spawn_pos = player_pos + offset;
+    let (spawn_pos, _) = random_spawn_position(settings, player_pos);
 
     commands.spawn((
         Sprite {
@@ -134,20 +138,99 @@ fn spawn_chaser(commands: &mut Commands, settings: &GameSettings, player_pos: Ve
     ));
 }
 
+// Phase 1 dasher. Same shape as the chaser, plus a `DasherState`
+// component that the AI ticks each frame to advance the
+// approach → dash → recover cycle. The dasher starts in Approach.
+fn spawn_dasher(commands: &mut Commands, settings: &GameSettings, player_pos: Vec2) {
+    // Spawn position is the same as a chaser — random angle at a
+    // random distance in [min, max]. We could spawn dashers
+    // further out (so the player has time to read the charge
+    // before they arrive) but that conflicts with the unified
+    // spawner distance; Phase 2 will let each archetype override
+    // its spawn range.
+    let (spawn_pos, _) = random_spawn_position(settings, player_pos);
+
+    commands.spawn((
+        Sprite {
+            color: DASHER_COLOR,
+            custom_size: Some(Vec2::splat(DASHER_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.0),
+        Enemy,
+        EnemyAI {
+            behavior: AiBehavior::Dasher,
+        },
+        Collider {
+            half_extents: Vec2::splat(DASHER_SIZE * 0.5),
+        },
+        Health::new(settings.dasher_max_hp),
+        Velocity::default(),
+        BaseVelocity::default(),
+        DasherState {
+            phase: DasherPhase::Approach,
+            phase_timer: Timer::from_seconds(settings.dasher_approach_duration_s, TimerMode::Once),
+        },
+    ));
+}
+
+// Shared spawn-position math: random angle, random distance in
+// [min, max]. The xorshift state is seeded from the system clock
+// at call time, so two spawns in the same frame get different
+// values (they share the same `state` but advance it through the
+// two `next_unit` calls).
+fn random_spawn_position(settings: &GameSettings, player_pos: Vec2) -> (Vec2, u64) {
+    let mut state = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0xCAFEBABE);
+
+    let next_unit = |s: &mut u64| -> f32 {
+        let mut x = *s;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        *s = x;
+        ((x >> 40) as f32) / ((1u32 << 24) as f32)
+    };
+
+    let angle = next_unit(&mut state) * std::f32::consts::TAU;
+    let distance = settings.spawner_min_distance
+        + next_unit(&mut state) * (settings.spawner_max_distance - settings.spawner_min_distance);
+    let offset = Vec2::new(angle.cos(), angle.sin()) * distance;
+    (player_pos + offset, state)
+}
+
 // ─── AI ──────────────────────────────────────────────────────────────────
 
-// For each chaser, compute the direction from the chaser to the player
-// and write it into BaseVelocity (scaled by chaser_move_speed). The
-// shared `velocity_apply_system` then copies it into `Velocity`, and
-// `movement_system` integrates it into the transform. Frozen during
-// global hitstop so chasers halt during the freeze. Frozen during
-// game over so the dead player doesn't get bumped by a straggler.
+// For each enemy, dispatch on its AI behavior. The chaser path is
+// the simple "move toward player" from Phase 0. The dasher path
+// runs a three-phase state machine (Approach → Dash → Recover)
+// and writes its current speed into BaseVelocity; the shared
+// `velocity_apply_system` then copies it into `Velocity`, and
+// `movement_system` integrates it into the transform.
+//
+// Frozen during global hitstop so enemies halt during the freeze.
+// Frozen during game over so the dead player doesn't get bumped
+// by a straggler.
+//
+// `Option<&mut DasherState>` lets the same query match both
+// archetypes — chasers get None, dashers get Some.
 fn enemy_ai_system(
+    time: Res<Time>,
     settings: Res<GameSettings>,
     hitstop: Option<Res<Hitstop>>,
     run: Res<RunState>,
     player_query: Query<&Transform, With<Player>>,
-    mut enemies: Query<(&Transform, &EnemyAI, &mut BaseVelocity), With<Enemy>>,
+    mut enemies: Query<
+        (
+            &Transform,
+            &EnemyAI,
+            &mut BaseVelocity,
+            Option<&mut DasherState>,
+        ),
+        With<Enemy>,
+    >,
 ) {
     if hitstop.is_some() || run.game_over {
         return;
@@ -157,7 +240,7 @@ fn enemy_ai_system(
     };
     let player_pos = player_transform.translation.truncate();
 
-    for (enemy_transform, ai, mut base) in &mut enemies {
+    for (enemy_transform, ai, mut base, dasher_state) in &mut enemies {
         match ai.behavior {
             AiBehavior::Chaser => {
                 let to_player = player_pos - enemy_transform.translation.truncate();
@@ -167,6 +250,48 @@ fn enemy_ai_system(
                     Vec2::ZERO
                 };
                 base.0 = dir * settings.chaser_move_speed;
+            }
+            AiBehavior::Dasher => {
+                let Some(mut state) = dasher_state else {
+                    // Defensive: a dasher without DasherState shouldn't
+                    // exist (spawn_dasher always attaches one) but
+                    // skipping is safer than panicking.
+                    continue;
+                };
+                // Tick the phase timer. If it just elapsed, advance
+                // to the next phase and reset the timer to the new
+                // phase's duration. The to_player direction is
+                // re-computed each phase (so the dash re-aims if
+                // the player moved during Approach).
+                let to_player = player_pos - enemy_transform.translation.truncate();
+                let dir = if to_player.length_squared() > 0.0 {
+                    to_player.normalize()
+                } else {
+                    Vec2::ZERO
+                };
+                let (speed, next_phase, next_duration) = match state.phase {
+                    DasherPhase::Approach => (
+                        settings.dasher_approach_speed,
+                        DasherPhase::Dash,
+                        settings.dasher_dash_duration_s,
+                    ),
+                    DasherPhase::Dash => (
+                        settings.dasher_dash_speed,
+                        DasherPhase::Recover,
+                        settings.dasher_recover_duration_s,
+                    ),
+                    DasherPhase::Recover => (
+                        0.0,
+                        DasherPhase::Approach,
+                        settings.dasher_approach_duration_s,
+                    ),
+                };
+                base.0 = dir * speed;
+                state.phase_timer.tick(time.delta());
+                if state.phase_timer.finished() {
+                    state.phase = next_phase;
+                    state.phase_timer = Timer::from_seconds(next_duration, TimerMode::Once);
+                }
             }
         }
     }
@@ -192,21 +317,29 @@ type PlayerForContact = (
     Has<Invulnerable>,
 );
 
-// Each frame, check if any chaser overlaps the player. On contact:
+// Each frame, check if any enemy overlaps the player. On contact:
 //   - if the player is invulnerable, skip (dash iframe / hit iframe)
 //   - otherwise, deal damage, attach Knockback, attach hit Invulnerable
 // One hit per frame — breaks after the first overlap so the player
 // can't be hit twice on the same contact frame.
-// Frozen during game over so a chaser that's standing on the dead
+// Frozen during game over so an enemy that's standing on the dead
 // player doesn't keep resetting the run state or causing a "you
 // died" log spam.
+//
+// Day 8-10 used a hard-coded `CHASER_SIZE_HALF` for the AABB
+// half-extents. Phase 1 reads the per-entity `Collider` instead,
+// which lets future enemy types (shooter, sniper, mini-boss) have
+// their own sizes without touching this system. Contact damage
+// also dispatches on the enemy's AI behavior — chasers deal
+// `chaser_contact_damage`, dashers deal `dasher_contact_damage`.
+// The knockback and screen-shake triggers are identical.
 fn enemy_contact_damage_system(
     settings: Res<GameSettings>,
     hitstop: Option<Res<Hitstop>>,
     run: Res<RunState>,
     mut commands: Commands,
     mut player_query: Query<PlayerForContact, With<Player>>,
-    enemies: Query<&Transform, (With<Enemy>, With<Collider>)>,
+    enemies: Query<(&Transform, &Collider, &EnemyAI), (With<Enemy>, With<Collider>)>,
     mut shake: ResMut<ScreenShake>,
 ) {
     if hitstop.is_some() || run.game_over {
@@ -223,22 +356,27 @@ fn enemy_contact_damage_system(
 
     let player_pos = player_tf.translation.truncate();
 
-    for enemy_tf in &enemies {
+    for (enemy_tf, enemy_col, enemy_ai) in &enemies {
         let enemy_pos = enemy_tf.translation.truncate();
         if !aabb_overlap(
             player_pos,
             player_col.half_extents,
             enemy_pos,
-            CHASER_SIZE_HALF,
+            enemy_col.half_extents,
         ) {
             continue;
         }
 
-        // Apply damage.
-        health.current = (health.current - settings.chaser_contact_damage).max(0.0);
+        // Dispatch contact damage by archetype. Add a new arm for
+        // every enemy type — chaser is 1, dasher is 2.
+        let damage = match enemy_ai.behavior {
+            AiBehavior::Chaser => settings.chaser_contact_damage,
+            AiBehavior::Dasher => settings.dasher_contact_damage,
+        };
+        health.current = (health.current - damage).max(0.0);
         warn!(
-            "Player took {:.1} damage — HP: {:.1}",
-            settings.chaser_contact_damage, health.current
+            "Player took {:.1} damage ({:?}) — HP: {:.1}",
+            damage, enemy_ai.behavior, health.current
         );
 
         // Day 13-14: trigger screen shake. Set both the duration
@@ -273,15 +411,9 @@ fn enemy_contact_damage_system(
     }
 }
 
-/// Pre-computed half-extent of the chaser AABB, used in the contact
-/// damage AABB test. Mirrors the value the spawner writes into the
-/// chaser's `Collider` component, so a single source of truth is
-/// implicit (the `CHASER_SIZE` constant).
-const CHASER_SIZE_HALF: Vec2 = Vec2::new(CHASER_SIZE * 0.5, CHASER_SIZE * 0.5);
-
-/// Bright white death-puff color. Stands out against the chaser red
-/// and the player's orange; the alpha fade is what makes it readable
-/// as a "puff" rather than a static square.
+/// Bright white death-puff color. Stands out against the chaser red,
+/// the dasher purple, and the player's orange; the alpha fade is what
+/// makes it readable as a "puff" rather than a static square.
 const DEATH_PUFF_COLOR: Color = Color::srgb(1.0, 1.0, 1.0);
 
 /// Spawn a DeathPuff entity at `position`. Called from the projectile

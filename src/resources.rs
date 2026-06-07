@@ -101,6 +101,14 @@ pub struct GameSettings {
     // Day 11-12 — enemy HP + death
     pub enemy_max_hp: f32,
     pub death_puff_lifetime_s: f32,
+    // Phase 1 — dasher enemy
+    pub dasher_approach_speed: f32,
+    pub dasher_dash_speed: f32,
+    pub dasher_approach_duration_s: f32,
+    pub dasher_dash_duration_s: f32,
+    pub dasher_recover_duration_s: f32,
+    pub dasher_max_hp: f32,
+    pub dasher_contact_damage: f32,
     // Day 13-14 — HUD + juice
     pub hit_flash_duration_s: f32,
     pub hitstop_duration_s: f32,
@@ -142,6 +150,23 @@ impl Default for GameSettings {
             // is a 0.3s fading white square.
             enemy_max_hp: 3.0,
             death_puff_lifetime_s: 0.3,
+            // Phase 1 — dasher. Slower approach (150 vs chaser's
+            // 100) so it doesn't overtake the chaser; much faster
+            // dash (450 — slower than the player's dash, faster
+            // than their walk) so it punishes panicky players who
+            // stand still. 0.7s approach + 0.25s dash + 0.5s
+            // recover is a ~1.45s cycle that's readable but not
+            // slow. Two hits to kill (vs chaser's three) so the
+            // player can burst it down during Recover. 2 contact
+            // damage (vs chaser's 1) so a successful dash deletes
+            // half the player's HP.
+            dasher_approach_speed: 150.0,
+            dasher_dash_speed: 450.0,
+            dasher_approach_duration_s: 0.7,
+            dasher_dash_duration_s: 0.25,
+            dasher_recover_duration_s: 0.5,
+            dasher_max_hp: 2.0,
+            dasher_contact_damage: 2.0,
             // Day 13-14 — enemy hit flash is a 0.1s white pulse,
             // killing blows trigger a 50ms global hitstop, and
             // taking damage shakes the camera for 0.2s at intensity 12.
