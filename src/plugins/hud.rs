@@ -23,7 +23,7 @@ use bevy::prelude::*;
 use bevy::sprite::Anchor;
 
 use crate::components::{Health, HudElement, HudElementKind, Player, Weapon, WeaponArchetype};
-use crate::resources::RunState;
+use crate::resources::{CascadeState, RunState};
 
 /// Width of the player's view in world units. The HUD layout uses
 /// this to position the top-left / top-right pairs at the screen
@@ -81,7 +81,13 @@ const TIME_BAR_HEIGHT: f32 = 6.0;
 /// chunks without having to read a numeric counter.
 const TIME_BAR_WINDOW_S: f32 = 60.0;
 
-// ─── Game over overlay (screen center) ───────────────────────────────────
+// ─── Cascade bar (below time) ────────────────────────────────────────────
+
+const CASCADE_COLOR: Color = Color::srgb(0.45, 0.20, 0.85);
+const CASCADE_BG: Color = Color::srgb(0.10, 0.10, 0.10);
+const CASCADE_BAR_WIDTH: f32 = 60.0;
+const CASCADE_BAR_HEIGHT: f32 = 8.0;
+const CASCADE_BAR_OFFSET_Y: f32 = -14.0;
 
 const GAME_OVER_COLOR: Color = Color::srgba(0.85, 0.10, 0.10, 0.90);
 const GAME_OVER_WIDTH: f32 = 360.0;
@@ -155,6 +161,23 @@ fn spawn_hud(mut commands: Commands) {
         TIME_BG,
         TIME_COLOR,
         HudElementKind::TimeBar,
+    );
+    // Phase 1 cascade: top-right, below the time bar. Bar fill
+    // semantics flip between cooldown and active: during cooldown
+    // it fills as the next window approaches, during the window
+    // it drains as time runs out. Hidden entirely between Cascade
+    // cycles — but the cascade cycle is always running in this
+    // prototype, so it's effectively always visible. The bar
+    // still hides on game over (no point showing "Cascade
+    // incoming" while the player is dead).
+    spawn_bar(
+        &mut commands,
+        HUD_OFFSET_RIGHT + Vec2::new(0.0, CASCADE_BAR_OFFSET_Y),
+        CASCADE_BAR_WIDTH,
+        CASCADE_BAR_HEIGHT,
+        CASCADE_BG,
+        CASCADE_COLOR,
+        HudElementKind::CascadeBar,
     );
 
     // Game-over overlay: a single semi-transparent red rectangle.
@@ -233,6 +256,7 @@ fn hud_update_system(
     // because both queries touch `Transform`.
     player_query: Query<(&Transform, &Health, &Weapon), (With<Player>, Without<HudElement>)>,
     run: Res<RunState>,
+    cascade: Res<CascadeState>,
     mut hud_query: Query<(&mut Transform, &mut Sprite, &mut Visibility, &HudElement)>,
 ) {
     let Ok((player_tf, health, weapon)) = player_query.single() else {
@@ -285,6 +309,39 @@ fn hud_update_system(
                 tf.scale.x = progress;
                 if !approx_eq_color(sprite.color, TIME_BG) {
                     sprite.color = TIME_COLOR;
+                }
+            }
+            HudElementKind::CascadeBar => {
+                let pos = player_pos + HUD_OFFSET_RIGHT + Vec2::new(0.0, CASCADE_BAR_OFFSET_Y);
+                tf.translation = pos.extend(tf.translation.z);
+                // Cooldown: bar fills 0..1 as the next window
+                // approaches (`interval_timer.elapsed_secs() /
+                // interval_timer.duration().as_secs_f32()`).
+                // Active: bar drains 1..0 as the window runs out
+                // (`duration_timer.remaining_secs() /
+                // duration_timer.duration().as_secs_f32()`).
+                // Either reading produces a 0..1 ratio and the
+                // choice between fill-up and drain-down gives
+                // the player a clear "is the window open yet or
+                // closing" signal at a glance.
+                let progress = if cascade.active {
+                    let dur = cascade.duration_timer.duration().as_secs_f32();
+                    if dur > 0.0 {
+                        (cascade.duration_timer.remaining_secs() / dur).clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    }
+                } else {
+                    let dur = cascade.interval_timer.duration().as_secs_f32();
+                    if dur > 0.0 {
+                        (cascade.interval_timer.elapsed_secs() / dur).clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    }
+                };
+                tf.scale.x = progress;
+                if !approx_eq_color(sprite.color, CASCADE_BG) {
+                    sprite.color = CASCADE_COLOR;
                 }
             }
             HudElementKind::GameOver => {

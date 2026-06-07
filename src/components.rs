@@ -263,4 +263,10 @@ pub enum HudElementKind {
     TimeBar,
     GameOver,
     RestartPrompt,
+    // Phase 1 cascade: a bar that shows the next Cascade window
+    // — filling toward 1.0 while the cooldown counts down, then
+    // draining back toward 0.0 while the window is active. Hidden
+    // entirely when no cooldown is in flight (so the HUD is quiet
+    // outside the cycle). Positioned just below the time bar.
+    CascadeBar,
 }

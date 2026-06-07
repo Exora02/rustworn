@@ -6,11 +6,11 @@
 use bevy::prelude::*;
 
 use crate::components::{
-    AimDirection, AimIndicator, BaseVelocity, Collider, DashCooldown, DeathPuff, Enemy, Health,
-    Invulnerable, Knockback, MainCamera, Player, Projectile, Spawner, Velocity, Weapon,
-    PLAYER_COLOR,
+    AimDirection, AimIndicator, BaseVelocity, CascadeAffected, Collider, DashCooldown, DeathPuff,
+    Enemy, Health, Invulnerable, Knockback, MainCamera, Player, Projectile, Spawner, Velocity,
+    Weapon, PLAYER_COLOR,
 };
-use crate::resources::{GameSettings, Hitstop, RunState, ScreenShake};
+use crate::resources::{CascadeState, GameSettings, Hitstop, RunState, ScreenShake};
 
 pub struct PlayerPlugin;
 
@@ -27,10 +27,15 @@ impl Plugin for PlayerPlugin {
         // that early-return on it. time_tick / restart systems run
         // alongside (no chain dependency) so they can mutate RunState
         // independently of input/state/movement.
+        //
+        // cascade_state_system runs at the start of the chain so the
+        // `active` flag is current by the time cascade-scaled
+        // velocity_apply reads it.
         app.add_systems(
             Update,
             (
                 hitstop_tick_system,
+                cascade_state_system,
                 time_tick_system,
                 player_input_system,
                 aim_input_system,
@@ -84,6 +89,44 @@ fn hitstop_tick_system(time: Res<Time>, mut commands: Commands, hitstop: Option<
     hitstop.timer.tick(time.delta());
     if hitstop.timer.finished() {
         commands.remove_resource::<Hitstop>();
+    }
+}
+
+// Phase 1 cascade: drive the CascadeState cycle. While inactive,
+// tick the `interval_timer` toward the next window. When it
+// elapses, flip `active` to true and re-arm the `duration_timer`.
+// While active, tick `duration_timer` and re-arm `interval_timer`
+// when it elapses. We log the open/close so playtesters have a
+// clear "did I just hit Cascade" signal in the console — visual
+// telegraphing lands in Phase 2 with a screen tint + audio sting.
+fn cascade_state_system(
+    time: Res<Time>,
+    settings: Res<GameSettings>,
+    mut cascade: ResMut<CascadeState>,
+) {
+    if cascade.active {
+        cascade.duration_timer.tick(time.delta());
+        cascade.time_remaining = cascade.duration_timer.remaining_secs();
+        if cascade.duration_timer.finished() {
+            cascade.active = false;
+            cascade.time_remaining = 0.0;
+            cascade.kills_during = 0;
+            cascade.chain_extends = 0;
+            cascade.interval_timer =
+                Timer::from_seconds(settings.cascade_interval_s, TimerMode::Once);
+            log::info!("Cascade Mode ended — back to full speed.");
+        }
+    } else {
+        cascade.interval_timer.tick(time.delta());
+        if cascade.interval_timer.finished() {
+            cascade.active = true;
+            cascade.kills_during = 0;
+            cascade.chain_extends = 0;
+            cascade.duration_timer =
+                Timer::from_seconds(settings.cascade_duration_s, TimerMode::Once);
+            cascade.time_remaining = settings.cascade_duration_s;
+            log::info!("Cascade Mode OPENED — 0.25× enemy speed for 30s.");
+        }
     }
 }
 
@@ -266,20 +309,37 @@ fn knockback_system(
     }
 }
 
-// In Phase 1, the Cascade scaling will land here — every cascade-affected
+// In Phase 1, the Cascade scaling lands here — every cascade-affected
 // entity gets its Velocity multiplied by 0.25 each frame. Frozen during
 // global hitstop so the cascade scaler doesn't overwrite the player/
-// chaser velocities we're holding steady.
+// chaser velocities we're holding steady. Frozen during game over
+// for the same reason.
+//
+// `Has<CascadeAffected>` lets the same query match both cascade-scaled
+// and unscaled entities. Player + player projectiles don't carry the
+// marker; enemies (and enemy projectiles, Phase 1+) do. The scale
+// only applies on `CascadeState.active` — when inactive, even
+// cascade-affected entities run at full speed.
 fn velocity_apply_system(
+    cascade: Res<CascadeState>,
+    settings: Res<GameSettings>,
     hitstop: Option<Res<Hitstop>>,
     run: Res<RunState>,
-    mut query: Query<(&BaseVelocity, &mut Velocity)>,
+    mut query: Query<(&BaseVelocity, &mut Velocity, Has<CascadeAffected>)>,
 ) {
     if in_hitstop(&hitstop) || in_game_over(&run) {
         return;
     }
-    for (base, mut vel) in &mut query {
-        vel.0 = base.0;
+    // The scale lives in `GameSettings::cascade_scale` (default 0.25)
+    // so a future "Cascade is a 0.5× slow-mo" variant can flip it
+    // without touching this system.
+    let scale = if cascade.active { settings.cascade_scale } else { 1.0 };
+    for (base, mut vel, cascade_affected) in &mut query {
+        vel.0 = if cascade_affected {
+            base.0 * scale
+        } else {
+            base.0
+        };
     }
 }
 
@@ -443,6 +503,7 @@ fn restart_system(
     mut spawner_query: Query<&mut Spawner>,
     mut camera_query: Query<&mut Transform, (With<MainCamera>, Without<Player>)>,
     mut shake: ResMut<ScreenShake>,
+    mut cascade: ResMut<CascadeState>,
     mut commands: Commands,
     enemies: Query<Entity, With<Enemy>>,
     projectiles: Query<Entity, With<Projectile>>,
@@ -498,6 +559,19 @@ fn restart_system(
     shake.intensity = 0.0;
     shake.duration = 0.0;
     shake.remaining = 0.0;
+
+    // Phase 1 cascade: reset the cycle on restart so a fresh run
+    // gets the standard warmup before the first Cascade window.
+    // Without this, a Cascade that opened just before death would
+    // persist (still active, but with no enemies to slow) into
+    // the new run, and the player would see the HUD bar empty
+    // immediately.
+    cascade.active = false;
+    cascade.time_remaining = 0.0;
+    cascade.kills_during = 0;
+    cascade.chain_extends = 0;
+    cascade.interval_timer = Timer::from_seconds(30.0, TimerMode::Once);
+    cascade.duration_timer = Timer::from_seconds(0.0, TimerMode::Once);
 
     run.game_over = false;
     run.time_elapsed = 0.0;

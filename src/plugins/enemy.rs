@@ -9,8 +9,9 @@ use bevy::prelude::*;
 use log::warn;
 
 use crate::components::{
-    AiBehavior, BaseVelocity, Collider, DasherPhase, DasherState, DeathPuff, Enemy, EnemyAI,
-    EnemyArchetype, Health, HitFlash, Invulnerable, Knockback, Player, Spawner, Velocity,
+    AiBehavior, BaseVelocity, CascadeAffected, Collider, DasherPhase, DasherState, DeathPuff,
+    Enemy, EnemyAI, EnemyArchetype, Health, HitFlash, Invulnerable, Knockback, Player, Spawner,
+    Velocity,
 };
 use crate::resources::{GameSettings, Hitstop, RunState, ScreenShake};
 
@@ -135,6 +136,10 @@ fn spawn_chaser(commands: &mut Commands, settings: &GameSettings, player_pos: Ve
         // Chasers carry BaseVelocity so the future Cascade scaler can
         // slow them to 0.25× during Cascade Mode (per PLAN.md §2).
         BaseVelocity::default(),
+        // Phase 1 cascade: chasers are CascadeAffected so the
+        // velocity_apply_system scales their Velocity by 0.25×
+        // during a Cascade window. The marker has no other effect.
+        CascadeAffected,
     ));
 }
 
@@ -167,6 +172,13 @@ fn spawn_dasher(commands: &mut Commands, settings: &GameSettings, player_pos: Ve
         Health::new(settings.dasher_max_hp),
         Velocity::default(),
         BaseVelocity::default(),
+        // Phase 1 cascade: dashers are CascadeAffected for the same
+        // reason as chasers — their Velocity is scaled by 0.25×
+        // during Cascade windows. The dash itself still completes
+        // in the same wall-clock time (it ticks against `Time`,
+        // not against the scaled Velocity), so the player's
+        // "approach → dash → recover" rhythm stays readable.
+        CascadeAffected,
         DasherState {
             phase: DasherPhase::Approach,
             phase_timer: Timer::from_seconds(settings.dasher_approach_duration_s, TimerMode::Once),
