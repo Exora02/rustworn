@@ -184,14 +184,14 @@ fn spawn_hud(mut commands: Commands) {
         HudElementKind::CascadeBar,
     );
 
-    // Game-over overlay: semi-transparent red rectangle with
-    // centered white "GAME OVER" text on top. Hidden by default;
-    // `hud_update_system` flips its visibility when
-    // `RunState.game_over` toggles. Text and sprite share the
-    // entity — same transform, so the text lands dead-center on
-    // the box. `Anchor::Center` on the sprite keeps the box
-    // centered on the entity; Text2d's default anchor is also
-    // Center, so the text aligns automatically.
+    // Game-over overlay. Two entities sharing the same
+    // `HudElementKind::GameOver`: the colored box (sprite) and
+    // the text label. They live on separate entities so the
+    // text can sit at a higher z than the sprite (Bevy 2D
+    // sorts back-to-front by z, and same-z is arbitrary —
+    // without the z offset the sprite would obscure the text
+    // on at least some drivers). Both entities are positioned
+    // + visibility-toggled by `hud_update_system`.
     commands.spawn((
         Sprite {
             color: GAME_OVER_COLOR,
@@ -199,23 +199,33 @@ fn spawn_hud(mut commands: Commands) {
             anchor: Anchor::Center,
             ..default()
         },
-        Text2d::new(GAME_OVER_TEXT),
-        TextFont {
-            font_size: GAME_OVER_FONT_SIZE,
-            ..default()
-        },
-        TextColor(Color::WHITE),
         Transform::from_xyz(0.0, GAME_OVER_OFFSET_Y, HUD_Z + 0.2),
         Visibility::Hidden,
         HudElement {
             kind: HudElementKind::GameOver,
         },
     ));
+    commands.spawn((
+        Text2d::new(GAME_OVER_TEXT),
+        TextFont {
+            font_size: GAME_OVER_FONT_SIZE,
+            ..default()
+        },
+        TextColor(Color::WHITE),
+        // z slightly above the box so the text draws on top.
+        // Same `HudElementKind` so the HUD update system picks
+        // it up and positions + visibility-toggles it in sync
+        // with the box.
+        Transform::from_xyz(0.0, GAME_OVER_OFFSET_Y, HUD_Z + 0.3),
+        Visibility::Hidden,
+        HudElement {
+            kind: HudElementKind::GameOver,
+        },
+    ));
 
-    // Restart prompt: smaller green rectangle with centered white
-    // "Press R to restart" text. Same pattern as the game-over
-    // overlay — sprite + text on one entity, gated on game-over
-    // visibility.
+    // Restart prompt: same two-entity pattern (box + text) as
+    // the game-over overlay. The two entities are independently
+    // positioned by `hud_update_system` so they stay in lockstep.
     commands.spawn((
         Sprite {
             color: RESTART_PROMPT_COLOR,
@@ -223,13 +233,20 @@ fn spawn_hud(mut commands: Commands) {
             anchor: Anchor::Center,
             ..default()
         },
+        Transform::from_xyz(0.0, RESTART_PROMPT_OFFSET_Y, HUD_Z + 0.2),
+        Visibility::Hidden,
+        HudElement {
+            kind: HudElementKind::RestartPrompt,
+        },
+    ));
+    commands.spawn((
         Text2d::new(RESTART_TEXT),
         TextFont {
             font_size: RESTART_FONT_SIZE,
             ..default()
         },
         TextColor(Color::WHITE),
-        Transform::from_xyz(0.0, RESTART_PROMPT_OFFSET_Y, HUD_Z + 0.2),
+        Transform::from_xyz(0.0, RESTART_PROMPT_OFFSET_Y, HUD_Z + 0.3),
         Visibility::Hidden,
         HudElement {
             kind: HudElementKind::RestartPrompt,
@@ -281,22 +298,35 @@ fn hud_update_system(
     player_query: Query<(&Transform, &Health, &Weapon), (With<Player>, Without<HudElement>)>,
     run: Res<RunState>,
     cascade: Res<CascadeState>,
-    mut hud_query: Query<(&mut Transform, &mut Sprite, &mut Visibility, &HudElement)>,
+    // `Option<&mut Sprite>` because the GameOver/RestartPrompt kinds
+    // are split across TWO entities (a colored box and a text label,
+    // see `spawn_hud`). The text entity has no `Sprite`; the box
+    // does. The bar kinds have a sprite on every entity. The color-
+    // update logic below is wrapped in `if let Some(...)` so the
+    // text-only entity skips it cleanly.
+    mut hud_query: Query<(
+        &mut Transform,
+        Option<&mut Sprite>,
+        &mut Visibility,
+        &HudElement,
+    )>,
 ) {
     let Ok((player_tf, health, weapon)) = player_query.single() else {
         return;
     };
     let player_pos = player_tf.translation.truncate();
 
-    for (mut tf, mut sprite, mut vis, element) in &mut hud_query {
+    for (mut tf, sprite, mut vis, element) in &mut hud_query {
         match element.kind {
             HudElementKind::HpBar => {
                 let pos = player_pos + HUD_OFFSET;
                 tf.translation = pos.extend(tf.translation.z);
                 let ratio = (health.current / health.max).clamp(0.0, 1.0);
                 tf.scale.x = ratio;
-                if !approx_eq_color(sprite.color, HP_BG) {
-                    sprite.color = lerp_color(HP_RED, HP_GREEN, ratio);
+                if let Some(mut sprite) = sprite {
+                    if !approx_eq_color(sprite.color, HP_BG) {
+                        sprite.color = lerp_color(HP_RED, HP_GREEN, ratio);
+                    }
                 }
             }
             HudElementKind::FireRate => {
@@ -306,11 +336,13 @@ fn hud_update_system(
                 let remaining = weapon.fire_timer.remaining_secs();
                 let progress = ((interval - remaining) / interval).clamp(0.0, 1.0);
                 tf.scale.x = progress;
-                if !approx_eq_color(sprite.color, FIRE_RATE_BG) {
-                    // Phase 1 (shotgun): color the fill by the current
-                    // weapon so the player can tell at a glance which
-                    // archetype they're holding. Background stays dark.
-                    sprite.color = fire_rate_color(weapon.archetype);
+                if let Some(mut sprite) = sprite {
+                    if !approx_eq_color(sprite.color, FIRE_RATE_BG) {
+                        // Phase 1 (shotgun): color the fill by the current
+                        // weapon so the player can tell at a glance which
+                        // archetype they're holding. Background stays dark.
+                        sprite.color = fire_rate_color(weapon.archetype);
+                    }
                 }
             }
             HudElementKind::KillBar => {
@@ -318,8 +350,10 @@ fn hud_update_system(
                 tf.translation = pos.extend(tf.translation.z);
                 let ratio = (run.enemies_killed as f32 / KILL_BAR_FILL_AT as f32).clamp(0.0, 1.0);
                 tf.scale.x = ratio;
-                if !approx_eq_color(sprite.color, KILL_BG) {
-                    sprite.color = KILL_COLOR;
+                if let Some(mut sprite) = sprite {
+                    if !approx_eq_color(sprite.color, KILL_BG) {
+                        sprite.color = KILL_COLOR;
+                    }
                 }
             }
             HudElementKind::TimeBar => {
@@ -331,8 +365,10 @@ fn hud_update_system(
                 // exact count can divide the bar position by window.
                 let progress = (run.time_elapsed / TIME_BAR_WINDOW_S).clamp(0.0, 1.0);
                 tf.scale.x = progress;
-                if !approx_eq_color(sprite.color, TIME_BG) {
-                    sprite.color = TIME_COLOR;
+                if let Some(mut sprite) = sprite {
+                    if !approx_eq_color(sprite.color, TIME_BG) {
+                        sprite.color = TIME_COLOR;
+                    }
                 }
             }
             HudElementKind::CascadeBar => {
@@ -364,8 +400,10 @@ fn hud_update_system(
                     }
                 };
                 tf.scale.x = progress;
-                if !approx_eq_color(sprite.color, CASCADE_BG) {
-                    sprite.color = CASCADE_COLOR;
+                if let Some(mut sprite) = sprite {
+                    if !approx_eq_color(sprite.color, CASCADE_BG) {
+                        sprite.color = CASCADE_COLOR;
+                    }
                 }
             }
             HudElementKind::GameOver => {

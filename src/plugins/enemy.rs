@@ -494,10 +494,14 @@ fn hit_flash_tick_system(
             continue;
         }
         let progress = flash.timer.elapsed_secs() / flash.timer.duration().as_secs_f32();
-        // Inverse-progress lerp: 100% flash at the start of the
-        // window, 0% at the end. The 0.7 cap keeps the enemy
-        // recognizably its-own-color rather than going pure white.
-        let t = (1.0 - progress) * 0.7;
+        // Inverse-progress lerp: 100% flash (full white) at the
+        // start of the window, 0% (back to base) at the end.
+        // The previous 0.7 cap was tuned for the chaser's red
+        // base but made the flash barely visible on dark
+        // colors (e.g. a dasher lerping 70% from purple toward
+        // white = a pale lavender — no "I hit it!" signal).
+        // Full white at peak is the universal hit feedback.
+        let t = 1.0 - progress;
         let base = base_color.0.to_srgba();
         sprite.color = Color::srgba(
             base.red + (1.0 - base.red) * t,
