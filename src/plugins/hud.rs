@@ -94,14 +94,14 @@ const GAME_OVER_WIDTH: f32 = 360.0;
 const GAME_OVER_HEIGHT: f32 = 80.0;
 const GAME_OVER_OFFSET_Y: f32 = -60.0;
 const GAME_OVER_TEXT: &str = "GAME OVER";
-const GAME_OVER_FONT_SIZE: f32 = 48.0;
+const GAME_OVER_FONT_SIZE: f32 = 96.0;
 
 const RESTART_PROMPT_COLOR: Color = Color::srgba(0.30, 0.85, 0.30, 0.90);
 const RESTART_PROMPT_WIDTH: f32 = 240.0;
 const RESTART_PROMPT_HEIGHT: f32 = 40.0;
 const RESTART_PROMPT_OFFSET_Y: f32 = 50.0;
 const RESTART_TEXT: &str = "Press R to restart";
-const RESTART_FONT_SIZE: f32 = 20.0;
+const RESTART_FONT_SIZE: f32 = 32.0;
 
 // ─── Layout offsets (top-left, top-right) ────────────────────────────────
 
@@ -211,11 +211,28 @@ fn spawn_hud(mut commands: Commands) {
             font_size: GAME_OVER_FONT_SIZE,
             ..default()
         },
-        TextColor(Color::WHITE),
-        // z slightly above the box so the text draws on top.
-        // Same `HudElementKind` so the HUD update system picks
-        // it up and positions + visibility-toggles it in sync
-        // with the box.
+        // Bright yellow on the red box — high contrast in case
+        // the previous white-on-red was getting eaten by the
+        // semi-transparent red overlay.
+        TextColor(Color::srgb(1.0, 0.95, 0.20)),
+        // Explicit `Anchor::Center` as a separate component
+        // (in addition to the auto-required default) — the
+        // `Text2d::new` constructor's `#[require(...)]` should
+        // insert this automatically, but on the user's Bazzite
+        // box the text isn't rendering at all even with the
+        // z-offset fix, so we set it explicitly to rule out
+        // a missing auto-requirement.
+        // (See bevy-0.16-gotchas §12 correction note.)
+        Anchor::Center,
+        // Explicit `TextLayout` with center justification. The
+        // default is left-aligned, which would put the text at
+        // the left edge of the box even with `Anchor::Center`
+        // on the entity. For "GAME OVER" (a short string) the
+        // difference is small, but for "Press R to restart"
+        // (longer) it's visible. Setting this explicitly
+        // removes one variable from the "why isn't it
+        // rendering" investigation.
+        TextLayout::new_with_justify(JustifyText::Center),
         Transform::from_xyz(0.0, GAME_OVER_OFFSET_Y, HUD_Z + 0.3),
         Visibility::Hidden,
         HudElement {
@@ -246,6 +263,10 @@ fn spawn_hud(mut commands: Commands) {
             ..default()
         },
         TextColor(Color::WHITE),
+        // Same explicit-Anchor + TextLayout as the game-over
+        // text — see the comment there for the rationale.
+        Anchor::Center,
+        TextLayout::new_with_justify(JustifyText::Center),
         Transform::from_xyz(0.0, RESTART_PROMPT_OFFSET_Y, HUD_Z + 0.3),
         Visibility::Hidden,
         HudElement {
