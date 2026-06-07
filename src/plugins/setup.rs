@@ -54,11 +54,15 @@ fn spawn_camera_and_player(mut commands: Commands, settings: Res<GameSettings>) 
             },
             // Day 5-7: starting pistol. Timer is set to a zero-duration
             // finished timer so the first click fires immediately.
+            // Phase 1 (shotgun): `pellet_count` + `spread_rad` round
+            // out the Weapon fields. Pistol = 1 pellet, no spread.
             Weapon {
                 archetype: WeaponArchetype::Pistol,
                 damage: settings.weapon_damage,
                 fire_rate: settings.weapon_fire_rate,
                 projectile_speed: settings.weapon_projectile_speed,
+                pellet_count: 1,
+                spread_rad: 0.0,
                 fire_timer: Timer::from_seconds(0.0, TimerMode::Once),
             },
         ))

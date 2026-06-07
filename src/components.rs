@@ -76,22 +76,34 @@ pub const PLAYER_COLOR: Color = Color::srgb(0.925, 0.525, 0.012); // ~#ec8603
 
 /// Active weapon attached to an entity (player today, enemies later).
 /// Tracks its own cooldown so the firing system can pace shots.
+///
+/// Phase 1 (shotgun): `pellet_count` and `spread_rad` carry the
+/// multi-pellet behavior. Pistol keeps them at 1 / 0.0; shotgun gets
+/// 5 pellets spread across `~17°`. Stored on the component (rather
+/// than looked up per archetype) so the fire system has a single
+/// source of truth and the switch system can refresh all fields at
+/// once.
 #[derive(Component)]
 pub struct Weapon {
     pub archetype: WeaponArchetype,
     pub damage: f32,
     pub fire_rate: f32, // shots per second
     pub projectile_speed: f32,
+    pub pellet_count: u32,
+    pub spread_rad: f32,
     pub fire_timer: Timer,
 }
 
-/// Available weapon archetypes. Pistol is the only one in Phase 0; the
-/// enum exists so future weapons (Shotgun, SMG, etc.) can swap in
-/// without touching the fire system.
-#[derive(Default, Clone, Copy, Debug)]
+/// Available weapon archetypes. Pistol is the single-shot starter;
+/// Shotgun (Phase 1) fires 5 pellets in a tight spread. Future
+/// weapons (Burst, Beam, Launcher, ...) will swap in by extending
+/// the match in `weapon_stats_for` (combat.rs) — nothing else
+/// needs to know the archetype enum.
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WeaponArchetype {
     #[default]
     Pistol,
+    Shotgun,
 }
 
 /// A projectile in flight. Owns its lifetime so the cleanup system

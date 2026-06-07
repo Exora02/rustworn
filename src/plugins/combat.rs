@@ -7,7 +7,7 @@ use bevy::prelude::*;
 
 use crate::components::{
     AimDirection, BaseVelocity, Collider, Enemy, Health, HitFlash, Player, Projectile, Team,
-    Velocity, Weapon,
+    Velocity, Weapon, WeaponArchetype,
 };
 use crate::plugins::enemy::spawn_death_puff;
 use crate::resources::{GameSettings, Hitstop, RunState};
@@ -28,16 +28,47 @@ impl Plugin for CombatPlugin {
         // (despawns old ones) → projectile-damage (resolves hits
         // against enemies). Movement is handled by the generic
         // `movement_system` in the player plugin.
+        //
+        // `weapon_switch_system` runs ahead of the fire system so a
+        // 1/2-key press that happens on the same frame as a click
+        // sees the new archetype when the fire system processes the
+        // click. (In practice the click + key press are mutually
+        // exclusive in the same frame, but ordering it this way
+        // makes the intent clear.)
         app.add_systems(
             Update,
             (
                 weapon_cooldown_tick_system,
+                weapon_switch_system,
                 weapon_fire_system,
                 projectile_lifetime_system,
                 projectile_damage_system,
             )
                 .chain(),
         );
+    }
+}
+
+// Phase 1 (shotgun): per-archetype stat lookup. The single source of
+// truth for "what does this weapon do" lives here; the Weapon
+// component on the player gets refreshed from this table by
+// `weapon_switch_system` and by initial spawn in `setup.rs`.
+//
+// Numbers are picked to feel distinct:
+//   - Pistol: 3 shots/sec, 1.0 dmg/projectile, 700 u/s, 1 pellet
+//   - Shotgun: 1 shot/sec, 0.5 dmg/pellet (5 pellets = 2.5 total),
+//     600 u/s, 5 pellets spread across 0.35 rad (~20°)
+//
+// The shotgun's per-shot DPS (2.5) is slightly below the pistol's
+// (3.0) but the spread makes the shotgun much more forgiving against
+// groups of enemies — close-range it deletes clusters, mid-range
+// the spread misses, far-range it's worse than the pistol. That
+// trade-off is the design.
+fn weapon_stats_for(archetype: WeaponArchetype) -> (f32, f32, f32, u32, f32) {
+    // (damage, fire_rate, projectile_speed, pellet_count, spread_rad)
+    match archetype {
+        WeaponArchetype::Pistol => (1.0, 3.0, 700.0, 1, 0.0),
+        WeaponArchetype::Shotgun => (0.5, 1.0, 600.0, 5, 0.35),
     }
 }
 
@@ -76,10 +107,75 @@ fn weapon_cooldown_tick_system(
     }
 }
 
-// Left-click on a ready weapon → spawn a Projectile traveling in the
-// current aim direction. The projectile gets a `Velocity` but no
-// `BaseVelocity` (player projectiles don't cascade-scale). Frozen
-// during global hitstop.
+// Phase 1 (shotgun): 1/2 keys select a weapon archetype directly,
+// Q cycles to the next. We refresh every Weapon field from
+// `weapon_stats_for` so the fire system never has to look up the
+// archetype mid-burst, and we reset the fire timer so the new
+// weapon is ready immediately (no awkward "I switched and now
+// I'm on cooldown from the previous weapon" feel).
+//
+// Same gating as the rest of combat: hitstop + game over freeze
+// input so a stray keypress during the game-over screen doesn't
+// swap the player's weapon before they restart.
+fn weapon_switch_system(
+    keys: Res<ButtonInput<KeyCode>>,
+    hitstop: Option<Res<Hitstop>>,
+    run: Res<RunState>,
+    mut player_query: Query<&mut Weapon, With<Player>>,
+) {
+    if in_hitstop(&hitstop) || in_game_over(&run) {
+        return;
+    }
+    let Ok(mut weapon) = player_query.single_mut() else {
+        return;
+    };
+
+    // Press priority: 1/2 (direct) first, then Q (cycle). If both
+    // Q and a number key are pressed on the same frame, the number
+    // key wins (explicit slot is more direct than "next").
+    let target: Option<WeaponArchetype> = if keys.just_pressed(KeyCode::Digit1) {
+        Some(WeaponArchetype::Pistol)
+    } else if keys.just_pressed(KeyCode::Digit2) {
+        Some(WeaponArchetype::Shotgun)
+    } else if keys.just_pressed(KeyCode::KeyQ) {
+        Some(next_archetype(weapon.archetype))
+    } else {
+        None
+    };
+
+    let Some(target) = target else {
+        return;
+    };
+    if target == weapon.archetype {
+        // Same weapon selected — no-op. Avoids an unnecessary
+        // fire-timer reset on a redundant press.
+        return;
+    }
+
+    let (damage, fire_rate, projectile_speed, pellet_count, spread_rad) = weapon_stats_for(target);
+    weapon.archetype = target;
+    weapon.damage = damage;
+    weapon.fire_rate = fire_rate;
+    weapon.projectile_speed = projectile_speed;
+    weapon.pellet_count = pellet_count;
+    weapon.spread_rad = spread_rad;
+    // Zero-duration finished timer so the next click fires
+    // immediately.
+    weapon.fire_timer = Timer::from_seconds(0.0, TimerMode::Once);
+}
+
+// Cycle order: Pistol → Shotgun → Pistol. New weapons slot in here.
+fn next_archetype(current: WeaponArchetype) -> WeaponArchetype {
+    match current {
+        WeaponArchetype::Pistol => WeaponArchetype::Shotgun,
+        WeaponArchetype::Shotgun => WeaponArchetype::Pistol,
+    }
+}
+
+// Left-click on a ready weapon → spawn `pellet_count` Projectiles
+// traveling in (or near) the current aim direction. The projectiles
+// get a `Velocity` but no `BaseVelocity` (player projectiles don't
+// cascade-scale). Frozen during global hitstop + game over.
 //
 // Day 15-16: also enforce the projectile cap. Before spawning, count
 // live player projectiles; if we're already at the cap, silently
@@ -88,6 +184,13 @@ fn weapon_cooldown_tick_system(
 // 30-cap and a 3/sec fire rate, the cap is unreachable in normal
 // play, so a dropped shot is genuinely a player error (machine
 // lag, glitched click, etc.) and not worth the visual disruption.
+//
+// Phase 1 (shotgun): when `pellet_count > 1`, spawn N projectiles
+// with aim directions evenly distributed across `[-spread/2,
+// +spread/2]`. The center pellet fires exactly along the aim, the
+// outer ones are rotated. Deterministic (no random angle) so the
+// spread pattern is identical every shot — players can learn the
+// pattern and aim with it.
 fn weapon_fire_system(
     mouse: Res<ButtonInput<MouseButton>>,
     aim: Res<AimDirection>,
@@ -114,10 +217,14 @@ fn weapon_fire_system(
     // Projectile cap: count current live projectiles, skip the spawn
     // if we're already at the cap. Counts all teams since the cap is
     // a global perf budget and Phase 1+ will add enemy projectiles
-    // that should also count against it.
-    let live = projectiles.iter().count() as u32;
-    if live >= settings.projectile_cap {
-        return;
+    // that should also count against it. Skip the cap if the cap
+    // is 0 (which would mean "disabled" — not currently used but
+    // the safety net is cheap).
+    if settings.projectile_cap > 0 {
+        let live = projectiles.iter().count() as u32;
+        if live >= settings.projectile_cap {
+            return;
+        }
     }
 
     // Reset cooldown. The combat plugin's tick system will count it down
@@ -126,39 +233,61 @@ fn weapon_fire_system(
     weapon.fire_timer = Timer::from_seconds(interval, TimerMode::Once);
 
     // Default to +Y if the player hasn't aimed yet.
-    let dir = if aim.0 == Vec2::ZERO { Vec2::Y } else { aim.0 };
+    let center_dir = if aim.0 == Vec2::ZERO { Vec2::Y } else { aim.0 };
+    let player_pos = player_transform.translation.truncate();
 
-    // Spawn at the muzzle (player center + aim × offset) and rotate the
-    // long axis of the sprite to match the aim direction.
-    let spawn_pos = player_transform.translation.truncate() + dir * settings.weapon_muzzle_offset;
-    let angle = dir.y.atan2(dir.x) - std::f32::consts::FRAC_PI_2;
+    let pellet_count = weapon.pellet_count.max(1);
+    for i in 0..pellet_count {
+        // Spread angle: t goes 0..1 across the pellets, mapped to
+        // -spread/2 .. +spread/2. With 1 pellet, t=0, angle=0.
+        // With 5 pellets, t = {0, 0.25, 0.5, 0.75, 1.0}, angles =
+        // {-spread/2, -spread/4, 0, +spread/4, +spread/2}.
+        let angle_offset = if pellet_count == 1 {
+            0.0
+        } else {
+            let t = i as f32 / (pellet_count - 1) as f32;
+            (t - 0.5) * weapon.spread_rad
+        };
+        let dir = rotate_vec2(center_dir, angle_offset);
 
-    commands.spawn((
-        Sprite {
-            color: PROJECTILE_COLOR,
-            custom_size: Some(PROJECTILE_SIZE),
-            ..default()
-        },
-        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.5)
-            .with_rotation(Quat::from_rotation_z(angle)),
-        // No `BaseVelocity` / `CascadeAffected` markers, so the shared
-        // `velocity_apply_system` won't touch this entity and the spawn-
-        // time Velocity is preserved as the projectile's true motion.
-        // Player projectiles run at full speed during Cascade Mode
-        // (per PLAN.md §2).
-        Velocity(dir * weapon.projectile_speed),
-        // Day 11-12: 6x12 sprite → 3x6 half-extents for AABB collision
-        // against enemy hitboxes. Kept slightly smaller than the visual
-        // so close calls feel like hits rather than near-misses.
-        Collider {
-            half_extents: Vec2::new(PROJECTILE_SIZE.x * 0.5, PROJECTILE_SIZE.y * 0.5),
-        },
-        Projectile {
-            damage: weapon.damage,
-            lifetime: Timer::from_seconds(settings.projectile_lifetime_s, TimerMode::Once),
-            team: Team::Player,
-        },
-    ));
+        let spawn_pos = player_pos + dir * settings.weapon_muzzle_offset;
+        let angle = dir.y.atan2(dir.x) - std::f32::consts::FRAC_PI_2;
+
+        commands.spawn((
+            Sprite {
+                color: PROJECTILE_COLOR,
+                custom_size: Some(PROJECTILE_SIZE),
+                ..default()
+            },
+            Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.5)
+                .with_rotation(Quat::from_rotation_z(angle)),
+            // No `BaseVelocity` / `CascadeAffected` markers, so the shared
+            // `velocity_apply_system` won't touch this entity and the spawn-
+            // time Velocity is preserved as the projectile's true motion.
+            // Player projectiles run at full speed during Cascade Mode
+            // (per PLAN.md §2).
+            Velocity(dir * weapon.projectile_speed),
+            // Day 11-12: 6x12 sprite → 3x6 half-extents for AABB collision
+            // against enemy hitboxes. Kept slightly smaller than the visual
+            // so close calls feel like hits rather than near-misses.
+            Collider {
+                half_extents: Vec2::new(PROJECTILE_SIZE.x * 0.5, PROJECTILE_SIZE.y * 0.5),
+            },
+            Projectile {
+                damage: weapon.damage,
+                lifetime: Timer::from_seconds(settings.projectile_lifetime_s, TimerMode::Once),
+                team: Team::Player,
+            },
+        ));
+    }
+}
+
+// Rotate a 2D vector by `angle` radians. The default `Vec2` API
+// doesn't expose a rotation helper, so this is the cheapest
+// handwritten form — sin/cos once, no allocations.
+fn rotate_vec2(v: Vec2, angle: f32) -> Vec2 {
+    let (s, c) = angle.sin_cos();
+    Vec2::new(v.x * c - v.y * s, v.x * s + v.y * c)
 }
 
 fn projectile_lifetime_system(

@@ -22,7 +22,7 @@
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
 
-use crate::components::{Health, HudElement, HudElementKind, Player, Weapon};
+use crate::components::{Health, HudElement, HudElementKind, Player, Weapon, WeaponArchetype};
 use crate::resources::RunState;
 
 /// Width of the player's view in world units. The HUD layout uses
@@ -41,10 +41,23 @@ const HP_BAR_HEIGHT: f32 = 16.0;
 
 // ─── Fire-rate bar (below HP) ────────────────────────────────────────────
 
-const FIRE_RATE_COLOR: Color = Color::srgb(0.95, 0.85, 0.30);
 const FIRE_RATE_BG: Color = Color::srgb(0.10, 0.10, 0.10);
+const FIRE_RATE_PISTOL: Color = Color::srgb(0.95, 0.85, 0.30);
+const FIRE_RATE_SHOTGUN: Color = Color::srgb(0.95, 0.30, 0.30);
 const FIRE_RATE_WIDTH: f32 = 60.0;
 const FIRE_RATE_HEIGHT: f32 = 8.0;
+
+/// Color the fire-rate bar fill by the current weapon archetype.
+/// Pistol reads as a calm yellow, shotgun as a hot red — the
+/// shotgun's color also telegraphs the lower fire rate (1/sec vs
+/// 3/sec) since the bar fills visibly slower, but the color is the
+/// fast-glance read.
+fn fire_rate_color(archetype: WeaponArchetype) -> Color {
+    match archetype {
+        WeaponArchetype::Pistol => FIRE_RATE_PISTOL,
+        WeaponArchetype::Shotgun => FIRE_RATE_SHOTGUN,
+    }
+}
 
 // ─── Kill counter (top-right) ────────────────────────────────────────────
 
@@ -122,7 +135,7 @@ fn spawn_hud(mut commands: Commands) {
         FIRE_RATE_WIDTH,
         FIRE_RATE_HEIGHT,
         FIRE_RATE_BG,
-        FIRE_RATE_COLOR,
+        FIRE_RATE_PISTOL,
         HudElementKind::FireRate,
     );
     spawn_bar(
@@ -246,7 +259,10 @@ fn hud_update_system(
                 let progress = ((interval - remaining) / interval).clamp(0.0, 1.0);
                 tf.scale.x = progress;
                 if !approx_eq_color(sprite.color, FIRE_RATE_BG) {
-                    sprite.color = FIRE_RATE_COLOR;
+                    // Phase 1 (shotgun): color the fill by the current
+                    // weapon so the player can tell at a glance which
+                    // archetype they're holding. Background stays dark.
+                    sprite.color = fire_rate_color(weapon.archetype);
                 }
             }
             HudElementKind::KillBar => {
