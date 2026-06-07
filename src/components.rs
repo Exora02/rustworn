@@ -114,3 +114,53 @@ pub enum Team {
     Player,
     Enemy,
 }
+
+// ─── Enemies & combat resolution ─────────────────────────────────────────
+
+/// Marker: this entity is an enemy. Used by contact-damage and (later)
+/// projectile-damage systems to find valid targets.
+#[derive(Component)]
+pub struct Enemy;
+
+/// AI behavior state. Phase 0 only has the chaser; the enum is set up
+/// so future archetypes (Shooter, Orbit, Sniper) can swap in by
+/// extending the AI dispatch.
+#[derive(Component, Default, Clone, Copy, Debug)]
+pub struct EnemyAI {
+    pub behavior: AiBehavior,
+}
+
+#[derive(Default, Clone, Copy, Debug)]
+pub enum AiBehavior {
+    #[default]
+    Chaser,
+}
+
+/// Periodic spawner. Owns a Timer; when it elapses, the spawner system
+/// creates one chaser at a random angle from the player and resets the
+/// timer. Persists for the whole run (no despawn) — Day 15-16 polish
+/// will add a max-alive cap and per-spawner despawn.
+#[derive(Component)]
+pub struct Spawner {
+    pub interval: Timer,
+}
+
+/// Axis-aligned bounding box for contact-damage detection. `half_extents`
+/// is the half-size in each axis — so a 40x40 sprite gets (20, 20).
+/// Component-based so projectiles (Day 11-12) and pickups (later) can
+/// have their own sizes without sharing the sprite's `custom_size`.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Collider {
+    pub half_extents: Vec2,
+}
+
+/// Brief knockback window after taking a hit. While present, the
+/// player's `BaseVelocity` is overridden to the knockback direction.
+/// Removed when the timer elapses. Hit i-frames are attached as a
+/// separate `Invulnerable` so a player can dash-cancel out of a
+/// knockback without losing the i-frame protection.
+#[derive(Component)]
+pub struct Knockback {
+    pub direction: Vec2,
+    pub timer: Timer,
+}

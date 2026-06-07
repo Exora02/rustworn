@@ -60,6 +60,15 @@ pub struct GameSettings {
     pub weapon_projectile_speed: f32,
     pub weapon_muzzle_offset: f32,
     pub projectile_lifetime_s: f32,
+    // Day 8-10 — chaser + spawner
+    pub chaser_move_speed: f32,
+    pub chaser_contact_damage: f32,
+    pub chaser_knockback_speed: f32,
+    pub chaser_knockback_duration_s: f32,
+    pub hit_iframe_duration_s: f32,
+    pub spawner_interval_s: f32,
+    pub spawner_min_distance: f32,
+    pub spawner_max_distance: f32,
 }
 
 impl Default for GameSettings {
@@ -79,6 +88,17 @@ impl Default for GameSettings {
             weapon_projectile_speed: 700.0,
             weapon_muzzle_offset: 25.0,
             projectile_lifetime_s: 2.0,
+            // Day 8-10 — chaser is slower than the player (220),
+            // deals 1 hp on contact with 0.4s knockback + 0.5s i-frames.
+            chaser_move_speed: 100.0,
+            chaser_contact_damage: 1.0,
+            chaser_knockback_speed: 400.0,
+            chaser_knockback_duration_s: 0.15,
+            hit_iframe_duration_s: 0.5,
+            // One chaser every 3s, spawning 400-600 units from the player.
+            spawner_interval_s: 3.0,
+            spawner_min_distance: 400.0,
+            spawner_max_distance: 600.0,
         }
     }
 }

@@ -6,9 +6,11 @@
 //! modules (see PLAN.md §8) live alongside the minimal Phase 0 set.
 
 pub mod combat;
+pub mod enemy;
 pub mod player;
 pub mod setup;
 
 pub use combat::CombatPlugin;
+pub use enemy::EnemyPlugin;
 pub use player::PlayerPlugin;
 pub use setup::SetupPlugin;

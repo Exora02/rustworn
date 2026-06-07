@@ -6,8 +6,8 @@
 use bevy::prelude::*;
 
 use crate::components::{
-    AimDirection, AimIndicator, BaseVelocity, DashCooldown, Invulnerable, MainCamera, Player,
-    Velocity, PLAYER_COLOR,
+    AimDirection, AimIndicator, BaseVelocity, DashCooldown, Health, Invulnerable, Knockback,
+    MainCamera, Player, Velocity, PLAYER_COLOR,
 };
 use crate::resources::GameSettings;
 
@@ -25,11 +25,13 @@ impl Plugin for PlayerPlugin {
                 dash_input_system,
                 dash_state_system,
                 cooldown_tick_system,
+                knockback_system,
                 velocity_apply_system,
                 movement_system,
                 player_color_system,
                 aim_rotation_system,
                 camera_follow_system,
+                player_death_check_system,
             )
                 .chain(),
         );
@@ -168,6 +170,28 @@ fn cooldown_tick_system(
     }
 }
 
+// While Knockback is present, the player's BaseVelocity is forced to
+// the knockback direction at the configured speed. When the timer
+// elapses, the component is removed and normal input resumes. Runs
+// after `player_input_system` (so the input write is overridden) and
+// before `dash_state_system` (so a fresh dash wins over a stale
+// knockback — useful as an escape).
+fn knockback_system(
+    time: Res<Time>,
+    settings: Res<GameSettings>,
+    mut commands: Commands,
+    mut query: Query<(Entity, &mut BaseVelocity, &mut Knockback), With<Player>>,
+) {
+    for (entity, mut base, mut kb) in &mut query {
+        kb.timer.tick(time.delta());
+        if kb.timer.finished() {
+            commands.entity(entity).remove::<Knockback>();
+        } else {
+            base.0 = kb.direction * settings.chaser_knockback_speed;
+        }
+    }
+}
+
 // In Phase 1, the Cascade scaling will land here — every cascade-affected
 // entity gets its Velocity multiplied by 0.25 each frame.
 fn velocity_apply_system(mut query: Query<(&BaseVelocity, &mut Velocity)>) {
@@ -246,4 +270,16 @@ fn camera_follow_system(
     camera_transform.translation = camera_transform
         .translation
         .lerp(player_transform.translation, t);
+}
+
+// Day 8-10: when the player's health hits zero, log a death message
+// and exit. The real game-over screen lands in Phase 2.
+fn player_death_check_system(health: Query<&Health, With<Player>>) {
+    let Ok(h) = health.single() else {
+        return;
+    };
+    if h.current <= 0.0 {
+        log::info!("RUSTWORN — you died. HP: 0.0");
+        std::process::exit(0);
+    }
 }

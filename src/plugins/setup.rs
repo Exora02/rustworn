@@ -7,8 +7,8 @@ use bevy::prelude::*;
 use log::info;
 
 use crate::components::{
-    AimIndicator, BaseVelocity, Health, MainCamera, Player, Velocity, Weapon, WeaponArchetype,
-    PLAYER_COLOR,
+    AimIndicator, BaseVelocity, Collider, Health, MainCamera, Player, Spawner, Velocity, Weapon,
+    WeaponArchetype, PLAYER_COLOR,
 };
 use crate::resources::{CascadeState, GameSettings, RunState};
 
@@ -45,6 +45,10 @@ fn spawn_camera_and_player(mut commands: Commands, settings: Res<GameSettings>) 
             Health::new(4.0),
             Velocity::default(),
             BaseVelocity::default(),
+            // Day 8-10: 40x40 sprite → 20x20 half-extents for AABB.
+            Collider {
+                half_extents: Vec2::splat(20.0),
+            },
             // Day 5-7: starting pistol. Timer is set to a zero-duration
             // finished timer so the first click fires immediately.
             Weapon {
@@ -72,5 +76,12 @@ fn spawn_camera_and_player(mut commands: Commands, settings: Res<GameSettings>) 
             ));
         });
 
-    info!("RUSTWORN booted — placeholder player spawned at origin");
+    // Day 8-10: spawner entity — persists for the run, ticks every
+    // `spawner_interval_s` and creates a chaser at a random angle from
+    // the player, at a random distance in [min_distance, max_distance].
+    commands.spawn(Spawner {
+        interval: Timer::from_seconds(settings.spawner_interval_s, TimerMode::Repeating),
+    });
+
+    info!("RUSTWORN booted — placeholder player + spawner spawned at origin");
 }
