@@ -96,6 +96,20 @@ pub const PLAYER_COLOR: Color = Color::srgb(0.925, 0.525, 0.012); // ~#ec8603
 /// has N more rounds to fire (the fire system auto-fires the
 /// next round when the gap timer elapses, without waiting
 /// for a click).
+///
+/// Phase 1 (beam): `beam_active` + `beam_tick_timer` carry
+/// the held-trigger instant-hit behavior. Unlike the other
+/// three weapons, beam does NOT spawn a Projectile — it
+/// applies damage directly to enemies in line of sight on
+/// a per-tick cadence. `beam_active` is true while the
+/// mouse is held (set by `beam_damage_system` on
+/// `mouse.just_pressed`, cleared on `just_released`),
+/// false otherwise. `beam_tick_timer` is a Repeating
+/// timer that elapses every `GameSettings::beam_tick_interval_s`
+/// (0.1s = 10Hz) while the beam is active; each "tick"
+/// applies `beam_damage_per_tick` to every enemy in the
+/// beam's capsule. Effective DPS = `beam_damage_per_tick /
+/// beam_tick_interval_s` = 0.5 / 0.1 = 5.0.
 #[derive(Component)]
 pub struct Weapon {
     pub archetype: WeaponArchetype,
@@ -107,16 +121,34 @@ pub struct Weapon {
     pub burst_rounds: u32,
     pub fire_timer: Timer,
     pub burst_rounds_remaining: u32,
+    /// Phase 1 (beam): true while the player is holding the
+    /// left mouse button. Beam damage ticks only fire while
+    /// this is true. Toggled by `beam_damage_system`.
+    pub beam_active: bool,
+    /// Phase 1 (beam): repeating timer that fires the
+    /// per-tick damage pass. Each `just_finished()` transition
+    /// = one damage tick (0.5 dmg applied to all enemies in
+    /// the beam's capsule). Reset by the press handler so
+    /// the first tick is exactly `tick_interval` after the
+    /// press, not immediate.
+    pub beam_tick_timer: Timer,
 }
 
 /// Available weapon archetypes. Pistol is the single-shot starter;
 /// Shotgun (Phase 1) fires 5 pellets in a tight spread. Burst
 /// (Phase 1) fires 3 sequential rounds per click at a 0.1s
 /// between-round gap — a "tapping" weapon that rewards rhythmic
-/// timing and feels different from the other two. Future
-/// weapons (Beam, Launcher, ...) will swap in by extending the
-/// match in `weapon_stats_for` (combat.rs) — nothing else
-/// needs to know the archetype enum.
+/// timing and feels different from the other two. Beam
+/// (Phase 1) is a held-trigger instant-hit laser — the player
+/// holds the mouse and a continuous orange beam fires from
+/// the player to max_range, dealing 0.5 damage per tick
+/// (~5 DPS) to every enemy in its line of sight. The fourth
+/// archetype is the only "DPS hose" — it scales with how many
+/// enemies are in a line, where the other three deal discrete
+/// shots to one enemy at a time. Future weapons (Launcher,
+/// Sniper, etc.) will swap in by extending the match in
+/// `weapon_stats_for` (combat.rs) — nothing else needs to
+/// know the archetype enum.
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WeaponArchetype {
     #[default]
@@ -130,6 +162,18 @@ pub enum WeaponArchetype {
     /// "punch" of the burst more than the shotgun's spread
     /// (which feels like a "cloud").
     Burst,
+    /// Phase 1 beam: held trigger, instant-hit (no projectile),
+    /// 0.5 dmg/tick at 10Hz (5 DPS), max range 500 units,
+    /// visualized as a long thin orange line. The
+    /// `beam_damage_system` reads the player's position +
+    /// aim direction each tick and applies damage directly
+    /// to every enemy whose center falls inside the beam's
+    /// capsule. fire_rate=10 in `weapon_stats_for` is a
+    /// cosmetic read for the HUD bar (it shows a "fast"
+    /// color-coded tick rate); the actual damage cadence
+    /// comes from `GameSettings::beam_tick_interval_s`
+    /// (0.1s).
+    Beam,
 }
 
 /// A projectile in flight. Owns its lifetime so the cleanup system
@@ -360,6 +404,22 @@ pub struct HudElement {
 /// extreme camera-follow lag).
 #[derive(Component)]
 pub struct CascadeTelegraph;
+
+/// Phase 1 beam: marker for the visual sprite entity that
+/// represents the active beam. A single persistent entity
+/// spawned once at startup; `beam_damage_system` updates its
+/// position, rotation, scale, and visibility each frame
+/// based on the player's position, aim direction, and the
+/// `Weapon::beam_active` flag. Lives separately from the
+/// player so the beam's z-order, size, and color are
+/// independent of the player's transform. The sprite is
+/// anchored at `Anchor::CenterLeft` (its transform position
+/// is the player's position, the beam extends outward in
+/// the +X direction after rotation), so a 0° rotation
+/// points the beam along the +X axis and a 90° rotation
+/// points it along +Y.
+#[derive(Component)]
+pub struct BeamVisual;
 
 #[derive(Clone, Copy, Debug)]
 pub enum HudElementKind {

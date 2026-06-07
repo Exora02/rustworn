@@ -4,11 +4,12 @@
 //! Damage routing (Day 11-12) will land here too.
 
 use bevy::prelude::*;
+use bevy::sprite::Anchor;
 use log::warn;
 
 use crate::components::{
-    AimDirection, Collider, Enemy, Health, HitFlash, Invulnerable, Knockback, Player, Projectile,
-    Team, Velocity, Weapon, WeaponArchetype,
+    AimDirection, BeamVisual, Collider, Enemy, Health, HitFlash, Invulnerable, Knockback, Player,
+    Projectile, Team, Velocity, Weapon, WeaponArchetype,
 };
 use crate::plugins::enemy::spawn_death_puff;
 use crate::resources::{GameSettings, Hitstop, RunState, ScreenShake};
@@ -20,10 +21,34 @@ const PROJECTILE_COLOR: Color = Color::srgb(1.0, 0.95, 0.6);
 /// Sprite size of the projectile. Long axis aligns with travel direction.
 const PROJECTILE_SIZE: Vec2 = Vec2::new(6.0, 12.0);
 
+/// Phase 1 (beam): visual color of the beam sprite. Hot
+/// orange/yellow — reads as "energy weapon" in arcade color
+/// shorthand, distinct from the warm white of a bullet, the
+/// cool cyan of the burst HUD bar, and the dark reds of
+/// enemy death. The same color is used for the HUD fire-rate
+/// bar fill (see `FIRE_RATE_BEAM` in `hud.rs`) so the player
+/// sees one consistent "you're on the beam weapon" signal.
+const BEAM_COLOR: Color = Color::srgb(1.0, 0.6, 0.1);
+
+/// Phase 1 (beam): z-order of the beam visual sprite. Sits
+/// above the projectiles (0.5) and well below the HUD (10.0)
+/// so the beam paints in the world but never bleeds onto the
+/// HUD bars. 0.5+epsilon on Bazzite (wgpu) where same-z
+/// ordering is arbitrary — see `bevy-0.16-gotchas` §12
+/// correction note.
+const BEAM_Z: f32 = 0.6;
+
 pub struct CombatPlugin;
 
 impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
+        // Phase 1 (beam): the beam visual entity is spawned once
+        // at startup alongside the player. A single persistent
+        // sprite (not a per-frame spawn/despawn) so the
+        // `beam_damage_system` can simply toggle its visibility
+        // and reposition it each frame.
+        app.add_systems(Startup, spawn_beam_visual);
+
         // Order: cooldown tick (drives `fire_timer.finished()`) → fire
         // (consumes click + spawns projectile) → projectile lifetime
         // (despawns old ones) → projectile-damage (resolves hits
@@ -36,12 +61,22 @@ impl Plugin for CombatPlugin {
         // click. (In practice the click + key press are mutually
         // exclusive in the same frame, but ordering it this way
         // makes the intent clear.)
+        //
+        // `beam_damage_system` runs after the click-based
+        // `weapon_fire_system` (which early-returns for Beam).
+        // Both read `Weapon` from the player but on different
+        // archetype arms, and Bevy serializes them in the chain,
+        // so there's no B0001 conflict. Beam damage resolves
+        // before projectile lifetime / damage so a beam tick that
+        // kills an enemy in the same frame as a sniper bullet
+        // despawns both consistently.
         app.add_systems(
             Update,
             (
                 weapon_cooldown_tick_system,
                 weapon_switch_system,
                 weapon_fire_system,
+                beam_damage_system,
                 projectile_lifetime_system,
                 projectile_damage_system,
                 // Phase 1 (shooter): mirror of `projectile_damage_system`
@@ -57,6 +92,35 @@ impl Plugin for CombatPlugin {
                 .chain(),
         );
     }
+}
+
+/// Phase 1 (beam): spawn a single persistent beam-visual sprite
+/// entity at startup. Hidden by default; `beam_damage_system`
+/// toggles its `Visibility` and updates its position, rotation,
+/// and scale each frame based on the player's position, aim
+/// direction, and the `Weapon::beam_active` flag. The sprite
+/// is anchored at `Anchor::CenterLeft` (its transform position
+/// is the "start" of the beam, the sprite extends outward in
+/// the +X direction after rotation), and its `custom_size` is
+/// set to (max_range, thickness) once at spawn so the
+/// per-frame update only needs to set the rotation and
+/// visibility — the size is constant.
+///
+/// Z = `BEAM_Z` (0.6) puts the beam above projectiles (0.5)
+/// and well below the HUD (10.0), so the beam paints in the
+/// world but never bleeds onto the HUD bars.
+fn spawn_beam_visual(mut commands: Commands, settings: Res<GameSettings>) {
+    commands.spawn((
+        BeamVisual,
+        Sprite {
+            color: BEAM_COLOR,
+            custom_size: Some(Vec2::new(settings.beam_max_range, settings.beam_thickness)),
+            anchor: Anchor::CenterLeft,
+            ..default()
+        },
+        Transform::from_xyz(0.0, 0.0, BEAM_Z),
+        Visibility::Hidden,
+    ));
 }
 
 // Phase 1 (shotgun + burst): per-archetype stat lookup. The single
@@ -89,6 +153,12 @@ fn weapon_stats_for(archetype: WeaponArchetype) -> (f32, f32, f32, u32, f32, u32
         WeaponArchetype::Pistol => (1.0, 3.0, 700.0, 1, 0.0, 1),
         WeaponArchetype::Shotgun => (0.5, 1.0, 600.0, 5, 0.35, 1),
         WeaponArchetype::Burst => (0.7, 2.0, 700.0, 1, 0.0, 3),
+        // Beam: damage/fire_rate are cosmetic for the HUD bar
+        // (the real cadence is `beam_tick_interval_s`); speed=0
+        // signals "no projectile, instant hit"; pellet_count=1 +
+        // spread_rad=0 means the click path (which early-returns
+        // for Beam) wouldn't even spawn anything.
+        WeaponArchetype::Beam => (0.5, 10.0, 0.0, 1, 0.0, 1),
     }
 }
 
@@ -150,7 +220,7 @@ fn weapon_switch_system(
         return;
     };
 
-    // Press priority: 1/2/3 (direct) first, then Q (cycle). If both
+    // Press priority: 1/2/3/4 (direct) first, then Q (cycle). If both
     // Q and a number key are pressed on the same frame, the number
     // key wins (explicit slot is more direct than "next").
     let target: Option<WeaponArchetype> = if keys.just_pressed(KeyCode::Digit1) {
@@ -159,6 +229,8 @@ fn weapon_switch_system(
         Some(WeaponArchetype::Shotgun)
     } else if keys.just_pressed(KeyCode::Digit3) {
         Some(WeaponArchetype::Burst)
+    } else if keys.just_pressed(KeyCode::Digit4) {
+        Some(WeaponArchetype::Beam)
     } else if keys.just_pressed(KeyCode::KeyQ) {
         Some(next_archetype(weapon.archetype))
     } else {
@@ -193,13 +265,14 @@ fn weapon_switch_system(
     weapon.fire_timer = Timer::from_seconds(0.0, TimerMode::Once);
 }
 
-// Cycle order: Pistol → Shotgun → Burst → Pistol. New weapons
-// slot in here.
+// Cycle order: Pistol → Shotgun → Burst → Beam → Pistol. New
+// weapons slot in here.
 fn next_archetype(current: WeaponArchetype) -> WeaponArchetype {
     match current {
         WeaponArchetype::Pistol => WeaponArchetype::Shotgun,
         WeaponArchetype::Shotgun => WeaponArchetype::Burst,
-        WeaponArchetype::Burst => WeaponArchetype::Pistol,
+        WeaponArchetype::Burst => WeaponArchetype::Beam,
+        WeaponArchetype::Beam => WeaponArchetype::Pistol,
     }
 }
 
@@ -255,6 +328,26 @@ fn weapon_fire_system(
     let Ok((mut weapon, player_transform)) = weapons.single_mut() else {
         return;
     };
+    // Phase 1 (beam): beam is held-trigger — its damage cadence is
+    // driven entirely by `beam_damage_system` (per-tick damage to
+    // enemies in the beam's capsule). The click path doesn't fire
+    // a projectile for beam; instead, the press/release toggles
+    // `Weapon::beam_active`, which the damage system reads each
+    // frame. We also reset the fire_timer on press to consume the
+    // click so the click doesn't immediately re-trigger on the
+    // next frame (mouse.just_pressed stays true for one frame).
+    if weapon.archetype == WeaponArchetype::Beam {
+        if mouse.just_pressed(MouseButton::Left) {
+            weapon.beam_active = true;
+            weapon.beam_tick_timer.reset();
+        }
+        if mouse.just_released(MouseButton::Left) {
+            weapon.beam_active = false;
+        }
+        // Beam never gates on the fire_timer; the fire_timer
+        // for beam is purely cosmetic (not used).
+        return;
+    }
     if !weapon.fire_timer.finished() {
         return;
     }
@@ -369,6 +462,141 @@ fn weapon_fire_system(
 fn rotate_vec2(v: Vec2, angle: f32) -> Vec2 {
     let (s, c) = angle.sin_cos();
     Vec2::new(v.x * c - v.y * s, v.x * s + v.y * c)
+}
+
+// Project a point onto the beam's line segment, returning the
+// perpendicular distance from the beam line to the point. If the
+// projection falls outside the segment, returns infinity (caller
+// treats as "miss"). This is the test the beam uses to decide
+// whether an enemy is "in the beam" — capsule-vs-point.
+fn point_to_segment_distance(p: Vec2, a: Vec2, b: Vec2) -> f32 {
+    let ab = b - a;
+    let len_sq = ab.length_squared();
+    if len_sq < f32::EPSILON {
+        // Degenerate segment (a == b). Return distance to a.
+        return (p - a).length();
+    }
+    let t = ((p - a).dot(ab) / len_sq).clamp(0.0, 1.0);
+    let projection = a + ab * t;
+    (p - projection).length()
+}
+
+// Phase 1 (beam): tick the beam's repeating damage timer and, on
+// each tick, apply `beam_damage_per_tick` to every enemy whose
+// center falls inside the beam's capsule. Also update the beam
+// visual entity's transform + visibility each frame.
+//
+// The beam is a line segment from the player's position to
+// (player_pos + aim_dir * max_range). An enemy is hit when its
+// center is within (its half_extent + beam_thickness/2) of the
+// line, AND its projection lies on the segment (clamp(0, 1) in
+// `point_to_segment_distance`).
+//
+// Hit-flash + HP + death-puff + kill counter are wired through
+// the same `HitFlash` insert + `spawn_death_puff` call that the
+// projectile path uses, so the beam feels like every other
+// damage source. The `commands.get_entity` check would NOT
+// protect us from the same-frame-corpse panic (see
+// bevy-0.16-gotchas §9), so we skip enemies with
+// `health.current <= 0.0` in the inner loop instead.
+//
+// Frozen during hitstop + game over so the beam doesn't keep
+// dealing damage through a freeze or after death.
+#[allow(clippy::too_many_arguments)]
+fn beam_damage_system(
+    time: Res<Time>,
+    aim: Res<AimDirection>,
+    settings: Res<GameSettings>,
+    hitstop: Option<Res<Hitstop>>,
+    // `Res<RunState>` and `ResMut<RunState>` together would
+    // raise B0002 (conflicting access to the same resource).
+    // `run_state` is read+mutated below; we use the same
+    // binding for the early-return gate (a read is fine on
+    // `ResMut`).
+    mut run_state: ResMut<RunState>,
+    mut commands: Commands,
+    mut weapons: Query<&mut Weapon, With<Player>>,
+    player_query: Query<&Transform, With<Player>>,
+    mut enemies: Query<(Entity, &Transform, &Collider, &mut Health), With<Enemy>>,
+    mut beam_visual: Query<
+        (&mut Transform, &mut Visibility),
+        (With<BeamVisual>, Without<Player>, Without<Enemy>),
+    >,
+) {
+    if in_hitstop(&hitstop) || in_game_over(&run_state) {
+        // Hide the beam during freeze/death so the visual
+        // doesn't keep painting a dead frame.
+        if let Ok((_t, mut vis)) = beam_visual.single_mut() {
+            *vis = Visibility::Hidden;
+        }
+        return;
+    }
+    let Ok(mut weapon) = weapons.single_mut() else {
+        return;
+    };
+    if weapon.archetype != WeaponArchetype::Beam {
+        // Player is on a different weapon. Hide the beam sprite
+        // so a stale visual doesn't linger.
+        if let Ok((_t, mut vis)) = beam_visual.single_mut() {
+            *vis = Visibility::Hidden;
+        }
+        return;
+    }
+    let Ok(player_tf) = player_query.single() else {
+        return;
+    };
+    let Ok((mut beam_tf, mut beam_vis)) = beam_visual.single_mut() else {
+        return;
+    };
+
+    if !weapon.beam_active {
+        *beam_vis = Visibility::Hidden;
+        return;
+    }
+    *beam_vis = Visibility::Inherited;
+
+    // Update the visual: position at player, rotate to aim dir,
+    // size set once at spawn. The sprite's Anchor::CenterLeft
+    // means the transform position is the beam's start, and
+    // rotation 0 points along +X. We want +X rotated to the
+    // aim direction.
+    let player_pos = player_tf.translation.truncate();
+    let center_dir = if aim.0 == Vec2::ZERO { Vec2::Y } else { aim.0 };
+    beam_tf.translation.x = player_pos.x;
+    beam_tf.translation.y = player_pos.y;
+    let angle = center_dir.y.atan2(center_dir.x);
+    beam_tf.rotation = Quat::from_rotation_z(angle);
+
+    // Tick the damage timer; on each tick, sweep enemies.
+    weapon.beam_tick_timer.tick(time.delta());
+    if !weapon.beam_tick_timer.just_finished() {
+        return;
+    }
+    let beam_end = player_pos + center_dir * settings.beam_max_range;
+    let half_thickness = settings.beam_thickness * 0.5;
+    let damage = settings.beam_damage_per_tick;
+
+    for (enemy_entity, enemy_tf, enemy_col, mut health) in &mut enemies {
+        // Same-frame corpse guard: see bevy-0.16-gotchas §9.
+        if health.current <= 0.0 {
+            continue;
+        }
+        let enemy_pos = enemy_tf.translation.truncate();
+        let enemy_radius = enemy_col.half_extents.length();
+        let dist = point_to_segment_distance(enemy_pos, player_pos, beam_end);
+        if dist > half_thickness + enemy_radius {
+            continue;
+        }
+        health.current -= damage;
+        commands.entity(enemy_entity).insert(HitFlash {
+            timer: Timer::from_seconds(0.1, TimerMode::Once),
+        });
+        if health.current <= 0.0 {
+            spawn_death_puff(&mut commands, &settings, enemy_pos);
+            run_state.enemies_killed += 1;
+            commands.entity(enemy_entity).despawn();
+        }
+    }
 }
 
 fn projectile_lifetime_system(

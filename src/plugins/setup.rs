@@ -71,6 +71,16 @@ fn spawn_camera_and_player(mut commands: Commands, settings: Res<GameSettings>) 
                 burst_rounds: 1,
                 fire_timer: Timer::from_seconds(0.0, TimerMode::Once),
                 burst_rounds_remaining: 0,
+                // Phase 1 (beam): start with the beam unheld.
+                // The repeating timer is initialized to the
+                // configured tick interval so the first damage
+                // tick is exactly `beam_tick_interval_s` after
+                // the press, not immediate.
+                beam_active: false,
+                beam_tick_timer: Timer::from_seconds(
+                    settings.beam_tick_interval_s,
+                    TimerMode::Repeating,
+                ),
             },
         ))
         .with_children(|parent| {
