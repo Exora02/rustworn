@@ -22,7 +22,9 @@
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
 
-use crate::components::{Health, HudElement, HudElementKind, Player, Weapon, WeaponArchetype};
+use crate::components::{
+    CascadeTelegraph, Health, HudElement, HudElementKind, Player, Weapon, WeaponArchetype,
+};
 use crate::resources::{CascadeState, RunState};
 
 /// Width of the player's view in world units. The HUD layout uses
@@ -103,6 +105,40 @@ const RESTART_PROMPT_OFFSET_Y: f32 = 50.0;
 const RESTART_TEXT: &str = "Press R to restart";
 const RESTART_FONT_SIZE: f32 = 32.0;
 
+// ─── Cascade telegraph overlay (Phase 1) ──────────────────────────────
+//
+// A single full-screen sprite that tints the world during a
+// Cascade window. The visual progression:
+//
+//   idle     — overlay hidden, world is normal
+//   warning  — 3s before the next window opens, purple
+//              pulses at ~2 Hz, alpha 0..MAX_PULSE
+//   active   — window is open, solid purple tint at ACTIVE_ALPHA
+//
+// All three states use the same sprite entity; only the
+// color/alpha/visibility change frame to frame.
+
+/// Tint color for the cascade overlay — matches the cascade bar
+/// in the HUD so the player sees the same purple both in the
+/// corner indicator and across the whole world.
+const CASCADE_TELEGRAPH_COLOR: Color = Color::srgb(0.45, 0.20, 0.85);
+
+/// Alpha during the active window. Low enough that the world is
+/// still readable (you need to see enemies through the tint) but
+/// high enough that the cascade state is unmistakable.
+const CASCADE_TELEGRAPH_ACTIVE_ALPHA: f32 = 0.30;
+
+/// Peak alpha during the 3s warning pulse. Lower than the active
+/// alpha so the warning reads as a "preparing to happen" signal
+/// rather than the cascade itself being live.
+const CASCADE_TELEGRAPH_PULSE_MAX_ALPHA: f32 = 0.18;
+
+/// How many seconds before the cascade window opens the warning
+/// pulse begins. 3s gives the player enough time to register
+/// the visual change, prepare positioning, and plan a route
+/// into the densest enemy cluster.
+const CASCADE_TELEGRAPH_WARNING_LEAD_S: f32 = 3.0;
+
 // ─── Layout offsets (top-left, top-right) ────────────────────────────────
 
 const HUD_OFFSET: Vec2 = Vec2::new(-(VIEW_WIDTH * 0.5) + 60.0, VIEW_HEIGHT * 0.5 - 40.0);
@@ -124,8 +160,11 @@ impl Plugin for HudPlugin {
         // The HUD doesn't care about hitstop or game over — it keeps
         // updating through both so the player can see their HP drop
         // during a freeze and the game-over overlay can stay visible.
-        app.add_systems(Startup, spawn_hud)
-            .add_systems(Update, hud_update_system);
+        app.add_systems(Startup, (spawn_hud, spawn_cascade_telegraph))
+            .add_systems(
+                Update,
+                (cascade_telegraph_update, hud_update_system).chain(),
+            );
     }
 }
 
@@ -275,10 +314,120 @@ fn spawn_hud(mut commands: Commands) {
     ));
 }
 
-// Spawn a bg+fill pair sharing a HudElementKind. The bg has scale
-// (1, 1) and never changes; the fill's scale.x encodes the value
-// and its color is the per-bar "active" color. Both share the same
-// position so they overlap exactly.
+// Spawn a single full-screen overlay sprite that the cascade
+// telegraph system tints each frame. Lives for the whole run
+// (no despawn); the system flips its `Visibility` between
+// Inherited and Hidden based on cascade state. Size is 2× the
+// view dimensions so it always covers the screen even during
+// the briefest camera-follow lag (when the player gets
+// knocked back, the camera lerps and might catch up a frame
+// late — a 2× overlay absorbs that without exposing any
+// un-tinted border).
+fn spawn_cascade_telegraph(mut commands: Commands) {
+    commands.spawn((
+        Sprite {
+            color: CASCADE_TELEGRAPH_COLOR.with_alpha(0.0),
+            custom_size: Some(Vec2::new(VIEW_WIDTH * 2.0, VIEW_HEIGHT * 2.0)),
+            ..default()
+        },
+        // z above the HUD bars but below the game-over overlay
+        // (which sits at HUD_Z + 0.2 sprite + HUD_Z + 0.3 text).
+        // The cascade tint should be on the world, not on the
+        // death screen, so HUD_Z + 0.4 puts it between them.
+        Transform::from_xyz(0.0, 0.0, HUD_Z + 0.4),
+        Visibility::Hidden,
+        CascadeTelegraph,
+    ));
+}
+
+// Update the cascade telegraph overlay each frame. Three
+// states:
+//
+//   1. cascade.active == true → solid purple tint at
+//      CASCADE_TELEGRAPH_ACTIVE_ALPHA. The world is "in
+//      cascade mode" and the player is rewarded for noticing
+//      (kills are 4×, etc, when those land in Phase 2).
+//
+//   2. cascade.active == false AND interval_timer.remaining_secs()
+//      is in (0, CASCADE_TELEGRAPH_WARNING_LEAD_S] → purple
+//      pulse, alpha oscillates between 0 and
+//      CASCADE_TELEGRAPH_PULSE_MAX_ALPHA. The pulse gives
+//      the player a 3s heads-up to either position for the
+//      incoming slow-mo (push into a cluster) or back off
+//      (if HP is low).
+//
+//   3. otherwise → hidden. Most of the run, the overlay is
+//      invisible; the cascade bar in the HUD corner is the
+//      only signal.
+//
+// Position: the overlay is anchored at the player's
+// transform each frame so it always covers the camera
+// viewport (which follows the player).
+fn cascade_telegraph_update(
+    cascade: Res<CascadeState>,
+    player_query: Query<&Transform, (With<Player>, Without<CascadeTelegraph>)>,
+    // `Without<HudElement>` is a no-op in practice (the overlay
+    // never has `HudElement` — it's a different concept) but it
+    // tells Bevy's disjointness checker that this query is
+    // mutually exclusive with `hud_update_system`'s `hud_query`
+    // (which is `With<HudElement>` and also needs `&mut
+    // Transform`). Without the hint, Bevy raises B0001 because
+    // both queries touch `Transform` and the checker can't
+    // prove they don't overlap.
+    mut overlay_query: Query<
+        (&mut Transform, &mut Sprite, &mut Visibility),
+        (With<CascadeTelegraph>, Without<HudElement>),
+    >,
+) {
+    let Ok(player_tf) = player_query.single() else {
+        return;
+    };
+    let Ok((mut tf, mut sprite, mut vis)) = overlay_query.single_mut() else {
+        return;
+    };
+
+    // Position at the player each frame. Z is preserved so the
+    // overlay doesn't fight the spawn-time z (HUD_Z + 0.4).
+    tf.translation = Vec3::new(
+        player_tf.translation.x,
+        player_tf.translation.y,
+        tf.translation.z,
+    );
+
+    if cascade.active {
+        // State 1: active window. Solid tint, full alpha for the
+        // active state.
+        sprite.color = CASCADE_TELEGRAPH_COLOR.with_alpha(CASCADE_TELEGRAPH_ACTIVE_ALPHA);
+        *vis = Visibility::Inherited;
+    } else {
+        // State 2 or 3: cooldown. Check whether we're inside the
+        // warning window.
+        let remaining = cascade.interval_timer.remaining_secs();
+        if remaining > 0.0 && remaining <= CASCADE_TELEGRAPH_WARNING_LEAD_S {
+            // State 2: warning pulse. Oscillate alpha between 0
+            // and the pulse max. The pulse period is 0.5s (2 Hz)
+            // so the player sees roughly 6 pulses during the 3s
+            // window — enough to register as "something is
+            // about to happen" without being annoying.
+            // `elapsed_in_warning` is the time since the warning
+            // started, used to phase the pulse.
+            let elapsed_in_warning = CASCADE_TELEGRAPH_WARNING_LEAD_S - remaining;
+            // |sin(2π × elapsed × freq)| gives a 0..1 oscillation.
+            // freq = 2.0 Hz → period 0.5s → 6 full pulses in 3s.
+            let pulse = (elapsed_in_warning * std::f32::consts::TAU * 2.0)
+                .sin()
+                .abs();
+            let alpha = pulse * CASCADE_TELEGRAPH_PULSE_MAX_ALPHA;
+            sprite.color = CASCADE_TELEGRAPH_COLOR.with_alpha(alpha);
+            *vis = Visibility::Inherited;
+        } else {
+            // State 3: hidden. Far from the next window (either
+            // just after one ended, or before the warning
+            // window started).
+            *vis = Visibility::Hidden;
+        }
+    }
+}
 fn spawn_bar(
     commands: &mut Commands,
     pos: Vec2,

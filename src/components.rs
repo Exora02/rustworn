@@ -289,6 +289,20 @@ pub struct HudElement {
     pub kind: HudElementKind,
 }
 
+/// Phase 1 cascade telegraph: a full-screen overlay sprite that
+/// tints the world during a Cascade window. Solid purple tint
+/// while the window is open, pulsing purple in the 3s before
+/// opening, hidden otherwise. Per-entity marker so the
+/// cascade-telegraph update system can find the overlay via
+/// `Query<&mut Sprite, With<CascadeTelegraph>>` and update its
+/// color/alpha/visibility without disturbing any other HUD
+/// element. The overlay is positioned at the player each
+/// frame so it always covers the camera viewport (the overlay
+/// is 2× the view size to ensure it covers even during
+/// extreme camera-follow lag).
+#[derive(Component)]
+pub struct CascadeTelegraph;
+
 #[derive(Clone, Copy, Debug)]
 pub enum HudElementKind {
     HpBar,
