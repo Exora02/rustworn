@@ -166,9 +166,53 @@ impl Plugin for HudPlugin {
             .add_systems(
                 Update,
                 (cascade_telegraph_update, hud_update_system).chain(),
-            );
+            )
+            // ─── DIAGNOSTIC (feat/text2d-investigation) ───────────
+            // A probe that runs once per second and logs whether the
+            // default Font handle resolves to a real Font asset.
+            // If `default_font` is missing from the bevy feature
+            // list in Cargo.toml, the bound check will report false
+            // every time — the smoking gun for the Text2d-rendering
+            // bug. Removed by the user after the investigation.
+            .add_systems(Update, text2d_probe_system);
     }
 }
+
+// ─── DIAGNOSTIC (feat/text2d-investigation) ─────────────────────────────────
+// Runs every ~60 frames (~1s at 60fps) and logs:
+//   - whether the default `Handle<Font>` is bound to a real Font asset
+//   - the count of Text2d entities in the world
+//   - whether a Text2d entity has a populated `TextLayoutInfo.glyphs` vec
+//
+// If the default Font handle is unbound, then the
+// `default_font` feature is missing from Cargo.toml — that's
+// the root cause. Throttled with a Local counter so it
+// doesn't spam the log. We only check the asset-binding
+// question (the most informative probe); the per-entity
+// layout/glyph details require private bevy_text internals.
+fn text2d_probe_system(
+    mut frame_counter: Local<u32>,
+    fonts: Res<Assets<Font>>,
+    text_query: Query<Entity, With<Text2d>>,
+) {
+    *frame_counter += 1;
+    if !(*frame_counter == 1 || *frame_counter % 60 == 0) {
+        return;
+    }
+    let default_handle = Handle::<Font>::default();
+    let bound = fonts.get(&default_handle).is_some();
+    log::info!(
+        "[text2d-probe] default Handle<Font> bound to a real Font asset: {} \
+         (this MUST be true for Text2d to render anything — false means \
+         `default_font` feature is missing from Cargo.toml)",
+        bound
+    );
+    log::info!(
+        "[text2d-probe] Text2d entity count: {}",
+        text_query.iter().count()
+    );
+}
+// ─── END DIAGNOSTIC ─────────────────────────────────────────────────────────
 
 fn spawn_hud(mut commands: Commands) {
     spawn_bar(
@@ -280,6 +324,19 @@ fn spawn_hud(mut commands: Commands) {
             kind: HudElementKind::GameOver,
         },
     ));
+
+    // ─── DIAGNOSTIC (feat/text2d-investigation) ──────────────────────────
+    // Single boot-time log to confirm the text entities are spawning.
+    // The actual layout/extract systems live in `bevy_text` and run in
+    // PostUpdate regardless of our app code, so this is only useful
+    // for confirming the entity was created with the right components.
+    log::info!(
+        "[text2d-probe] GameOver text entity spawned with TextFont font_size={} \
+         and default Handle<Font> (will resolve to FiraMono only if `default_font` \
+         feature is enabled; check Cargo.toml)",
+        GAME_OVER_FONT_SIZE
+    );
+    // ─── END DIAGNOSTIC ──────────────────────────────────────────────────
 
     // Restart prompt: same two-entity pattern (box + text) as
     // the game-over overlay. The two entities are independently
