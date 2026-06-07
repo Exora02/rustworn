@@ -15,6 +15,11 @@ pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
+        // AimDirection is a Resource the player systems read every
+        // frame; it must be explicitly initialized, or every
+        // Res<AimDirection> / ResMut<AimDirection> access panics.
+        app.init_resource::<AimDirection>();
+
         // Order matters: input → state overrides → velocity copy →
         // movement + visuals → camera follow.
         app.add_systems(
