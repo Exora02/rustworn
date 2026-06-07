@@ -7,10 +7,12 @@
 
 pub mod combat;
 pub mod enemy;
+pub mod hud;
 pub mod player;
 pub mod setup;
 
 pub use combat::CombatPlugin;
 pub use enemy::EnemyPlugin;
+pub use hud::HudPlugin;
 pub use player::PlayerPlugin;
 pub use setup::SetupPlugin;

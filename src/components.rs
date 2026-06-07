@@ -173,3 +173,28 @@ pub struct Knockback {
 pub struct DeathPuff {
     pub lifetime: Timer,
 }
+
+/// Brief white flash on an enemy when hit by a projectile. Inserted
+/// by the projectile-damage system on every hit (not just kills).
+/// Drives a per-frame color lerp in the enemy plugin; the system
+/// snaps the color back to the chaser base color when the timer
+/// elapses so the next hit starts from the right base.
+#[derive(Component)]
+pub struct HitFlash {
+    pub timer: Timer,
+}
+
+/// Marker for a HUD element. The HUD plugin positions each element
+/// at a fixed offset from the player each frame (so the HUD stays
+/// screen-stable as the camera follows) and updates its visual to
+/// reflect current state (HP ratio, fire-rate progress).
+#[derive(Component)]
+pub struct HudElement {
+    pub kind: HudElementKind,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum HudElementKind {
+    HpBar,
+    FireRate,
+}

@@ -6,10 +6,11 @@
 use bevy::prelude::*;
 
 use crate::components::{
-    AimDirection, BaseVelocity, Collider, Enemy, Health, Player, Projectile, Team, Velocity, Weapon,
+    AimDirection, BaseVelocity, Collider, Enemy, Health, HitFlash, Player, Projectile, Team,
+    Velocity, Weapon,
 };
 use crate::plugins::enemy::spawn_death_puff;
-use crate::resources::GameSettings;
+use crate::resources::{GameSettings, Hitstop};
 
 /// Color of the player projectile — warm white, clearly readable as a
 /// bullet against any background we'll add later.
@@ -40,10 +41,27 @@ impl Plugin for CombatPlugin {
     }
 }
 
+// Day 13-14: helper to early-return when a global hitstop is active.
+// Used by every combat system that ticks timers, mutates transforms,
+// or fires projectiles — the freeze is felt uniformly because all of
+// them gate on this. The resource is removed by `hitstop_tick_system`
+// in the player plugin once its timer elapses.
+fn in_hitstop(hitstop: &Option<Res<Hitstop>>) -> bool {
+    hitstop.is_some()
+}
+
 // Each frame, advance every weapon's fire_timer. A freshly fired weapon
 // has its timer set to `1.0 / fire_rate`; once it ticks down to zero the
-// weapon can fire again.
-fn weapon_cooldown_tick_system(time: Res<Time>, mut query: Query<&mut Weapon>) {
+// weapon can fire again. Frozen during global hitstop so the player
+// can't circumvent the freeze by firing.
+fn weapon_cooldown_tick_system(
+    time: Res<Time>,
+    hitstop: Option<Res<Hitstop>>,
+    mut query: Query<&mut Weapon>,
+) {
+    if in_hitstop(&hitstop) {
+        return;
+    }
     for mut weapon in &mut query {
         weapon.fire_timer.tick(time.delta());
     }
@@ -51,14 +69,19 @@ fn weapon_cooldown_tick_system(time: Res<Time>, mut query: Query<&mut Weapon>) {
 
 // Left-click on a ready weapon → spawn a Projectile traveling in the
 // current aim direction. The projectile gets a `Velocity` but no
-// `BaseVelocity` (player projectiles don't cascade-scale).
+// `BaseVelocity` (player projectiles don't cascade-scale). Frozen
+// during global hitstop.
 fn weapon_fire_system(
     mouse: Res<ButtonInput<MouseButton>>,
     aim: Res<AimDirection>,
     settings: Res<GameSettings>,
+    hitstop: Option<Res<Hitstop>>,
     mut commands: Commands,
     mut weapons: Query<(&mut Weapon, &Transform), With<Player>>,
 ) {
+    if in_hitstop(&hitstop) {
+        return;
+    }
     if !mouse.just_pressed(MouseButton::Left) {
         return;
     }
@@ -112,9 +135,13 @@ fn weapon_fire_system(
 
 fn projectile_lifetime_system(
     time: Res<Time>,
+    hitstop: Option<Res<Hitstop>>,
     mut commands: Commands,
     mut query: Query<(Entity, &mut Projectile)>,
 ) {
+    if in_hitstop(&hitstop) {
+        return;
+    }
     for (entity, mut proj) in &mut query {
         proj.lifetime.tick(time.delta());
         if proj.lifetime.finished() {
@@ -140,10 +167,16 @@ fn aabb_overlap(pos_a: Vec2, half_a: Vec2, pos_b: Vec2, half_b: Vec2) -> bool {
 // naturally.
 fn projectile_damage_system(
     settings: Res<GameSettings>,
+    hitstop: Option<Res<Hitstop>>,
     mut commands: Commands,
     projectiles: Query<(Entity, &Transform, &Collider, &Projectile)>,
     mut enemies: Query<(Entity, &Transform, &Collider, &mut Health), With<Enemy>>,
 ) {
+    // Frozen during global hitstop — a killing blow that triggers the
+    // freeze should not also resolve follow-up hits in the same frame.
+    if in_hitstop(&hitstop) {
+        return;
+    }
     for (proj_entity, proj_tf, proj_col, proj) in &projectiles {
         // Projectiles are Player team today; the team check is in
         // place so enemy projectiles (Phase 1+) can co-exist without
@@ -165,10 +198,21 @@ fn projectile_damage_system(
             }
             health.current = (health.current - proj.damage).max(0.0);
             hit = true;
+            // Day 13-14: white pulse on every hit (kill or not).
+            commands.entity(enemy_entity).insert(HitFlash {
+                timer: Timer::from_seconds(settings.hit_flash_duration_s, TimerMode::Once),
+            });
             if health.current <= 0.0 {
                 let pos = enemy_tf.translation.truncate();
                 commands.entity(enemy_entity).despawn();
                 spawn_death_puff(&mut commands, &settings, pos);
+                // Day 13-14: global hitstop on a killing blow. Insert
+                // (or refresh) the resource — every combat/player/
+                // enemy system gates on its presence, so the freeze
+                // is felt uniformly across the game.
+                commands.insert_resource(Hitstop {
+                    timer: Timer::from_seconds(settings.hitstop_duration_s, TimerMode::Once),
+                });
             }
             break;
         }

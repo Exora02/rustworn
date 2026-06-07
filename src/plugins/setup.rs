@@ -10,7 +10,7 @@ use crate::components::{
     AimIndicator, BaseVelocity, Collider, Health, MainCamera, Player, Spawner, Velocity, Weapon,
     WeaponArchetype, PLAYER_COLOR,
 };
-use crate::resources::{CascadeState, GameSettings, RunState};
+use crate::resources::{CascadeState, GameSettings, RunState, ScreenShake};
 
 /// Color of the aim indicator line — high-contrast white so it stays
 /// readable against any background we'll add later.
@@ -24,6 +24,9 @@ impl Plugin for SetupPlugin {
         app.init_resource::<CascadeState>()
             .init_resource::<RunState>()
             .init_resource::<GameSettings>()
+            // Day 13-14: ScreenShake is Default, so a single
+            // init_resource call seeds it (intensity=0, no shake).
+            .init_resource::<ScreenShake>()
             .add_systems(Startup, spawn_camera_and_player);
     }
 }

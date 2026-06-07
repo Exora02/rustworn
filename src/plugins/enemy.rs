@@ -9,10 +9,10 @@ use bevy::prelude::*;
 use log::warn;
 
 use crate::components::{
-    AiBehavior, BaseVelocity, Collider, DeathPuff, Enemy, EnemyAI, Health, Invulnerable, Knockback,
-    Player, Spawner, Velocity,
+    AiBehavior, BaseVelocity, Collider, DeathPuff, Enemy, EnemyAI, Health, HitFlash, Invulnerable,
+    Knockback, Player, Spawner, Velocity,
 };
-use crate::resources::GameSettings;
+use crate::resources::{GameSettings, Hitstop, ScreenShake};
 
 /// Color of the chaser — high-contrast red so it reads as "danger" at
 /// a glance against the orange player and the dark background we'll
@@ -33,6 +33,8 @@ impl Plugin for EnemyPlugin {
         // happen via shared systems in the player and combat plugins.
         // Death-puff tick runs after contact so the puff's despawn
         // doesn't fight with a fresh spawn in the same frame.
+        // Hit-flash tick runs last so the color reset on flash-end
+        // doesn't fight with a fresh flash from a same-frame hit.
         app.add_systems(
             Update,
             (
@@ -40,6 +42,7 @@ impl Plugin for EnemyPlugin {
                 enemy_ai_system,
                 enemy_contact_damage_system,
                 death_puff_tick_system,
+                hit_flash_tick_system,
             )
                 .chain(),
         );
@@ -50,14 +53,20 @@ impl Plugin for EnemyPlugin {
 
 // Each frame, advance every spawner's timer. When the timer elapses,
 // spawn a chaser at a random angle from the player at a random distance
-// in [min_distance, max_distance], then reset the timer.
+// in [min_distance, max_distance], then reset the timer. Frozen
+// during global hitstop so kills don't immediately spawn a new
+// wave of chasers mid-freeze.
 fn spawner_tick_system(
     time: Res<Time>,
     settings: Res<GameSettings>,
+    hitstop: Option<Res<Hitstop>>,
     mut commands: Commands,
     mut spawners: Query<&mut Spawner>,
     player_query: Query<&Transform, With<Player>>,
 ) {
+    if hitstop.is_some() {
+        return;
+    }
     let Ok(player_transform) = player_query.single() else {
         return;
     };
@@ -128,12 +137,17 @@ fn spawn_chaser(commands: &mut Commands, settings: &GameSettings, player_pos: Ve
 // For each chaser, compute the direction from the chaser to the player
 // and write it into BaseVelocity (scaled by chaser_move_speed). The
 // shared `velocity_apply_system` then copies it into `Velocity`, and
-// `movement_system` integrates it into the transform.
+// `movement_system` integrates it into the transform. Frozen during
+// global hitstop so chasers halt during the freeze.
 fn enemy_ai_system(
     settings: Res<GameSettings>,
+    hitstop: Option<Res<Hitstop>>,
     player_query: Query<&Transform, With<Player>>,
     mut enemies: Query<(&Transform, &EnemyAI, &mut BaseVelocity), With<Enemy>>,
 ) {
+    if hitstop.is_some() {
+        return;
+    }
     let Ok(player_transform) = player_query.single() else {
         return;
     };
@@ -181,10 +195,15 @@ type PlayerForContact = (
 // can't be hit twice on the same contact frame.
 fn enemy_contact_damage_system(
     settings: Res<GameSettings>,
+    hitstop: Option<Res<Hitstop>>,
     mut commands: Commands,
     mut player_query: Query<PlayerForContact, With<Player>>,
     enemies: Query<&Transform, (With<Enemy>, With<Collider>)>,
+    mut shake: ResMut<ScreenShake>,
 ) {
+    if hitstop.is_some() {
+        return;
+    }
     let Ok((player_entity, player_tf, player_col, mut health, invulnerable)) =
         player_query.single_mut()
     else {
@@ -198,7 +217,12 @@ fn enemy_contact_damage_system(
 
     for enemy_tf in &enemies {
         let enemy_pos = enemy_tf.translation.truncate();
-        if !aabb_overlap(player_pos, player_col.half_extents, enemy_pos, CHASER_SIZE_HALF) {
+        if !aabb_overlap(
+            player_pos,
+            player_col.half_extents,
+            enemy_pos,
+            CHASER_SIZE_HALF,
+        ) {
             continue;
         }
 
@@ -208,6 +232,13 @@ fn enemy_contact_damage_system(
             "Player took {:.1} damage — HP: {:.1}",
             settings.chaser_contact_damage, health.current
         );
+
+        // Day 13-14: trigger screen shake. Set both the duration
+        // (full shake window) and the remaining time so the camera
+        // follow system can decay the magnitude linearly.
+        shake.intensity = settings.screen_shake_intensity;
+        shake.duration = settings.screen_shake_duration_s;
+        shake.remaining = settings.screen_shake_duration_s;
 
         // Knockback direction = away from the enemy.
         let from_enemy = (player_pos - enemy_pos).normalize_or_zero();
@@ -221,10 +252,12 @@ fn enemy_contact_damage_system(
         });
         // Hit i-frames reuse the existing `Invulnerable` so the dash
         // visual flash + iframe gate work the same way.
-        commands.entity(player_entity).insert(Invulnerable(Timer::from_seconds(
-            settings.hit_iframe_duration_s,
-            TimerMode::Once,
-        )));
+        commands
+            .entity(player_entity)
+            .insert(Invulnerable(Timer::from_seconds(
+                settings.hit_iframe_duration_s,
+                TimerMode::Once,
+            )));
 
         // One hit per frame is enough — break out so the player can't
         // be hit twice on the same contact frame.
@@ -273,9 +306,41 @@ fn death_puff_tick_system(
             commands.entity(entity).despawn();
             continue;
         }
-        let progress =
-            puff.lifetime.elapsed_secs() / puff.lifetime.duration().as_secs_f32();
+        let progress = puff.lifetime.elapsed_secs() / puff.lifetime.duration().as_secs_f32();
         let alpha = 1.0 - progress.clamp(0.0, 1.0);
         sprite.color = sprite.color.with_alpha(alpha);
+    }
+}
+
+/// Day 13-14: brief white pulse on an enemy when hit by a projectile.
+/// Inserted by the projectile-damage system; here we tick the timer
+/// and lerp the enemy color toward white (stronger at the start,
+/// fading back to CHASER_COLOR by the time the timer elapses). When
+/// the timer finishes, the color is snapped back to the chaser base
+/// so subsequent hits start from a clean state.
+fn hit_flash_tick_system(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut query: Query<(Entity, &mut HitFlash, &mut Sprite), With<Enemy>>,
+) {
+    for (entity, mut flash, mut sprite) in &mut query {
+        flash.timer.tick(time.delta());
+        if flash.timer.finished() {
+            sprite.color = CHASER_COLOR;
+            commands.entity(entity).remove::<HitFlash>();
+            continue;
+        }
+        let progress = flash.timer.elapsed_secs() / flash.timer.duration().as_secs_f32();
+        // Inverse-progress lerp: 100% flash at the start of the
+        // window, 0% at the end. The 0.7 cap keeps the enemy
+        // recognizably red rather than going pure white.
+        let t = (1.0 - progress) * 0.7;
+        let base = CHASER_COLOR.to_srgba();
+        sprite.color = Color::srgba(
+            base.red + (1.0 - base.red) * t,
+            base.green + (1.0 - base.green) * t,
+            base.blue + (1.0 - base.blue) * t,
+            base.alpha,
+        );
     }
 }

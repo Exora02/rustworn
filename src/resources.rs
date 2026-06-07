@@ -42,6 +42,27 @@ impl Default for RunState {
     }
 }
 
+/// Brief global freeze when an enemy dies. Inserted by the
+/// projectile-damage system on a killing blow; ticks down each frame;
+/// any gameplay system (movement, AI, fire, contact) early-returns
+/// while the resource is present, so the hitstop is felt uniformly.
+/// The resource is removed when the timer elapses.
+#[derive(Resource)]
+pub struct Hitstop {
+    pub timer: Timer,
+}
+
+/// Global screen-shake state. Set to a non-zero intensity by the
+/// contact-damage system when the player takes a hit; the camera
+/// follow system reads the current value, adds a decaying random
+/// offset, and decays the remaining time each frame.
+#[derive(Resource, Default)]
+pub struct ScreenShake {
+    pub intensity: f32,
+    pub duration: f32,
+    pub remaining: f32,
+}
+
 /// Tunable gameplay constants. Lives in a resource so we can tweak
 /// values from the dev console or a settings menu without recompiling.
 #[derive(Resource)]
@@ -72,6 +93,11 @@ pub struct GameSettings {
     // Day 11-12 — enemy HP + death
     pub enemy_max_hp: f32,
     pub death_puff_lifetime_s: f32,
+    // Day 13-14 — HUD + juice
+    pub hit_flash_duration_s: f32,
+    pub hitstop_duration_s: f32,
+    pub screen_shake_intensity: f32,
+    pub screen_shake_duration_s: f32,
 }
 
 impl Default for GameSettings {
@@ -106,6 +132,13 @@ impl Default for GameSettings {
             // is a 0.3s fading white square.
             enemy_max_hp: 3.0,
             death_puff_lifetime_s: 0.3,
+            // Day 13-14 — enemy hit flash is a 0.1s white pulse,
+            // killing blows trigger a 50ms global hitstop, and
+            // taking damage shakes the camera for 0.2s at intensity 12.
+            hit_flash_duration_s: 0.1,
+            hitstop_duration_s: 0.05,
+            screen_shake_intensity: 12.0,
+            screen_shake_duration_s: 0.2,
         }
     }
 }
