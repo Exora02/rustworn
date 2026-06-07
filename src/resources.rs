@@ -146,6 +146,21 @@ pub struct GameSettings {
     pub dasher_recover_duration_s: f32,
     pub dasher_max_hp: f32,
     pub dasher_contact_damage: f32,
+    // Phase 1 — shooter enemy. First ranged enemy: moves toward
+    // the player until at `shooter_preferred_range`, then stops
+    // and fires `Team::Enemy` projectiles on a cooldown. The
+    // projectile speed is intentionally slower than the player's
+    // 700 so a player who sees the muzzle flash can sidestep.
+    // 1 contact damage (same as chaser) so a shooter that catches
+    // the player in melee range is a non-lethal trade.
+    pub shooter_move_speed: f32,
+    pub shooter_preferred_range: f32,
+    pub shooter_fire_rate: f32, // shots per second
+    pub shooter_projectile_speed: f32,
+    pub shooter_projectile_damage: f32,
+    pub shooter_projectile_lifetime_s: f32,
+    pub shooter_max_hp: f32,
+    pub shooter_contact_damage: f32,
     // Day 13-14 — HUD + juice
     pub hit_flash_duration_s: f32,
     pub hitstop_duration_s: f32,
@@ -204,6 +219,24 @@ impl Default for GameSettings {
             dasher_recover_duration_s: 0.5,
             dasher_max_hp: 2.0,
             dasher_contact_damage: 2.0,
+            // Phase 1 — shooter. Slower than chaser (80 vs 100)
+            // because the shooter doesn't need to close distance
+            // quickly — it sits at 250 and plinks. 0.8 shots/sec
+            // is slower than the player's pistol (3/sec) so a
+            // single shooter is rarely lethal. 300 u/s projectile
+            // speed is slow enough to dodge if you saw the muzzle
+            // flash; combined with a 1.5s lifetime the projectile
+            // range is ~450 units, well past the preferred range
+            // of 250. 2 HP (one pistol shot + the second) so a
+            // focused burst takes a shooter out fast.
+            shooter_move_speed: 80.0,
+            shooter_preferred_range: 250.0,
+            shooter_fire_rate: 0.8,
+            shooter_projectile_speed: 300.0,
+            shooter_projectile_damage: 1.0,
+            shooter_projectile_lifetime_s: 1.5,
+            shooter_max_hp: 2.0,
+            shooter_contact_damage: 1.0,
             // Day 13-14 — enemy hit flash is a 0.1s white pulse,
             // killing blows trigger a 50ms global hitstop, and
             // taking damage shakes the camera for 0.2s at intensity 12.
@@ -211,13 +244,16 @@ impl Default for GameSettings {
             hitstop_duration_s: 0.05,
             screen_shake_intensity: 12.0,
             screen_shake_duration_s: 0.2,
-            // Day 15-16 — hard cap of 30 live projectiles. Holding
+            // Day 15-16 — hard cap of 50 live projectiles. Holding
             // fire and running around no longer spawns an unbounded
-            // stream; the 31st shot is silently dropped. Pick this
-            // high enough that legit gameplay (clearing a room) never
-            // hits it, but low enough that pathological cases don't
-            // tank the frame rate on weaker machines.
-            projectile_cap: 30,
+            // stream; the 51st shot is silently dropped. Bumped
+            // from 30 in Phase 1 to leave headroom for the shooter's
+            // own `Team::Enemy` bullets plus the player's 3-5/sec
+            // + the shotgun's 5-pellet bursts. Pick this high
+            // enough that legit gameplay (clearing a room) never
+            // hits it, but low enough that pathological cases
+            // don't tank the frame rate on weaker machines.
+            projectile_cap: 50,
         }
     }
 }

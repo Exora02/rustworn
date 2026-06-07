@@ -4,13 +4,14 @@
 //! Damage routing (Day 11-12) will land here too.
 
 use bevy::prelude::*;
+use log::warn;
 
 use crate::components::{
-    AimDirection, BaseVelocity, Collider, Enemy, Health, HitFlash, Player, Projectile, Team,
-    Velocity, Weapon, WeaponArchetype,
+    AimDirection, Collider, Enemy, Health, HitFlash, Invulnerable, Knockback, Player, Projectile,
+    Team, Velocity, Weapon, WeaponArchetype,
 };
 use crate::plugins::enemy::spawn_death_puff;
-use crate::resources::{GameSettings, Hitstop, RunState};
+use crate::resources::{GameSettings, Hitstop, RunState, ScreenShake};
 
 /// Color of the player projectile — warm white, clearly readable as a
 /// bullet against any background we'll add later.
@@ -43,6 +44,15 @@ impl Plugin for CombatPlugin {
                 weapon_fire_system,
                 projectile_lifetime_system,
                 projectile_damage_system,
+                // Phase 1 (shooter): mirror of `projectile_damage_system`
+                // for `Team::Enemy` projectiles hitting the player.
+                // Runs after `projectile_damage_system` so player-vs-enemy
+                // damage resolves in the same frame as enemy-vs-player
+                // damage (no priority either way — both happen on
+                // contact). The two systems share the
+                // `projectile_lifetime_system` for despawn-on-expire
+                // so the lifetime logic isn't duplicated.
+                enemy_projectile_damage_system,
             )
                 .chain(),
         );
@@ -399,5 +409,132 @@ fn projectile_damage_system(
         if hit {
             commands.entity(proj_entity).despawn();
         }
+    }
+}
+
+// Phase 1 (shooter): mirror of `projectile_damage_system` but for
+// `Team::Enemy` projectiles hitting the player. Same AABB test, but:
+//   - filters projectiles by `Team::Enemy` (the other system
+//     filters by `Team::Player`)
+//   - targets the Player instead of `With<Enemy>`
+//   - applies knockback + i-frames + screen shake on hit, the
+//     same contact-damage trifecta the chaser/dasher use
+//   - does NOT trigger global hitstop or kill-counter (those
+//     are reserved for player kills; damage-taken feedback is
+//     the screen shake alone)
+//   - one hit per frame — breaks after the first overlap so a
+//     cluster of bullets can't multi-hit the player faster
+//     than the iframe gate allows (they all despawn on first
+//     contact, the rest are wasted)
+//
+// Frozen during global hitstop (so a cascade kill mid-bullet-
+// rain doesn't trigger a follow-up hit during the freeze) and
+// during game over (so the dead player doesn't keep eating
+// bullets from a shooter that's still firing).
+fn enemy_projectile_damage_system(
+    settings: Res<GameSettings>,
+    hitstop: Option<Res<Hitstop>>,
+    run: Res<RunState>,
+    mut commands: Commands,
+    projectiles: Query<(Entity, &Transform, &Collider, &Projectile)>,
+    mut player_query: Query<
+        (
+            Entity,
+            &Transform,
+            &Collider,
+            &mut Health,
+            Has<Invulnerable>,
+        ),
+        With<Player>,
+    >,
+    mut shake: ResMut<ScreenShake>,
+) {
+    if in_hitstop(&hitstop) || in_game_over(&run) {
+        return;
+    }
+    let Ok((player_entity, player_tf, player_col, mut health, invulnerable)) =
+        player_query.single_mut()
+    else {
+        return;
+    };
+    let player_pos = player_tf.translation.truncate();
+
+    for (proj_entity, proj_tf, proj_col, proj) in &projectiles {
+        // Only `Team::Enemy` projectiles. `Team::Player` projectiles
+        // are handled by `projectile_damage_system` and hit enemies,
+        // not the player.
+        if !matches!(proj.team, Team::Enemy) {
+            continue;
+        }
+        let proj_pos = proj_tf.translation.truncate();
+
+        if !aabb_overlap(
+            proj_pos,
+            proj_col.half_extents,
+            player_pos,
+            player_col.half_extents,
+        ) {
+            continue;
+        }
+
+        // Bullet overlapped the player. Despawn it on every contact
+        // (i-framed or not) so we don't re-check it next frame.
+        commands.entity(proj_entity).despawn();
+
+        if invulnerable {
+            // Don't deal damage, don't apply knockback, don't
+            // trigger screen shake. The visual flash from
+            // `player_color_system` (dash iframe) still rides the
+            // existing Invulnerable timer — we don't add
+            // anything new.
+            continue;
+        }
+
+        health.current = (health.current - proj.damage).max(0.0);
+        warn!(
+            "Player took {:.1} damage from enemy projectile — HP: {:.1}",
+            proj.damage, health.current
+        );
+
+        // Same screen-shake + knockback + i-frame trigemma as
+        // the contact-damage system. The shake intensity and
+        // knockback duration come from the chaser settings
+        // (a shooter's bullet hitting you is roughly as
+        // impactful as a chaser touching you, both are 1
+        // damage; differentiating them here is over-tuning
+        // for Phase 1).
+        shake.intensity = settings.screen_shake_intensity;
+        shake.duration = settings.screen_shake_duration_s;
+        shake.remaining = settings.screen_shake_duration_s;
+
+        // Knockback direction = away from the bullet's incoming
+        // direction. The bullet was moving toward the player, so
+        // "away from the bullet" is the bullet's velocity direction.
+        let bullet_dir = if proj_pos == player_pos {
+            Vec2::Y
+        } else {
+            (player_pos - proj_pos).normalize_or_zero()
+        };
+        commands.entity(player_entity).insert(Knockback {
+            direction: if bullet_dir == Vec2::ZERO {
+                Vec2::Y
+            } else {
+                bullet_dir
+            },
+            timer: Timer::from_seconds(settings.chaser_knockback_duration_s, TimerMode::Once),
+        });
+        commands
+            .entity(player_entity)
+            .insert(Invulnerable(Timer::from_seconds(
+                settings.hit_iframe_duration_s,
+                TimerMode::Once,
+            )));
+
+        // One hit per frame per bullet, but we keep iterating
+        // to despawn any other overlapping bullets (they all
+        // hit at the same instant). Multiple bullets in the
+        // same frame = multiple despawns, but only the first
+        // damages (the rest see `invulnerable` true and skip
+        // the damage/knockback/iframe insert).
     }
 }

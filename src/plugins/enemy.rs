@@ -11,7 +11,7 @@ use log::warn;
 use crate::components::{
     AiBehavior, BaseColor, BaseVelocity, CascadeAffected, Collider, DasherPhase, DasherState,
     DeathPuff, Enemy, EnemyAI, EnemyArchetype, Health, HitFlash, Invulnerable, Knockback, Player,
-    Spawner, Velocity,
+    Projectile, ShooterState, Spawner, Team, Velocity,
 };
 use crate::resources::{GameSettings, Hitstop, RunState, ScreenShake};
 
@@ -26,6 +26,19 @@ const CHASER_COLOR: Color = Color::srgb(0.84, 0.16, 0.16); // ~#d62828
 /// (purple is the universal "fast/danger" color in arcade games).
 const DASHER_COLOR: Color = Color::srgb(0.62, 0.20, 0.85); // ~#9e33d9
 
+/// Phase 1 shooter color. Teal so it's distinct from the red
+/// chaser and the purple dasher — the player learns "red =
+/// melee rush, purple = lunge burst, teal = ranged plink".
+/// Teal also reads as "ice/energy" in arcade-game color
+/// shorthand, which fits a slower-firing, distance-keeping enemy.
+const SHOOTER_COLOR: Color = Color::srgb(0.20, 0.75, 0.75); // ~#33bfbf
+
+/// Color of the shooter's projectile — same teal as the body but
+/// a touch lighter / less saturated so the bullet is visible
+/// against any background. Distinct from the player's warm-white
+/// bullet so the player can tell who's firing at them at a glance.
+const SHOOTER_PROJECTILE_COLOR: Color = Color::srgb(0.45, 0.90, 0.90); // ~#73e6e6
+
 /// Chaser sprite size. Slightly smaller than the player (40x40) so the
 /// chaser feels more compact and the player has a small reach advantage
 /// when kiting.
@@ -38,6 +51,17 @@ const CHASER_SIZE: f32 = 30.0;
 /// `DASHER_SIZE_HALF` parallel or a single `ENEMY_HALF` if they
 /// stay the same).
 const DASHER_SIZE: f32 = 30.0;
+
+/// Shooter sprite size. Same as chaser/dasher so all three
+/// archetypes have a uniform silhouette. The visual difference
+/// between them is color + behavior (chaser rushes, dasher
+/// lunges, shooter plinks from range).
+const SHOOTER_SIZE: f32 = 30.0;
+
+/// Shooter projectile sprite size. Smaller than the player
+/// projectile (6x12) so the shooter's bullets read as smaller
+/// and faster-fading, reinforcing "these are weaker than yours".
+const SHOOTER_PROJECTILE_SIZE: Vec2 = Vec2::new(5.0, 8.0);
 
 pub struct EnemyPlugin;
 
@@ -108,6 +132,7 @@ fn spawn_enemy(
     match archetype {
         EnemyArchetype::Chaser => spawn_chaser(commands, settings, player_pos),
         EnemyArchetype::Dasher => spawn_dasher(commands, settings, player_pos),
+        EnemyArchetype::Shooter => spawn_shooter(commands, settings, player_pos),
     }
 }
 
@@ -195,6 +220,107 @@ fn spawn_dasher(commands: &mut Commands, settings: &GameSettings, player_pos: Ve
     ));
 }
 
+// Phase 1 shooter. Same base bundle as the dasher (sprite +
+// BaseColor + CascadeAffected + Collider + Health + Velocity +
+// BaseVelocity) plus a `ShooterState` carrying the fire cooldown.
+// The fire timer starts at 0.5× interval (random spread) so a
+// wave of shooters doesn't all open fire on the same frame —
+// Phase 2 will use seeded RNG to make this deterministic per
+// run.
+fn spawn_shooter(commands: &mut Commands, settings: &GameSettings, player_pos: Vec2) {
+    let (spawn_pos, _) = random_spawn_position(settings, player_pos);
+
+    // Spread the first shot over the fire interval. Without
+    // this, a fresh wave of 3 shooters all open fire on the
+    // same frame and the player eats a triple-tap before they
+    // can react. Half-interval spread is enough to break the
+    // sync without feeling random.
+    let interval = 1.0 / settings.shooter_fire_rate;
+    let initial_cooldown = interval * 0.5;
+
+    commands.spawn((
+        Sprite {
+            color: SHOOTER_COLOR,
+            custom_size: Some(Vec2::splat(SHOOTER_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.0),
+        Enemy,
+        EnemyAI {
+            behavior: AiBehavior::Shooter,
+        },
+        Collider {
+            half_extents: Vec2::splat(SHOOTER_SIZE * 0.5),
+        },
+        Health::new(settings.shooter_max_hp),
+        Velocity::default(),
+        BaseVelocity::default(),
+        // Phase 1 cascade: shooters are CascadeAffected so the
+        // velocity_apply_system scales their approach speed by
+        // 0.25× during a Cascade window. The shooter's own
+        // projectiles also carry the marker (see
+        // `spawn_shooter_projectile`) so the bullets slow too —
+        // the player can sidestep them in slow-mo.
+        CascadeAffected,
+        BaseColor(SHOOTER_COLOR),
+        ShooterState {
+            fire_timer: Timer::from_seconds(initial_cooldown, TimerMode::Once),
+        },
+    ));
+}
+
+// Spawn a `Team::Enemy` projectile at `enemy_pos` aimed at the
+// player. Mirrors the player projectile's shape in
+// `weapon_fire_system` but with the team flip: the bullet needs
+// `BaseVelocity` + `CascadeAffected` so the cascade scaler
+// touches it, and its `Projectile::team` is `Enemy` so the
+// player-damage system (new in this patch) will damage the
+// player on contact.
+fn spawn_shooter_projectile(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    enemy_pos: Vec2,
+    dir: Vec2,
+) {
+    // Muzzle offset = half the shooter's width + half the
+    // projectile's length, so the bullet visually starts in
+    // front of the shooter's body, not overlapping it.
+    let muzzle = SHOOTER_SIZE * 0.5 + SHOOTER_PROJECTILE_SIZE.y * 0.5 + 2.0;
+    let spawn_pos = enemy_pos + dir * muzzle;
+    let angle = dir.y.atan2(dir.x) - std::f32::consts::FRAC_PI_2;
+
+    let speed = settings.shooter_projectile_speed;
+
+    commands.spawn((
+        Sprite {
+            color: SHOOTER_PROJECTILE_COLOR,
+            custom_size: Some(SHOOTER_PROJECTILE_SIZE),
+            ..default()
+        },
+        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.5)
+            .with_rotation(Quat::from_rotation_z(angle)),
+        // The cascade-scaled velocity lives in BaseVelocity;
+        // Velocity is the "current" value the cascade scaler
+        // overwrites each frame. The cascade scaler reads
+        // CascadeAffected and applies the 0.25× scale only when
+        // a Cascade window is open.
+        BaseVelocity(dir * speed),
+        Velocity(dir * speed),
+        CascadeAffected,
+        Collider {
+            half_extents: Vec2::new(
+                SHOOTER_PROJECTILE_SIZE.x * 0.5,
+                SHOOTER_PROJECTILE_SIZE.y * 0.5,
+            ),
+        },
+        Projectile {
+            damage: settings.shooter_projectile_damage,
+            lifetime: Timer::from_seconds(settings.shooter_projectile_lifetime_s, TimerMode::Once),
+            team: Team::Enemy,
+        },
+    ));
+}
+
 // Shared spawn-position math: random angle, random distance in
 // [min, max]. The xorshift state is seeded from the system clock
 // at call time, so two spawns in the same frame get different
@@ -242,13 +368,21 @@ fn enemy_ai_system(
     settings: Res<GameSettings>,
     hitstop: Option<Res<Hitstop>>,
     run: Res<RunState>,
+    mut commands: Commands,
     player_query: Query<&Transform, With<Player>>,
+    // `Option<&mut DasherState>` lets the same query match both
+    // archetypes — chasers get None, dashers get Some. The new
+    // `Option<&mut ShooterState>` adds the third archetype the
+    // same way: chasers and dashers get None, shooters get Some.
+    // We add `mut commands` so the Shooter path can spawn its
+    // own projectiles inline.
     mut enemies: Query<
         (
             &Transform,
             &EnemyAI,
             &mut BaseVelocity,
             Option<&mut DasherState>,
+            Option<&mut ShooterState>,
         ),
         With<Enemy>,
     >,
@@ -261,7 +395,7 @@ fn enemy_ai_system(
     };
     let player_pos = player_transform.translation.truncate();
 
-    for (enemy_transform, ai, mut base, dasher_state) in &mut enemies {
+    for (enemy_transform, ai, mut base, dasher_state, shooter_state) in &mut enemies {
         match ai.behavior {
             AiBehavior::Chaser => {
                 let to_player = player_pos - enemy_transform.translation.truncate();
@@ -312,6 +446,54 @@ fn enemy_ai_system(
                 if state.phase_timer.finished() {
                     state.phase = next_phase;
                     state.phase_timer = Timer::from_seconds(next_duration, TimerMode::Once);
+                }
+            }
+            AiBehavior::Shooter => {
+                let Some(mut state) = shooter_state else {
+                    // Defensive: a shooter without ShooterState
+                    // shouldn't exist (spawn_shooter always
+                    // attaches one) but skipping is safer than
+                    // panicking.
+                    continue;
+                };
+                let enemy_pos = enemy_transform.translation.truncate();
+                let to_player = player_pos - enemy_pos;
+                let dist = to_player.length();
+                let dir = if to_player.length_squared() > 0.0 {
+                    to_player.normalize()
+                } else {
+                    Vec2::ZERO
+                };
+
+                // Approach until at preferred range, then stop.
+                // The "stop" is just `speed = 0.0` — the enemy
+                // doesn't need a separate state for "in range",
+                // the distance check is enough. This keeps the
+                // Shooter AI stateless (only the fire timer is
+                // tracked, and that's per-entity on
+                // `ShooterState`).
+                let speed = if dist > settings.shooter_preferred_range {
+                    settings.shooter_move_speed
+                } else {
+                    0.0
+                };
+                base.0 = dir * speed;
+
+                // Tick the fire timer always. Only spawn a
+                // projectile when (a) the timer elapsed AND
+                // (b) we're in range. We deliberately do NOT
+                // reset the timer if we're out of range —
+                // `fire_timer.finished()` stays true, so the
+                // moment we enter range we fire on the next
+                // frame. The cap is implicit: a shooter that's
+                // out of range for 5 seconds doesn't burst-fire
+                // when it finally gets in range; it fires once
+                // and resumes the normal cadence.
+                state.fire_timer.tick(time.delta());
+                if dist <= settings.shooter_preferred_range && state.fire_timer.finished() {
+                    spawn_shooter_projectile(&mut commands, &settings, enemy_pos, dir);
+                    let interval = 1.0 / settings.shooter_fire_rate;
+                    state.fire_timer = Timer::from_seconds(interval, TimerMode::Once);
                 }
             }
         }
@@ -389,10 +571,11 @@ fn enemy_contact_damage_system(
         }
 
         // Dispatch contact damage by archetype. Add a new arm for
-        // every enemy type — chaser is 1, dasher is 2.
+        // every enemy type — chaser is 1, dasher is 2, shooter is 1.
         let damage = match enemy_ai.behavior {
             AiBehavior::Chaser => settings.chaser_contact_damage,
             AiBehavior::Dasher => settings.dasher_contact_damage,
+            AiBehavior::Shooter => settings.shooter_contact_damage,
         };
         health.current = (health.current - damage).max(0.0);
         warn!(

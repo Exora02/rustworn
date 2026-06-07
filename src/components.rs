@@ -155,6 +155,14 @@ pub enum AiBehavior {
     /// to the chaser). Lower HP than the chaser, slightly more
     /// contact damage.
     Dasher,
+    /// Phase 1 shooter: moves toward the player until at a
+    /// preferred range, then stops and fires enemy projectiles
+    /// on a cooldown. The first ranged enemy — tests the
+    /// enemy-projectile pipeline that no other enemy uses yet
+    /// (the player takes damage from `Team::Enemy` projectiles
+    /// in `enemy_projectile_damage_system`). Lighter contact
+    /// damage than the dasher, lower HP than the chaser.
+    Shooter,
 }
 
 /// Phase 1 dasher state. Tracks which phase of the
@@ -166,6 +174,18 @@ pub enum AiBehavior {
 pub struct DasherState {
     pub phase: DasherPhase,
     pub phase_timer: Timer,
+}
+
+/// Phase 1 shooter state. Just a fire cooldown — when it
+/// elapses, the shooter's AI spawns an enemy projectile and
+/// resets the timer. Per-entity (not a resource) so multiple
+/// shooters fire on independent cadences. The "approach until
+/// in range, then stop" decision is made each frame in
+/// `enemy_ai_system` from the player's position — no need to
+/// track that here.
+#[derive(Component)]
+pub struct ShooterState {
+    pub fire_timer: Timer,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -202,6 +222,11 @@ pub struct Spawner {
 pub enum EnemyArchetype {
     Chaser,
     Dasher,
+    /// Phase 1 shooter: ranged enemy that fires projectiles at
+    /// the player. Same `Spawner` plumbing as Chaser/Dasher —
+    /// the AI system dispatches on the `EnemyAI` component, the
+    /// spawner just picks the archetype.
+    Shooter,
 }
 
 /// Axis-aligned bounding box for contact-damage detection. `half_extents`

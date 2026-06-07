@@ -102,5 +102,17 @@ fn spawn_camera_and_player(mut commands: Commands, settings: Res<GameSettings>) 
         spawn: EnemyArchetype::Dasher,
     });
 
-    info!("RUSTWORN booted — player + chaser/dasher spawners spawned at origin");
+    // Phase 1: shooter spawner. Same parallel-spawner pattern as
+    // dasher. A fresh wave of shooters will land every 3s, spread
+    // their first shot over the fire interval (so they don't
+    // triple-tap on the first frame — see `spawn_shooter`), and
+    // start plinking at the player from 250 units away. With
+    // chaser + dasher + shooter all spawning every 3s, the player
+    // sees 3 archetypes in parallel waves.
+    commands.spawn(Spawner {
+        interval: Timer::from_seconds(settings.spawner_interval_s, TimerMode::Repeating),
+        spawn: EnemyArchetype::Shooter,
+    });
+
+    info!("RUSTWORN booted — player + chaser/dasher/shooter spawners spawned at origin");
 }
