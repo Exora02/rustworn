@@ -11,61 +11,67 @@ You have three machines with three different package managers:
 
 devenv.sh + Nix gives all three the same reproducible environment. Plus it's git-versioned so any contributor (or future you on a new laptop) gets the exact same setup.
 
-## Install devenv (one time per machine)
-
-Pick your platform:
-
-### Bazzite / Fedora / RHEL
-
-Bazzite and other Fedora Atomic distros have a read-only rootfs, so the standard Nix installer can't create `/nix`. **Use a distrobox:**
+## TL;DR — quick start
 
 ```bash
-# Create a Fedora container for Nix work
-distrobox create --image fedora:39 --name nix-dev
-distrobox enter nix-dev
+git clone git@github.com:Exora02/slop_rustworn.git
+cd rustworn
 
-# Inside the container (writable rootfs — Nix installs cleanly):
-sudo dnf install -y nix
-. /etc/profile.d/nix.sh
+# Install Nix + devenv if you don't have them yet (one time, per machine).
+# See "Install devenv" below for the platform-specific recipe.
 
-# Install devenv
-nix profile install nixpkgs#devenv
-
-# Now do dev work — your home folder is auto-bind-mounted
-cd ~/projects/rustworn
-direnv allow
+# Trust this project, then dev tools activate automatically on cd:
+devenv allow
 cargo run
 ```
 
-For direnv auto-activation inside the distrobox:
+That's it. No `direnv allow`, no `.envrc` to remember. The `devenv hook bash` line in your shell config handles the rest.
+
+## Install devenv (one time per machine)
+
+### Bazzite / Fedora Atomic
+
+Bazzite and other Fedora Atomic distros have a read-only rootfs, so the standard Nix installer can't create `/nix`. **Use a distrobox.** We provide a one-shot script that does everything:
+
 ```bash
-sudo dnf install -y direnv
-echo 'eval "$(direnv hook bash)"' >> ~/.bashrc
+git clone git@github.com:Exora02/slop_rustworn.git
+cd rustworn
+chmod +x scripts/setup-nuked-dev.sh
+./scripts/setup-nuked-dev.sh
+distrobox enter nuked-dev
+cd ~/projects/rustworn    # or wherever you cloned it
+devenv allow              # one time per machine
+cargo run
 ```
 
-On non-Atomic Fedora / RHEL (workstation, server) you can install Nix system-wide:
-```bash
-curl -fsSL https://install.determinate.systems/nix | sh -s -- install
-nix profile install nixpkgs#devenv
-sudo dnf install -y direnv
-echo 'eval "$(direnv hook bash)"' >> ~/.bashrc
-```
+The script:
+- Creates a `nuked-dev` distrobox (Fedora 39) if missing
+- Installs Nix (via the official installer, `--no-daemon` mode for distrobox's lack of systemd)
+- Installs devenv via `nix profile install nixpkgs#devenv`
+- Adds `eval "$(devenv hook bash)"` to your `~/.bashrc` inside the box
+- Idempotent — safe to re-run
 
-**Why not system-wide on Bazzite?** The Determinate installer fails with:
+**Why not system-wide on Bazzite?** The Determinate Nix installer fails on read-only rootfs:
 ```
-Error saving receipt: RecordingReceipt("/nix", Os { code: 30, kind: ReadOnlyFilesystem, ... })
+Error saving receipt: RecordingReceipt("/nix", Os { code: 30, kind: ReadOnlyFilesystem })
 Failed to execute command "systemctl" "start" "nix.mount"
 ```
-That's `/` being read-only. The distrobox approach gives Nix a writable container rootfs.
+The distrobox gives Nix a writable rootfs inside a Fedora container.
 
-### Ubuntu / Debian
+### Ubuntu / Debian (workstation or server)
 
 ```bash
 curl -fsSL https://install.determinate.systems/nix | sh -s -- install
 . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
 nix profile install nixpkgs#devenv
-sudo apt install -y direnv
-echo 'eval "$(direnv hook bash)"' >> ~/.bashrc
+
+# Add the devenv hook to your shell:
+echo 'eval "$(devenv hook bash)"' >> ~/.bashrc
+
+# Trust the project (one time):
+cd /path/to/rustworn
+devenv allow
+cargo run
 ```
 
 ### Windows (via WSL2)
@@ -76,34 +82,56 @@ Inside your WSL2 distro (Ubuntu 22.04 or 24.04):
 curl -fsSL https://install.determinate.systems/nix | sh -s -- install
 . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
 nix profile install nixpkgs#devenv
-sudo apt install -y direnv
-echo 'eval "$(direnv hook bash)"' >> ~/.bashrc
+echo 'eval "$(devenv hook bash)"' >> ~/.bashrc
+
+cd /path/to/rustworn
+devenv allow
+cargo run
 ```
 
-Note: do NOT use WSL1. Nix needs a real Linux kernel.
+> ⚠️ Do NOT use WSL1. Nix needs a real Linux kernel.
 
 ### macOS
 
 ```bash
 curl -fsSL https://install.determinate.systems/nix | sh
 nix profile install nixpkgs#devenv
-brew install direnv
-echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc
+echo 'eval "$(devenv hook bash)"' >> ~/.zshrc   # or ~/.bashrc for bash
+
+cd /path/to/rustworn
+devenv allow
+cargo run
 ```
 
-## Activate the env
-
-In the project directory:
+### Non-Atomic Fedora / RHEL
 
 ```bash
-# First time: trust the .envrc
-direnv allow
+curl -fsSL https://install.determinate.systems/nix | sh -s -- install
+. /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+nix profile install nixpkgs#devenv
+echo 'eval "$(devenv hook bash)"' >> ~/.bashrc
 
-# Or manual activation
-devenv shell
+cd /path/to/rustworn
+devenv allow
+cargo run
 ```
 
-You'll see the ASCII banner. Now `cargo`, `rustc`, `mold`, `pkg-config`, and the Bevy system libs are all on PATH, isolated from your system.
+## How the auto-activation works
+
+The `devenv hook bash` line in your shell config installs a PROMPT_COMMAND (bash) or chpwd_functions (zsh) hook that:
+
+1. Walks up from `$PWD` looking for a `devenv.yaml` file.
+2. Checks the trust database to verify the project was allowed (`devenv allow`).
+3. If trusted, runs `devenv shell` in a subshell for that project.
+
+When you `cd` back out, the subshell exits and your normal environment returns. No `.envrc`, no `direnv` dependency.
+
+> If the project hasn't been trusted yet, devenv prints:
+> ```
+> devenv: /home/user/myproject is not allowed. Run 'devenv allow' to trust this directory.
+> ```
+
+To revoke trust later: `devenv revoke`.
 
 ## What you get
 
@@ -117,7 +145,6 @@ You'll see the ASCII banner. Now `cargo`, `rustc`, `mold`, `pkg-config`, and the
 | `libudev` | pkgs | device hotplug |
 | `shaderc` | pkgs | SPIR-V compilation |
 | `pkg-config` | pkgs | build script helper |
-| `direnv` | system | auto-activation on `cd` |
 
 The Linux section conditionally adds the right set on Fedora/Ubuntu/etc. macOS gets the IOKit/Cocoa frameworks automatically.
 
@@ -142,12 +169,18 @@ The VPS already has a working Rust + mold setup (apt-installed) and is used as a
 
 You can if you want — `devenv shell cargo check` works fine — but it's not necessary. The VPS uses the system Rust, which the project compiles against without issues.
 
+## What if I already have direnv set up?
+
+direnv still works with devenv (via the `devenv direnvrc` helper for v1.4+), but the recommended 2.0+ approach is to use `devenv hook bash` and skip direnv entirely. This project uses the new approach.
+
+If you have direnv set up globally for other projects, leave it alone — the two systems don't conflict. Just use `devenv allow` to trust this project.
+
 ## Why not flake.nix directly?
 
 devenv.sh is a higher-level wrapper around Nix flakes. You get:
-- A nicer DX (auto-activation via direnv, named scripts)
+- A nicer DX (native auto-activation via `devenv hook`, named scripts)
 - Sensible defaults for Rust dev
-- Cross-platform abstractions (lib.optionals stdenv.isLinux)
+- Cross-platform abstractions (`lib.optionals stdenv.isLinux`)
 - Built-in services module (postgres, redis, etc.) for later phases
 
 If you ever outgrow devenv, you can `devenv flake` it into a pure `flake.nix` without losing anything.
@@ -157,4 +190,5 @@ If you ever outgrow devenv, you can `devenv flake` it into a pure `flake.nix` wi
 - **First shell activation is slow** (5-15 min) because Nix downloads/builds all packages. After that, incremental activations are seconds.
 - **Disk usage** — Nix keeps every package version. Expect 5-20GB in `/nix/store`. Run `nix-collect-garbage -d` occasionally.
 - **Macros and pre-commit hooks** — the uncommented `git-hooks` block installs pre-commit hooks. Enable it when you're ready to enforce format on every commit.
-- **`RUSTFLAGS="-C target-cpu=native"`** is set in devenv.nix. This optimizes for the current CPU but produces non-portable binaries. Fine for dev, remove for `cargo build --release` if you ship binaries.
+- **`RUSTFLAGS="-C target-cpu=native"`** is set in `devenv.nix`. This optimizes for the current CPU but produces non-portable binaries. Fine for dev, remove for `cargo build --release` if you ship binaries.
+- **Re-entry protection** — the hook won't nest. While inside a `devenv shell`, navigating into a subdirectory of the same project keeps the current shell. Only navigating outside the project triggers deactivation.

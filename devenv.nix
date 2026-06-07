@@ -1,9 +1,10 @@
 # devenv.nix — reproducible RUSTWORN dev environment.
 # Works on Linux (Ubuntu, Fedora, Bazzite, NixOS), macOS, and WSL2.
-# Activate with `devenv shell` or auto via direnv (see .envrc).
+# Activate with `devenv shell` or auto via `devenv hook bash` (one line
+# in your shell config — see docs/devenv.md).
 #
 # First time: install devenv from https://devenv.sh/getting-started/
-# Then: `cd` into this dir, run `devenv shell` once to trust, done.
+# Then: `cd` into this dir, run `devenv allow` once to trust, done.
 { pkgs, lib, config, ... }:
 
 {
@@ -17,6 +18,10 @@
       "clippy"
       "rust-src"
     ];
+
+    # Set via the rust module (not the global `env`) so we don't conflict
+    # with the type that the module already declares for RUSTFLAGS.
+    rustflags = "-C link-arg=-fuse-ld=mold -C target-cpu=native";
 
     # Cross-compilation targets live here when we add them.
     # targets = [ "wasm32-unknown-unknown" ];
@@ -48,7 +53,7 @@
     # Audio
     alsa-lib
     # Input devices
-    libudev
+    udev
     libevdev
     # Shaders / SPIR-V (Bevy uses naga)
     shaderc
@@ -67,8 +72,6 @@
 
   # ─── Shell environment ──────────────────────────────────────────────
   env = {
-    # Mold linker flags (mirrors .cargo/config.toml)
-    RUSTFLAGS = "-C link-arg=-fuse-ld=mold -C target-cpu=native";
     # Faster incremental builds
     CARGO_INCREMENTAL = "1";
     # Color output even in pipes

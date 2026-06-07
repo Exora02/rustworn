@@ -26,8 +26,8 @@ The project is pinned to Rust 1.85+ via `rust-toolchain.toml`. If you `cd` into 
 ```bash
 git clone git@github.com:Exora02/slop_rustworn.git   # or pull from VPS
 cd rustworn
-direnv allow              # auto-activates devenv.sh on cd
-cargo run                 # builds + runs
+devenv allow              # trust the project (one time)
+cargo run                 # devenv auto-activates on cd
 ```
 
 One `devenv.nix` config provides Rust + mold + wayland + vulkan + alsa + everything Bevy needs. Works on Bazzite, Ubuntu, WSL2, macOS. See [docs/devenv.md](./docs/devenv.md) for install steps.
@@ -43,7 +43,7 @@ cd rustworn
 distrobox enter nuked-dev
 ```
 
-The script creates a `nuked-dev` distrobox, installs Nix + devenv + direnv + cargo inside, and prints a quick-reference at the end. Idempotent — safe to re-run.
+The script creates a `nuked-dev` distrobox, installs Nix + devenv inside, and adds the `devenv hook bash` line to your `~/.bashrc` so projects auto-activate on `cd`. Idempotent — safe to re-run.
 
 ## Quick start (local — Windows / VS Code without WSL)
 
@@ -58,7 +58,6 @@ rustworn/
 ├── rust-toolchain.toml           # pinned Rust version
 ├── devenv.nix                    # cross-platform dev environment (Nix)
 ├── devenv.yaml                   # devenv inputs pin
-├── .envrc                        # direnv auto-activation
 ├── README.md                     # you are here
 ├── .gitignore
 ├── .gitattributes

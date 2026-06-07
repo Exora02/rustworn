@@ -9,12 +9,11 @@
 # Bevy asset output
 /assets/.imported
 
-# devenv / direnv
-/.direnv/
+# devenv
+/.devenv/
 /devenv.lock
 /devenv.flake.nix
 /result*
-/.devenv/
 
 # Editor / IDE noise
 .idea/
