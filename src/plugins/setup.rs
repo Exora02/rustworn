@@ -6,11 +6,14 @@
 use bevy::prelude::*;
 use log::info;
 
-use crate::components::{BaseVelocity, Health, MainCamera, Player, Velocity};
+use crate::components::{
+    AimIndicator, BaseVelocity, Health, MainCamera, Player, Velocity, PLAYER_COLOR,
+};
 use crate::resources::{CascadeState, GameSettings, RunState};
 
-/// The placeholder player's color — Exo orange, our protogen mascot.
-const PLAYER_COLOR: Color = Color::srgb(0.925, 0.525, 0.012); // ~#ec8603
+/// Color of the aim indicator line — high-contrast white so it stays
+/// readable against any background we'll add later.
+const AIM_INDICATOR_COLOR: Color = Color::WHITE;
 
 /// Bevy plugin that wires up everything needed before a run can start.
 pub struct SetupPlugin;
@@ -27,20 +30,37 @@ impl Plugin for SetupPlugin {
 fn spawn_camera_and_player(mut commands: Commands) {
     commands.spawn((Camera2d, MainCamera));
 
-    commands.spawn((
-        // Visual: a 40x40 orange square. Real sprite lands in Phase 1.
-        Sprite {
-            color: PLAYER_COLOR,
-            custom_size: Some(Vec2::splat(40.0)),
-            ..default()
-        },
-        Transform::from_xyz(0.0, 0.0, 0.0),
-        // ECS data: same as a real player will have on day one.
-        Player,
-        Health::new(4.0),
-        Velocity::default(),
-        BaseVelocity::default(),
-    ));
+    commands
+        .spawn((
+            // Visual: a 40x40 orange square. Real sprite lands in Phase 1.
+            Sprite {
+                color: PLAYER_COLOR,
+                custom_size: Some(Vec2::splat(40.0)),
+                ..default()
+            },
+            Transform::from_xyz(0.0, 0.0, 0.0),
+            // ECS data: same as a real player will have on day one.
+            Player,
+            Health::new(4.0),
+            Velocity::default(),
+            BaseVelocity::default(),
+        ))
+        .with_children(|parent| {
+            // White line sticking out the top of the player; rotated each
+            // frame to match the current aim direction. This is the
+            // placeholder for a future gun sprite / hand attachment.
+            parent.spawn((
+                Sprite {
+                    color: AIM_INDICATOR_COLOR,
+                    custom_size: Some(Vec2::new(6.0, 30.0)),
+                    ..default()
+                },
+                // +Y offset so the line sits ahead of the player body,
+                // not centered on it. Z slightly forward to avoid z-fighting.
+                Transform::from_xyz(0.0, 20.0, 1.0),
+                AimIndicator,
+            ));
+        });
 
     info!("RUSTWORN booted — placeholder player spawned at origin");
 }

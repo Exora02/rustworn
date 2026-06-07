@@ -43,3 +43,31 @@ pub struct CascadeAffected;
 /// auxiliary views for UI layers in the future).
 #[derive(Component)]
 pub struct MainCamera;
+
+/// Last-known aim direction in world space (unit vector). Written by
+/// `aim_input_system`, read by `dash_state_system` and `aim_rotation_system`.
+/// Stays at the previous value when the cursor is dead-on the player.
+#[derive(Resource, Default)]
+pub struct AimDirection(pub Vec2);
+
+/// Brief invulnerability window after a dash. While present, contact
+/// damage is ignored. Contact-damage wiring lands in Day 8-10; the
+/// component is defined now so the dash system can attach it from day one.
+#[derive(Component)]
+pub struct Invulnerable(pub Timer);
+
+/// Cooldown gate for the dash. Present between the end of an iframe
+/// window and when the player can dash again. Dash input requires
+/// neither this nor `Invulnerable` to be present.
+#[derive(Component)]
+pub struct DashCooldown(pub Timer);
+
+/// Marker for the white "aim indicator" child entity spawned alongside
+/// the player. Rotated each frame to point in the current `AimDirection`.
+#[derive(Component)]
+pub struct AimIndicator;
+
+/// Player base color — the Exo orange from our protogen mascot palette.
+/// Re-exposed here so systems (dash flash, future hit flash) can lerp
+/// toward it without re-declaring the constant.
+pub const PLAYER_COLOR: Color = Color::srgb(0.925, 0.525, 0.012); // ~#ec8603
