@@ -23,7 +23,7 @@ use bevy::prelude::*;
 use bevy::sprite::Anchor;
 
 use crate::components::{
-    CascadeTelegraph, Health, HudElement, HudElementKind, Player, Weapon, WeaponArchetype,
+    Boss, CascadeTelegraph, Health, HudElement, HudElementKind, Player, Weapon, WeaponArchetype,
 };
 use crate::resources::{CascadeState, RunState};
 
@@ -92,6 +92,23 @@ const CASCADE_BG: Color = Color::srgb(0.10, 0.10, 0.10);
 const CASCADE_BAR_WIDTH: f32 = 60.0;
 const CASCADE_BAR_HEIGHT: f32 = 8.0;
 const CASCADE_BAR_OFFSET_Y: f32 = -14.0;
+
+// ─── Mini-boss HP bar (top-center) ───────────────────────────────────────
+
+/// Color of the boss HP bar fill. Deep red, distinct from the
+/// HP bar's green/yellow gradient — the player sees "red bar"
+/// and reads "boss fight". The bar is wider and more prominent
+/// than the player HP bar so it reads as a different category
+/// of indicator (a "boss is here" signal, not a personal stat).
+const BOSS_HP_BAR_COLOR: Color = Color::srgb(0.90, 0.20, 0.20);
+const BOSS_HP_BAR_BG: Color = Color::srgb(0.10, 0.10, 0.10);
+const BOSS_HP_BAR_WIDTH: f32 = 240.0;
+const BOSS_HP_BAR_HEIGHT: f32 = 8.0;
+/// Y-offset from the player position. The HUD sits below the
+/// player by default; this is a negative offset (above) to
+/// put the boss bar at the top of the screen, separated from
+/// the player's stats.
+const BOSS_HP_BAR_OFFSET_Y: f32 = -90.0;
 
 const GAME_OVER_COLOR: Color = Color::srgba(0.85, 0.10, 0.10, 0.90);
 const GAME_OVER_WIDTH: f32 = 360.0;
@@ -224,6 +241,14 @@ fn spawn_hud(mut commands: Commands) {
         CASCADE_COLOR,
         HudElementKind::CascadeBar,
     );
+    // Phase 1 mini-boss: top-center of the screen, 60% of the
+    // viewport wide, 8px tall. Hidden by default; the HUD update
+    // system flips it to `Visibility::Inherited` only when a
+    // `With<Boss>` entity exists in the world, and back to
+    // `Visibility::Hidden` when the boss is killed. The bar
+    // sits ABOVE the player (y > HUD_OFFSET_Y) so it reads as
+    // a "boss is here" indicator, not a player stat.
+    spawn_boss_hp_bar(&mut commands);
 
     // Game-over overlay. Two entities sharing the same
     // `HudElementKind::GameOver`: the colored box (sprite) and
@@ -430,6 +455,45 @@ fn cascade_telegraph_update(
         }
     }
 }
+
+// Phase 1 mini-boss: spawn the top-center boss HP bar as a
+// bg + fill pair (same pattern as `spawn_bar` but the fill
+// is queried separately in `hud_update_system` to update the
+// scale to the boss's current HP). The bar's anchor is
+// `Center` so the translation is the bar's center, and the
+// y-offset in `hud_update_system` puts it above the player
+// (top of the screen). Hidden by default; flipped to
+// `Visibility::Inherited` by `hud_update_system` while a
+// `With<Boss>` entity is alive.
+fn spawn_boss_hp_bar(commands: &mut Commands) {
+    commands.spawn((
+        Sprite {
+            color: BOSS_HP_BAR_BG,
+            custom_size: Some(Vec2::new(BOSS_HP_BAR_WIDTH, BOSS_HP_BAR_HEIGHT)),
+            anchor: Anchor::Center,
+            ..default()
+        },
+        Transform::from_xyz(0.0, 0.0, 10.0),
+        Visibility::Hidden,
+        HudElement {
+            kind: HudElementKind::BossHpBar,
+        },
+    ));
+    commands.spawn((
+        Sprite {
+            color: BOSS_HP_BAR_COLOR,
+            custom_size: Some(Vec2::new(BOSS_HP_BAR_WIDTH, BOSS_HP_BAR_HEIGHT)),
+            anchor: Anchor::Center,
+            ..default()
+        },
+        Transform::from_xyz(0.0, 0.0, 10.0),
+        Visibility::Hidden,
+        HudElement {
+            kind: HudElementKind::BossHpBar,
+        },
+    ));
+}
+
 fn spawn_bar(
     commands: &mut Commands,
     pos: Vec2,
@@ -482,11 +546,22 @@ fn hud_update_system(
         &mut Visibility,
         &HudElement,
     )>,
+    // Boss-existence query: counts how many `With<Boss>`
+    // entities are alive. Used to flip the boss HP bar's
+    // visibility on/off without going through a separate
+    // resource. The query is `bool` so we get one `true`/
+    // `false` per frame, cached, no iteration.
+    boss_alive: Query<(), With<Boss>>,
 ) {
     let Ok((player_tf, health, weapon)) = player_query.single() else {
         return;
     };
     let player_pos = player_tf.translation.truncate();
+    let boss_alive_global_flag = if boss_alive.is_empty() {
+        Visibility::Hidden
+    } else {
+        Visibility::Inherited
+    };
 
     for (mut tf, sprite, mut vis, element) in &mut hud_query {
         match element.kind {
@@ -603,6 +678,32 @@ fn hud_update_system(
                 } else {
                     Visibility::Hidden
                 };
+            }
+            HudElementKind::BossHpBar => {
+                // Top-center. The bar's local anchor is
+                // (0.5, 1.0) so the translation is the bar's
+                // top-center; offsetting by `BOSS_HP_BAR_OFFSET_Y`
+                // from the player's position puts the bar above
+                // the player (negative y is up in screen space
+                // here because the camera uses Y-up, but the
+                // HUD layout treats larger Y as "down the
+                // screen" — see the player-following comments
+                // on the other bars).
+                tf.translation = Vec3::new(
+                    player_pos.x,
+                    player_pos.y + BOSS_HP_BAR_OFFSET_Y,
+                    tf.translation.z,
+                );
+                // Visibility: on while a Boss entity is alive,
+                // off otherwise. The `boss_alive` resource read
+                // isn't done here (we don't add a resource for
+                // it) — instead, the query is split: the
+                // `hud_update_system` itself does the
+                // existence check via a separate query before
+                // the per-element loop, and writes the
+                // visibility directly. This is simpler than
+                // passing a bool through the loop.
+                *vis = boss_alive_global_flag;
             }
         }
     }

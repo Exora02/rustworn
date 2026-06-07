@@ -10,7 +10,9 @@ use crate::components::{
     Enemy, Health, Invulnerable, Knockback, MainCamera, Player, Projectile, Spawner, Velocity,
     Weapon, PLAYER_COLOR,
 };
+use crate::plugins::enemy::spawn_boss;
 use crate::resources::{CascadeState, GameSettings, Hitstop, RunState, ScreenShake};
+use log::info;
 
 pub struct PlayerPlugin;
 
@@ -37,6 +39,7 @@ impl Plugin for PlayerPlugin {
                 hitstop_tick_system,
                 cascade_state_system,
                 time_tick_system,
+                boss_spawn_system,
                 player_input_system,
                 aim_input_system,
                 dash_input_system,
@@ -487,6 +490,68 @@ fn time_tick_system(time: Res<Time>, mut run: ResMut<RunState>) {
     run.time_elapsed += time.delta_secs();
 }
 
+// Phase 1 mini-boss: spawn the boss the frame `time_elapsed`
+// crosses `boss_spawn_time_s` (60s default), exactly once per
+// run. The spawn position is at a fixed distance from the
+// player in a random direction (using the same xorshift
+// pattern as `random_spawn_position` in the enemy plugin —
+// duplicated here rather than promoted to a util to avoid
+// pulling the spawn logic into the player plugin).
+//
+// The gate is `RunState.boss_spawned`, not "boss entity
+// exists" — the entity is despawned on death and re-checked
+// on restart. Using a separate flag decouples "boss has
+// spawned this run" from "boss is currently alive" so the
+// logic is clean (the entity existence check would also
+// fire on a normal kill).
+//
+// Frozen during game over so a death at t=59.9s followed by
+// no restart doesn't sneak a boss spawn in.
+fn boss_spawn_system(
+    time: Res<Time>,
+    settings: Res<GameSettings>,
+    mut run: ResMut<RunState>,
+    mut commands: Commands,
+    player_query: Query<&Transform, With<Player>>,
+) {
+    if run.game_over {
+        return;
+    }
+    if run.boss_spawned {
+        return;
+    }
+    if run.time_elapsed < settings.boss_spawn_time_s {
+        return;
+    }
+    let Ok(player_tf) = player_query.single() else {
+        return;
+    };
+    let player_pos = player_tf.translation.truncate();
+
+    // Cheap pseudo-random angle seeded from the system
+    // clock. The boss spawns ONCE per run so "any angle is
+    // fine" — a true RNG is overkill, and using a
+    // constant direction would feel choreographed.
+    let mut state = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0xCAFEBABE);
+    state ^= state << 13;
+    state ^= state >> 7;
+    state ^= state << 17;
+    let angle = ((state >> 40) as f32) / ((1u32 << 24) as f32)
+        * std::f32::consts::TAU;
+    let spawn_pos = player_pos
+        + Vec2::new(angle.cos(), angle.sin()) * settings.boss_spawn_distance;
+
+    spawn_boss(&mut commands, &settings, spawn_pos);
+    run.boss_spawned = true;
+    info!(
+        "mini-boss spawned at t={:.1}s, pos=({:.1}, {:.1})",
+        run.time_elapsed, spawn_pos.x, spawn_pos.y
+    );
+}
+
 // Day 15-16: full-run restart. On R while game over, despawn every
 // transient entity (enemies, projectiles, death puffs), reset the
 // player's position/HP/weapon/dash-state, reset the spawner timer,
@@ -582,6 +647,18 @@ fn restart_system(
     cascade.chain_extends = 0;
     cascade.interval_timer = Timer::from_seconds(30.0, TimerMode::Once);
     cascade.duration_timer = Timer::from_seconds(0.0, TimerMode::Once);
+
+    // Phase 1 mini-boss: reset the boss spawn gate. The boss
+    // itself is despawned via the `enemies` loop above
+    // (carries the `Enemy` marker), but the gate flag
+    // needs to flip back to false so the next run gets a
+    // fresh boss spawn at the new `time_elapsed == 0 +
+    // boss_spawn_time_s` crossing. Also reset the cascade
+    // beacon to false — the flag flips to true on boss
+    // death (the Phase 1 cascade hook) and the new run
+    // starts without a beacon pending.
+    run.boss_spawned = false;
+    run.cascade_beacon_alive = false;
 
     run.game_over = false;
     run.time_elapsed = 0.0;

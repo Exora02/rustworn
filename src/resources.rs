@@ -62,7 +62,18 @@ pub struct RunState {
     pub time_cap: f32, // 300s for a 5-minute run
     pub score: u32,
     pub enemies_killed: u32,
+    // The cascade beacon is gated on the boss's death — the
+    // flag flips to `true` when the mini-boss's HP hits zero
+    // (see `projectile_damage_system` in combat.rs). Reserved
+    // for the Phase 1 cascade hook; no system reads it today,
+    // but the slot is here so Phase 1 can land the spawn
+    // without another resource migration.
     pub cascade_beacon_alive: bool,
+    // Phase 1 mini-boss: set to `true` the frame the boss
+    // spawns (via `boss_spawn_system` in player.rs). Used as
+    // a one-shot gate so the boss spawns exactly once per run;
+    // `restart_system` resets it back to `false` on death.
+    pub boss_spawned: bool,
     // Day 15-16: when the player dies, gameplay systems freeze and a
     // restart prompt appears. The bool lives on RunState (rather than
     // a separate resource) because it's reset on the same lifecycle —
@@ -81,7 +92,8 @@ impl Default for RunState {
             time_cap: 300.0,
             score: 0,
             enemies_killed: 0,
-            cascade_beacon_alive: true,
+            cascade_beacon_alive: false,
+            boss_spawned: false,
             game_over: false,
         }
     }
@@ -181,6 +193,37 @@ pub struct GameSettings {
     pub sniper_projectile_size_y: f32,
     pub sniper_max_hp: f32,
     pub sniper_contact_damage: f32,
+    // Phase 1 — mini-boss. Single-instance per run, spawned
+    // once at `boss_spawn_time_s` (60s default) at a random
+    // angle at `boss_spawn_distance` from the player. 10 HP
+    // total split evenly across two phases (5/5). Contact
+    // damage 2 (matches the dasher) so a successful boss
+    // contact deletes half the player's 4 HP. Phase 1
+    // chases at `boss_move_speed` (60 — slower than the
+    // chaser's 100, so the player can kite the boss on the
+    // approach). Phase 2 enrages with a
+    // `boss_phase2_speed_multiplier` (1.5×) speed boost and
+    // a `boss_phase2_burst_count` (3) projectile spread
+    // every `boss_phase2_attack_interval_s` (2s). The
+    // boss's projectiles are slower than the shooter's
+    // (200 vs 300) and do the same damage (1 HP) so a
+    // clean 3-burst hit can chunk the player for 3 HP. The
+    // boss itself is CascadeAffected (so Cascade Mode slows
+    // both the chase and the 3-burst projectiles), and its
+    // death flips `RunState::cascade_beacon_alive` to true.
+    pub boss_max_hp: f32,
+    pub boss_contact_damage: f32,
+    pub boss_move_speed: f32,
+    pub boss_phase2_speed_multiplier: f32,
+    pub boss_phase2_attack_interval_s: f32,
+    pub boss_phase2_burst_count: u32,
+    pub boss_projectile_speed: f32,
+    pub boss_projectile_damage: f32,
+    pub boss_projectile_lifetime_s: f32,
+    pub boss_projectile_size_x: f32,
+    pub boss_projectile_size_y: f32,
+    pub boss_spawn_time_s: f32,
+    pub boss_spawn_distance: f32,
     // Day 13-14 — HUD + juice
     pub hit_flash_duration_s: f32,
     pub hitstop_duration_s: f32,
@@ -291,6 +334,47 @@ impl Default for GameSettings {
             sniper_projectile_size_y: 14.0,
             sniper_max_hp: 1.0, // one pistol hit kills (1 HP)
             sniper_contact_damage: 1.0,
+            // Phase 1 — mini-boss. See `boss_max_hp` above for
+            // the full design notes. Numbers chosen so:
+            //   - 10 HP is 5× the chaser's 3 HP, 5× the
+            //     dasher's 2, 5× the shooter's 2, 10× the
+            //     sniper's 1. The boss is meaningfully
+            //     tankier than any other enemy.
+            //   - 60s spawn time lands the boss ~halfway
+            //     through the first cascade cycle (which
+            //     opens at t=30s + 75s interval, so the
+            //     first cascade after the boss is in
+            //     progress). Cascade Mode slows the boss
+            //     + projectiles, giving the player a
+            //     window to land free hits.
+            //   - Phase 2's 1.5× speed (90) is still
+            //     slower than the chaser's 100, so the
+            //     enrage doesn't make the boss faster
+            //     than the smallest enemy — it just
+            //     speeds up the chase so a player who
+            //     was kiting has to start dodging the
+            //     3-burst instead.
+            //   - 3-burst spread is ~17° total (same as
+            //     the shotgun), so a player running
+            //     perpendicular sidesteps cleanly.
+            //   - Boss projectile size 12x12 (vs
+            //     shooter's 5x8) reads as a chunky
+            //     bullet; the bigger AABB means the
+            //     player can't thread the needle
+            //     between them.
+            boss_max_hp: 10.0,
+            boss_contact_damage: 2.0,
+            boss_move_speed: 60.0,
+            boss_phase2_speed_multiplier: 1.5,
+            boss_phase2_attack_interval_s: 2.0,
+            boss_phase2_burst_count: 3,
+            boss_projectile_speed: 200.0,
+            boss_projectile_damage: 1.0,
+            boss_projectile_lifetime_s: 1.5,
+            boss_projectile_size_x: 12.0,
+            boss_projectile_size_y: 12.0,
+            boss_spawn_time_s: 60.0,
+            boss_spawn_distance: 500.0,
             // Day 13-14 — enemy hit flash is a 0.1s white pulse,
             // killing blows trigger a 50ms global hitstop, and
             // taking damage shakes the camera for 0.2s at intensity 12.
