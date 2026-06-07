@@ -164,3 +164,12 @@ pub struct Knockback {
     pub direction: Vec2,
     pub timer: Timer,
 }
+
+/// Short-lived fading-square visual spawned at an enemy's last
+/// position when it dies. The system ticks the timer, fades the
+/// alpha to 0, and despawns. Day 11-12 placeholder for the real
+/// particle system that lands in Phase 1.
+#[derive(Component)]
+pub struct DeathPuff {
+    pub lifetime: Timer,
+}

@@ -69,6 +69,9 @@ pub struct GameSettings {
     pub spawner_interval_s: f32,
     pub spawner_min_distance: f32,
     pub spawner_max_distance: f32,
+    // Day 11-12 — enemy HP + death
+    pub enemy_max_hp: f32,
+    pub death_puff_lifetime_s: f32,
 }
 
 impl Default for GameSettings {
@@ -99,6 +102,10 @@ impl Default for GameSettings {
             spawner_interval_s: 3.0,
             spawner_min_distance: 400.0,
             spawner_max_distance: 600.0,
+            // Day 11-12 — chaser takes 3 hits to kill; death puff
+            // is a 0.3s fading white square.
+            enemy_max_hp: 3.0,
+            death_puff_lifetime_s: 0.3,
         }
     }
 }

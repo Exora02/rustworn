@@ -5,7 +5,10 @@
 
 use bevy::prelude::*;
 
-use crate::components::{AimDirection, BaseVelocity, Player, Projectile, Team, Velocity, Weapon};
+use crate::components::{
+    AimDirection, BaseVelocity, Collider, Enemy, Health, Player, Projectile, Team, Velocity, Weapon,
+};
+use crate::plugins::enemy::spawn_death_puff;
 use crate::resources::GameSettings;
 
 /// Color of the player projectile — warm white, clearly readable as a
@@ -20,15 +23,17 @@ pub struct CombatPlugin;
 impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
         // Order: cooldown tick (drives `fire_timer.finished()`) → fire
-        // (consumes click + spawns projectile) → lifetime (despawns old
-        // ones). Movement is handled by the generic `movement_system` in
-        // the player plugin.
+        // (consumes click + spawns projectile) → projectile lifetime
+        // (despawns old ones) → projectile-damage (resolves hits
+        // against enemies). Movement is handled by the generic
+        // `movement_system` in the player plugin.
         app.add_systems(
             Update,
             (
                 weapon_cooldown_tick_system,
                 weapon_fire_system,
                 projectile_lifetime_system,
+                projectile_damage_system,
             )
                 .chain(),
         );
@@ -85,11 +90,18 @@ fn weapon_fire_system(
         },
         Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.5)
             .with_rotation(Quat::from_rotation_z(angle)),
-        // Player projectiles run at full speed during Cascade Mode.
-        // No `BaseVelocity`/`CascadeAffected` markers, so neither the
-        // velocity apply step nor the future cascade scaler will touch them.
+        // No `BaseVelocity` / `CascadeAffected` markers, so the shared
+        // `velocity_apply_system` won't touch this entity and the spawn-
+        // time Velocity is preserved as the projectile's true motion.
+        // Player projectiles run at full speed during Cascade Mode
+        // (per PLAN.md §2).
         Velocity(dir * weapon.projectile_speed),
-        BaseVelocity::default(),
+        // Day 11-12: 6x12 sprite → 3x6 half-extents for AABB collision
+        // against enemy hitboxes. Kept slightly smaller than the visual
+        // so close calls feel like hits rather than near-misses.
+        Collider {
+            half_extents: Vec2::new(PROJECTILE_SIZE.x * 0.5, PROJECTILE_SIZE.y * 0.5),
+        },
         Projectile {
             damage: weapon.damage,
             lifetime: Timer::from_seconds(settings.projectile_lifetime_s, TimerMode::Once),
@@ -107,6 +119,61 @@ fn projectile_lifetime_system(
         proj.lifetime.tick(time.delta());
         if proj.lifetime.finished() {
             commands.entity(entity).despawn();
+        }
+    }
+}
+
+// AABB-vs-AABB overlap test between two transformed entities.
+// Same math as the player contact-damage system, but duplicated here
+// rather than promoted to a shared util — there's only two callers
+// and they live in different plugins.
+fn aabb_overlap(pos_a: Vec2, half_a: Vec2, pos_b: Vec2, half_b: Vec2) -> bool {
+    let delta = (pos_a - pos_b).abs();
+    delta.x < half_a.x + half_b.x && delta.y < half_a.y + half_b.y
+}
+
+// Iterate live projectiles and check each against every chaser. On
+// hit: despawn the projectile, decrement the chaser's health, and
+// (if HP hits zero) despawn the chaser and spawn a fading DeathPuff
+// at its last position. One projectile = at most one enemy hit; the
+// projectile despawns on first contact, so the inner loop exits
+// naturally.
+fn projectile_damage_system(
+    settings: Res<GameSettings>,
+    mut commands: Commands,
+    projectiles: Query<(Entity, &Transform, &Collider, &Projectile)>,
+    mut enemies: Query<(Entity, &Transform, &Collider, &mut Health), With<Enemy>>,
+) {
+    for (proj_entity, proj_tf, proj_col, proj) in &projectiles {
+        // Projectiles are Player team today; the team check is in
+        // place so enemy projectiles (Phase 1+) can co-exist without
+        // damaging their own faction.
+        if !matches!(proj.team, Team::Player) {
+            continue;
+        }
+        let proj_pos = proj_tf.translation.truncate();
+
+        let mut hit = false;
+        for (enemy_entity, enemy_tf, enemy_col, mut health) in &mut enemies {
+            if !aabb_overlap(
+                proj_pos,
+                proj_col.half_extents,
+                enemy_tf.translation.truncate(),
+                enemy_col.half_extents,
+            ) {
+                continue;
+            }
+            health.current = (health.current - proj.damage).max(0.0);
+            hit = true;
+            if health.current <= 0.0 {
+                let pos = enemy_tf.translation.truncate();
+                commands.entity(enemy_entity).despawn();
+                spawn_death_puff(&mut commands, &settings, pos);
+            }
+            break;
+        }
+        if hit {
+            commands.entity(proj_entity).despawn();
         }
     }
 }

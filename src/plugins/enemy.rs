@@ -9,8 +9,8 @@ use bevy::prelude::*;
 use log::warn;
 
 use crate::components::{
-    AiBehavior, BaseVelocity, Collider, Enemy, EnemyAI, Health, Invulnerable, Knockback, Player,
-    Spawner, Velocity,
+    AiBehavior, BaseVelocity, Collider, DeathPuff, Enemy, EnemyAI, Health, Invulnerable, Knockback,
+    Player, Spawner, Velocity,
 };
 use crate::resources::GameSettings;
 
@@ -31,12 +31,15 @@ impl Plugin for EnemyPlugin {
         // Order: spawn (creates entities) → AI (writes their BaseVelocity)
         // → contact damage (resolves hits). Movement + visual feedback
         // happen via shared systems in the player and combat plugins.
+        // Death-puff tick runs after contact so the puff's despawn
+        // doesn't fight with a fresh spawn in the same frame.
         app.add_systems(
             Update,
             (
                 spawner_tick_system,
                 enemy_ai_system,
                 enemy_contact_damage_system,
+                death_puff_tick_system,
             )
                 .chain(),
         );
@@ -109,6 +112,10 @@ fn spawn_chaser(commands: &mut Commands, settings: &GameSettings, player_pos: Ve
         Collider {
             half_extents: Vec2::splat(CHASER_SIZE * 0.5),
         },
+        // Day 11-12: enemies carry Health so the projectile-damage
+        // system can drop them. `max` is a constant per-archetype
+        // (read from settings on spawn) and `current` starts at max.
+        Health::new(settings.enemy_max_hp),
         Velocity::default(),
         // Chasers carry BaseVelocity so the future Cascade scaler can
         // slow them to 0.25× during Cascade Mode (per PLAN.md §2).
@@ -230,3 +237,45 @@ fn enemy_contact_damage_system(
 /// chaser's `Collider` component, so a single source of truth is
 /// implicit (the `CHASER_SIZE` constant).
 const CHASER_SIZE_HALF: Vec2 = Vec2::new(CHASER_SIZE * 0.5, CHASER_SIZE * 0.5);
+
+/// Bright white death-puff color. Stands out against the chaser red
+/// and the player's orange; the alpha fade is what makes it readable
+/// as a "puff" rather than a static square.
+const DEATH_PUFF_COLOR: Color = Color::srgb(1.0, 1.0, 1.0);
+
+/// Spawn a DeathPuff entity at `position`. Called from the projectile
+/// damage system when an enemy's HP hits zero.
+pub fn spawn_death_puff(commands: &mut Commands, settings: &GameSettings, position: Vec2) {
+    commands.spawn((
+        Sprite {
+            color: DEATH_PUFF_COLOR,
+            custom_size: Some(Vec2::splat(CHASER_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(position.x, position.y, 0.0),
+        DeathPuff {
+            lifetime: Timer::from_seconds(settings.death_puff_lifetime_s, TimerMode::Once),
+        },
+    ));
+}
+
+/// Tick every DeathPuff: fade alpha from 1.0 to 0.0 over its lifetime,
+/// then despawn. Each puff is independent (its own Timer) so they can
+/// overlap without interference.
+fn death_puff_tick_system(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut query: Query<(Entity, &mut DeathPuff, &mut Sprite)>,
+) {
+    for (entity, mut puff, mut sprite) in &mut query {
+        puff.lifetime.tick(time.delta());
+        if puff.lifetime.finished() {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        let progress =
+            puff.lifetime.elapsed_secs() / puff.lifetime.duration().as_secs_f32();
+        let alpha = 1.0 - progress.clamp(0.0, 1.0);
+        sprite.color = sprite.color.with_alpha(alpha);
+    }
+}
