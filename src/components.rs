@@ -236,12 +236,24 @@ pub struct DeathPuff {
 /// Brief white flash on an enemy when hit by a projectile. Inserted
 /// by the projectile-damage system on every hit (not just kills).
 /// Drives a per-frame color lerp in the enemy plugin; the system
-/// snaps the color back to the chaser base color when the timer
-/// elapses so the next hit starts from the right base.
+/// snaps the color back to the enemy's `BaseColor` when the timer
+/// elapses so the next hit starts from the right base — and so a
+/// purple dasher stays purple instead of getting hard-reset to
+/// chaser red.
 #[derive(Component)]
 pub struct HitFlash {
     pub timer: Timer,
 }
+
+/// The enemy's "true" color — its archetype's base tint. Stored as a
+/// component (rather than derived from `EnemyAI::behavior`) so the
+/// hit-flash system can reset/lerp from it without re-running the
+/// archetype match, and so future visual effects (status tints,
+/// cascade tint) can read it the same way. Set at spawn time in
+/// `spawn_chaser` / `spawn_dasher`; never changes for the lifetime
+/// of the entity.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct BaseColor(pub Color);
 
 /// Marker for a HUD element. The HUD plugin positions each element
 /// at a fixed offset from the player each frame (so the HUD stays

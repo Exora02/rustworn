@@ -93,11 +93,15 @@ const GAME_OVER_COLOR: Color = Color::srgba(0.85, 0.10, 0.10, 0.90);
 const GAME_OVER_WIDTH: f32 = 360.0;
 const GAME_OVER_HEIGHT: f32 = 80.0;
 const GAME_OVER_OFFSET_Y: f32 = -60.0;
+const GAME_OVER_TEXT: &str = "GAME OVER";
+const GAME_OVER_FONT_SIZE: f32 = 48.0;
 
 const RESTART_PROMPT_COLOR: Color = Color::srgba(0.30, 0.85, 0.30, 0.90);
 const RESTART_PROMPT_WIDTH: f32 = 240.0;
 const RESTART_PROMPT_HEIGHT: f32 = 40.0;
 const RESTART_PROMPT_OFFSET_Y: f32 = 50.0;
+const RESTART_TEXT: &str = "Press R to restart";
+const RESTART_FONT_SIZE: f32 = 20.0;
 
 // ─── Layout offsets (top-left, top-right) ────────────────────────────────
 
@@ -180,9 +184,14 @@ fn spawn_hud(mut commands: Commands) {
         HudElementKind::CascadeBar,
     );
 
-    // Game-over overlay: a single semi-transparent red rectangle.
-    // Hidden by default; `hud_update_system` flips its visibility
-    // when `RunState.game_over` toggles.
+    // Game-over overlay: semi-transparent red rectangle with
+    // centered white "GAME OVER" text on top. Hidden by default;
+    // `hud_update_system` flips its visibility when
+    // `RunState.game_over` toggles. Text and sprite share the
+    // entity — same transform, so the text lands dead-center on
+    // the box. `Anchor::Center` on the sprite keeps the box
+    // centered on the entity; Text2d's default anchor is also
+    // Center, so the text aligns automatically.
     commands.spawn((
         Sprite {
             color: GAME_OVER_COLOR,
@@ -190,6 +199,12 @@ fn spawn_hud(mut commands: Commands) {
             anchor: Anchor::Center,
             ..default()
         },
+        Text2d::new(GAME_OVER_TEXT),
+        TextFont {
+            font_size: GAME_OVER_FONT_SIZE,
+            ..default()
+        },
+        TextColor(Color::WHITE),
         Transform::from_xyz(0.0, GAME_OVER_OFFSET_Y, HUD_Z + 0.2),
         Visibility::Hidden,
         HudElement {
@@ -197,7 +212,10 @@ fn spawn_hud(mut commands: Commands) {
         },
     ));
 
-    // Restart prompt: smaller green rectangle below the game over.
+    // Restart prompt: smaller green rectangle with centered white
+    // "Press R to restart" text. Same pattern as the game-over
+    // overlay — sprite + text on one entity, gated on game-over
+    // visibility.
     commands.spawn((
         Sprite {
             color: RESTART_PROMPT_COLOR,
@@ -205,6 +223,12 @@ fn spawn_hud(mut commands: Commands) {
             anchor: Anchor::Center,
             ..default()
         },
+        Text2d::new(RESTART_TEXT),
+        TextFont {
+            font_size: RESTART_FONT_SIZE,
+            ..default()
+        },
+        TextColor(Color::WHITE),
         Transform::from_xyz(0.0, RESTART_PROMPT_OFFSET_Y, HUD_Z + 0.2),
         Visibility::Hidden,
         HudElement {

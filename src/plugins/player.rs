@@ -333,7 +333,11 @@ fn velocity_apply_system(
     // The scale lives in `GameSettings::cascade_scale` (default 0.25)
     // so a future "Cascade is a 0.5× slow-mo" variant can flip it
     // without touching this system.
-    let scale = if cascade.active { settings.cascade_scale } else { 1.0 };
+    let scale = if cascade.active {
+        settings.cascade_scale
+    } else {
+        1.0
+    };
     for (base, mut vel, cascade_affected) in &mut query {
         vel.0 = if cascade_affected {
             base.0 * scale

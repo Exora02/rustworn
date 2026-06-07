@@ -9,9 +9,9 @@ use bevy::prelude::*;
 use log::warn;
 
 use crate::components::{
-    AiBehavior, BaseVelocity, CascadeAffected, Collider, DasherPhase, DasherState, DeathPuff,
-    Enemy, EnemyAI, EnemyArchetype, Health, HitFlash, Invulnerable, Knockback, Player, Spawner,
-    Velocity,
+    AiBehavior, BaseColor, BaseVelocity, CascadeAffected, Collider, DasherPhase, DasherState,
+    DeathPuff, Enemy, EnemyAI, EnemyArchetype, Health, HitFlash, Invulnerable, Knockback, Player,
+    Spawner, Velocity,
 };
 use crate::resources::{GameSettings, Hitstop, RunState, ScreenShake};
 
@@ -140,6 +140,10 @@ fn spawn_chaser(commands: &mut Commands, settings: &GameSettings, player_pos: Ve
         // velocity_apply_system scales their Velocity by 0.25×
         // during a Cascade window. The marker has no other effect.
         CascadeAffected,
+        // Per-entity base color so the hit-flash system can reset
+        // the sprite tint back to chaser red (not the wrong
+        // archetype's color) when a flash ends without killing.
+        BaseColor(CHASER_COLOR),
     ));
 }
 
@@ -183,6 +187,11 @@ fn spawn_dasher(commands: &mut Commands, settings: &GameSettings, player_pos: Ve
             phase: DasherPhase::Approach,
             phase_timer: Timer::from_seconds(settings.dasher_approach_duration_s, TimerMode::Once),
         },
+        // Per-entity base color — the dasher's purple tint, not the
+        // chaser's red. Without this, the hit-flash system would
+        // hard-reset every enemy to chaser red on every non-killing
+        // hit (see `hit_flash_tick_system`).
+        BaseColor(DASHER_COLOR),
     ));
 }
 
@@ -467,27 +476,29 @@ fn death_puff_tick_system(
 /// Day 13-14: brief white pulse on an enemy when hit by a projectile.
 /// Inserted by the projectile-damage system; here we tick the timer
 /// and lerp the enemy color toward white (stronger at the start,
-/// fading back to CHASER_COLOR by the time the timer elapses). When
-/// the timer finishes, the color is snapped back to the chaser base
-/// so subsequent hits start from a clean state.
+/// fading back to the enemy's `BaseColor` by the time the timer
+/// elapses). When the timer finishes, the color is snapped back to
+/// the per-entity base so subsequent hits start from a clean state
+/// AND the dasher's purple stays purple (the previous hardcoded
+/// `CHASER_COLOR` reset was turning every non-killed enemy red).
 fn hit_flash_tick_system(
     time: Res<Time>,
     mut commands: Commands,
-    mut query: Query<(Entity, &mut HitFlash, &mut Sprite), With<Enemy>>,
+    mut query: Query<(Entity, &mut HitFlash, &mut Sprite, &BaseColor), With<Enemy>>,
 ) {
-    for (entity, mut flash, mut sprite) in &mut query {
+    for (entity, mut flash, mut sprite, base_color) in &mut query {
         flash.timer.tick(time.delta());
         if flash.timer.finished() {
-            sprite.color = CHASER_COLOR;
+            sprite.color = base_color.0;
             commands.entity(entity).remove::<HitFlash>();
             continue;
         }
         let progress = flash.timer.elapsed_secs() / flash.timer.duration().as_secs_f32();
         // Inverse-progress lerp: 100% flash at the start of the
         // window, 0% at the end. The 0.7 cap keeps the enemy
-        // recognizably red rather than going pure white.
+        // recognizably its-own-color rather than going pure white.
         let t = (1.0 - progress) * 0.7;
-        let base = CHASER_COLOR.to_srgba();
+        let base = base_color.0.to_srgba();
         sprite.color = Color::srgba(
             base.red + (1.0 - base.red) * t,
             base.green + (1.0 - base.green) * t,
