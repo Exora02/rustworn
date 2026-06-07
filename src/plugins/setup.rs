@@ -7,7 +7,8 @@ use bevy::prelude::*;
 use log::info;
 
 use crate::components::{
-    AimIndicator, BaseVelocity, Health, MainCamera, Player, Velocity, PLAYER_COLOR,
+    AimIndicator, BaseVelocity, Health, MainCamera, Player, Velocity, Weapon, WeaponArchetype,
+    PLAYER_COLOR,
 };
 use crate::resources::{CascadeState, GameSettings, RunState};
 
@@ -27,7 +28,7 @@ impl Plugin for SetupPlugin {
     }
 }
 
-fn spawn_camera_and_player(mut commands: Commands) {
+fn spawn_camera_and_player(mut commands: Commands, settings: Res<GameSettings>) {
     commands.spawn((Camera2d, MainCamera));
 
     commands
@@ -44,6 +45,15 @@ fn spawn_camera_and_player(mut commands: Commands) {
             Health::new(4.0),
             Velocity::default(),
             BaseVelocity::default(),
+            // Day 5-7: starting pistol. Timer is set to a zero-duration
+            // finished timer so the first click fires immediately.
+            Weapon {
+                archetype: WeaponArchetype::Pistol,
+                damage: settings.weapon_damage,
+                fire_rate: settings.weapon_fire_rate,
+                projectile_speed: settings.weapon_projectile_speed,
+                fire_timer: Timer::from_seconds(0.0, TimerMode::Once),
+            },
         ))
         .with_children(|parent| {
             // White line sticking out the top of the player; rotated each

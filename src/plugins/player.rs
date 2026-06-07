@@ -26,7 +26,7 @@ impl Plugin for PlayerPlugin {
                 dash_state_system,
                 cooldown_tick_system,
                 velocity_apply_system,
-                player_movement_system,
+                movement_system,
                 player_color_system,
                 aim_rotation_system,
                 camera_follow_system,
@@ -176,10 +176,10 @@ fn velocity_apply_system(mut query: Query<(&BaseVelocity, &mut Velocity)>) {
     }
 }
 
-fn player_movement_system(
-    time: Res<Time>,
-    mut query: Query<(&Velocity, &mut Transform), With<Player>>,
-) {
+// Applies `Velocity` to `Transform` for every entity that has both.
+// Used by the player and by projectiles (Day 5-7+). The Cascade-aware
+// velocity scaling will live in `velocity_apply_system` (Phase 1).
+fn movement_system(time: Res<Time>, mut query: Query<(&Velocity, &mut Transform)>) {
     for (velocity, mut transform) in &mut query {
         transform.translation.x += velocity.0.x * time.delta_secs();
         transform.translation.y += velocity.0.y * time.delta_secs();

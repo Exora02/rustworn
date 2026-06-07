@@ -26,7 +26,7 @@ mod resources;
 use bevy::prelude::*;
 use bevy::window::WindowResolution;
 
-use crate::plugins::{PlayerPlugin, SetupPlugin};
+use crate::plugins::{CombatPlugin, PlayerPlugin, SetupPlugin};
 
 /// Boot the Bevy app. Called from `main.rs` and (eventually) from tests.
 pub fn run() {
@@ -50,6 +50,7 @@ pub fn run() {
         )
         .add_plugins(SetupPlugin)
         .add_plugins(PlayerPlugin)
+        .add_plugins(CombatPlugin)
         .add_systems(Update, exit_on_esc)
         .run();
 }

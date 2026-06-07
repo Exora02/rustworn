@@ -71,3 +71,46 @@ pub struct AimIndicator;
 /// Re-exposed here so systems (dash flash, future hit flash) can lerp
 /// toward it without re-declaring the constant.
 pub const PLAYER_COLOR: Color = Color::srgb(0.925, 0.525, 0.012); // ~#ec8603
+
+// ─── Weapons & projectiles ────────────────────────────────────────────────
+
+/// Active weapon attached to an entity (player today, enemies later).
+/// Tracks its own cooldown so the firing system can pace shots.
+#[derive(Component)]
+pub struct Weapon {
+    pub archetype: WeaponArchetype,
+    pub damage: f32,
+    pub fire_rate: f32, // shots per second
+    pub projectile_speed: f32,
+    pub fire_timer: Timer,
+}
+
+/// Available weapon archetypes. Pistol is the only one in Phase 0; the
+/// enum exists so future weapons (Shotgun, SMG, etc.) can swap in
+/// without touching the fire system.
+#[derive(Default, Clone, Copy, Debug)]
+pub enum WeaponArchetype {
+    #[default]
+    Pistol,
+}
+
+/// A projectile in flight. Owns its lifetime so the cleanup system
+/// can despawn it without polling another structure. Has `Velocity`
+/// but not `BaseVelocity` — player projectiles never cascade-scale
+/// (per PLAN.md §2).
+#[derive(Component)]
+pub struct Projectile {
+    pub damage: f32,
+    pub lifetime: Timer,
+    pub team: Team,
+}
+
+/// Faction. Phase 0 only spawns Player projectiles; Enemy is reserved
+/// for Day 8-10 when chasers start shooting back. Used by the future
+/// damage system to filter friendly fire.
+#[derive(Default, Clone, Copy, Debug)]
+pub enum Team {
+    #[default]
+    Player,
+    Enemy,
+}

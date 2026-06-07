@@ -54,6 +54,12 @@ pub struct GameSettings {
     pub player_dash_speed: f32,
     pub player_dash_duration_s: f32,
     pub player_dash_cooldown_s: f32,
+    // Day 5-7 — pistol
+    pub weapon_damage: f32,
+    pub weapon_fire_rate: f32, // shots per second
+    pub weapon_projectile_speed: f32,
+    pub weapon_muzzle_offset: f32,
+    pub projectile_lifetime_s: f32,
 }
 
 impl Default for GameSettings {
@@ -67,6 +73,12 @@ impl Default for GameSettings {
             player_dash_speed: 600.0,
             player_dash_duration_s: 0.15,
             player_dash_cooldown_s: 1.5,
+            // Day 5-7 — pistol: 3 shots/sec, 2s range.
+            weapon_damage: 1.0,
+            weapon_fire_rate: 3.0,
+            weapon_projectile_speed: 700.0,
+            weapon_muzzle_offset: 25.0,
+            projectile_lifetime_s: 2.0,
         }
     }
 }
