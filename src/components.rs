@@ -187,7 +187,7 @@ pub struct HitFlash {
 /// Marker for a HUD element. The HUD plugin positions each element
 /// at a fixed offset from the player each frame (so the HUD stays
 /// screen-stable as the camera follows) and updates its visual to
-/// reflect current state (HP ratio, fire-rate progress).
+/// reflect current state (HP ratio, fire-rate progress, kills, time).
 #[derive(Component)]
 pub struct HudElement {
     pub kind: HudElementKind,
@@ -197,4 +197,11 @@ pub struct HudElement {
 pub enum HudElementKind {
     HpBar,
     FireRate,
+    // Day 15-16: top-right pair showing the player's run progress
+    // (kills + elapsed time) and a centered game-over overlay that
+    // appears when `RunState.game_over` flips.
+    KillBar,
+    TimeBar,
+    GameOver,
+    RestartPrompt,
 }

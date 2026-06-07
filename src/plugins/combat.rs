@@ -10,7 +10,7 @@ use crate::components::{
     Velocity, Weapon,
 };
 use crate::plugins::enemy::spawn_death_puff;
-use crate::resources::{GameSettings, Hitstop};
+use crate::resources::{GameSettings, Hitstop, RunState};
 
 /// Color of the player projectile — warm white, clearly readable as a
 /// bullet against any background we'll add later.
@@ -50,6 +50,14 @@ fn in_hitstop(hitstop: &Option<Res<Hitstop>>) -> bool {
     hitstop.is_some()
 }
 
+// Day 15-16: same idea, but for the run-over flag. Combat systems
+// freeze when the player is dead so the on-screen overlay sits on
+// a still frame and a stray fire+despawn chain can't wipe a fresh
+// run that's about to start.
+fn in_game_over(run: &RunState) -> bool {
+    run.game_over
+}
+
 // Each frame, advance every weapon's fire_timer. A freshly fired weapon
 // has its timer set to `1.0 / fire_rate`; once it ticks down to zero the
 // weapon can fire again. Frozen during global hitstop so the player
@@ -57,9 +65,10 @@ fn in_hitstop(hitstop: &Option<Res<Hitstop>>) -> bool {
 fn weapon_cooldown_tick_system(
     time: Res<Time>,
     hitstop: Option<Res<Hitstop>>,
+    run: Res<RunState>,
     mut query: Query<&mut Weapon>,
 ) {
-    if in_hitstop(&hitstop) {
+    if in_hitstop(&hitstop) || in_game_over(&run) {
         return;
     }
     for mut weapon in &mut query {
@@ -71,15 +80,25 @@ fn weapon_cooldown_tick_system(
 // current aim direction. The projectile gets a `Velocity` but no
 // `BaseVelocity` (player projectiles don't cascade-scale). Frozen
 // during global hitstop.
+//
+// Day 15-16: also enforce the projectile cap. Before spawning, count
+// live player projectiles; if we're already at the cap, silently
+// drop the new shot. We pick "silent drop" over "despawn oldest"
+// because the latter causes visible pops in the stream — for a
+// 30-cap and a 3/sec fire rate, the cap is unreachable in normal
+// play, so a dropped shot is genuinely a player error (machine
+// lag, glitched click, etc.) and not worth the visual disruption.
 fn weapon_fire_system(
     mouse: Res<ButtonInput<MouseButton>>,
     aim: Res<AimDirection>,
     settings: Res<GameSettings>,
     hitstop: Option<Res<Hitstop>>,
+    run: Res<RunState>,
     mut commands: Commands,
     mut weapons: Query<(&mut Weapon, &Transform), With<Player>>,
+    projectiles: Query<&Projectile>,
 ) {
-    if in_hitstop(&hitstop) {
+    if in_hitstop(&hitstop) || in_game_over(&run) {
         return;
     }
     if !mouse.just_pressed(MouseButton::Left) {
@@ -89,6 +108,15 @@ fn weapon_fire_system(
         return;
     };
     if !weapon.fire_timer.finished() {
+        return;
+    }
+
+    // Projectile cap: count current live projectiles, skip the spawn
+    // if we're already at the cap. Counts all teams since the cap is
+    // a global perf budget and Phase 1+ will add enemy projectiles
+    // that should also count against it.
+    let live = projectiles.iter().count() as u32;
+    if live >= settings.projectile_cap {
         return;
     }
 
@@ -136,10 +164,11 @@ fn weapon_fire_system(
 fn projectile_lifetime_system(
     time: Res<Time>,
     hitstop: Option<Res<Hitstop>>,
+    run: Res<RunState>,
     mut commands: Commands,
     mut query: Query<(Entity, &mut Projectile)>,
 ) {
-    if in_hitstop(&hitstop) {
+    if in_hitstop(&hitstop) || in_game_over(&run) {
         return;
     }
     for (entity, mut proj) in &mut query {
@@ -165,16 +194,23 @@ fn aabb_overlap(pos_a: Vec2, half_a: Vec2, pos_b: Vec2, half_b: Vec2) -> bool {
 // at its last position. One projectile = at most one enemy hit; the
 // projectile despawns on first contact, so the inner loop exits
 // naturally.
+//
+// Day 15-16: increment `RunState::enemies_killed` on a killing blow
+// so the HUD kill bar reflects progress.
 fn projectile_damage_system(
     settings: Res<GameSettings>,
     hitstop: Option<Res<Hitstop>>,
+    mut run: ResMut<RunState>,
     mut commands: Commands,
     projectiles: Query<(Entity, &Transform, &Collider, &Projectile)>,
     mut enemies: Query<(Entity, &Transform, &Collider, &mut Health), With<Enemy>>,
 ) {
     // Frozen during global hitstop — a killing blow that triggers the
     // freeze should not also resolve follow-up hits in the same frame.
-    if in_hitstop(&hitstop) {
+    // Frozen during game over so the on-screen overlay sits on a
+    // still frame and a stray fire+despawn chain can't wipe a fresh
+    // run that's about to start.
+    if in_hitstop(&hitstop) || in_game_over(&run) {
         return;
     }
     for (proj_entity, proj_tf, proj_col, proj) in &projectiles {
@@ -206,6 +242,11 @@ fn projectile_damage_system(
                 let pos = enemy_tf.translation.truncate();
                 commands.entity(enemy_entity).despawn();
                 spawn_death_puff(&mut commands, &settings, pos);
+                // Day 15-16: bump the kill counter so the HUD bar
+                // reflects progress. Saturating add would be cleaner
+                // if we ever expected a "win" state; for now an
+                // overflow at 4 billion kills is acceptable.
+                run.enemies_killed = run.enemies_killed.saturating_add(1);
                 // Day 13-14: global hitstop on a killing blow. Insert
                 // (or refresh) the resource — every combat/player/
                 // enemy system gates on its presence, so the freeze

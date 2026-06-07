@@ -12,7 +12,7 @@ use crate::components::{
     AiBehavior, BaseVelocity, Collider, DeathPuff, Enemy, EnemyAI, Health, HitFlash, Invulnerable,
     Knockback, Player, Spawner, Velocity,
 };
-use crate::resources::{GameSettings, Hitstop, ScreenShake};
+use crate::resources::{GameSettings, Hitstop, RunState, ScreenShake};
 
 /// Color of the chaser — high-contrast red so it reads as "danger" at
 /// a glance against the orange player and the dark background we'll
@@ -55,16 +55,18 @@ impl Plugin for EnemyPlugin {
 // spawn a chaser at a random angle from the player at a random distance
 // in [min_distance, max_distance], then reset the timer. Frozen
 // during global hitstop so kills don't immediately spawn a new
-// wave of chasers mid-freeze.
+// wave of chasers mid-freeze. Frozen during game over for the same
+// reason.
 fn spawner_tick_system(
     time: Res<Time>,
     settings: Res<GameSettings>,
     hitstop: Option<Res<Hitstop>>,
+    run: Res<RunState>,
     mut commands: Commands,
     mut spawners: Query<&mut Spawner>,
     player_query: Query<&Transform, With<Player>>,
 ) {
-    if hitstop.is_some() {
+    if hitstop.is_some() || run.game_over {
         return;
     }
     let Ok(player_transform) = player_query.single() else {
@@ -138,14 +140,16 @@ fn spawn_chaser(commands: &mut Commands, settings: &GameSettings, player_pos: Ve
 // and write it into BaseVelocity (scaled by chaser_move_speed). The
 // shared `velocity_apply_system` then copies it into `Velocity`, and
 // `movement_system` integrates it into the transform. Frozen during
-// global hitstop so chasers halt during the freeze.
+// global hitstop so chasers halt during the freeze. Frozen during
+// game over so the dead player doesn't get bumped by a straggler.
 fn enemy_ai_system(
     settings: Res<GameSettings>,
     hitstop: Option<Res<Hitstop>>,
+    run: Res<RunState>,
     player_query: Query<&Transform, With<Player>>,
     mut enemies: Query<(&Transform, &EnemyAI, &mut BaseVelocity), With<Enemy>>,
 ) {
-    if hitstop.is_some() {
+    if hitstop.is_some() || run.game_over {
         return;
     }
     let Ok(player_transform) = player_query.single() else {
@@ -193,15 +197,19 @@ type PlayerForContact = (
 //   - otherwise, deal damage, attach Knockback, attach hit Invulnerable
 // One hit per frame — breaks after the first overlap so the player
 // can't be hit twice on the same contact frame.
+// Frozen during game over so a chaser that's standing on the dead
+// player doesn't keep resetting the run state or causing a "you
+// died" log spam.
 fn enemy_contact_damage_system(
     settings: Res<GameSettings>,
     hitstop: Option<Res<Hitstop>>,
+    run: Res<RunState>,
     mut commands: Commands,
     mut player_query: Query<PlayerForContact, With<Player>>,
     enemies: Query<&Transform, (With<Enemy>, With<Collider>)>,
     mut shake: ResMut<ScreenShake>,
 ) {
-    if hitstop.is_some() {
+    if hitstop.is_some() || run.game_over {
         return;
     }
     let Ok((player_entity, player_tf, player_col, mut health, invulnerable)) =

@@ -26,6 +26,13 @@ pub struct RunState {
     pub score: u32,
     pub enemies_killed: u32,
     pub cascade_beacon_alive: bool,
+    // Day 15-16: when the player dies, gameplay systems freeze and a
+    // restart prompt appears. The bool lives on RunState (rather than
+    // a separate resource) because it's reset on the same lifecycle —
+    // a proper Bevy State lands in Phase 2 alongside the main-menu /
+    // game-over / pause split, and we'll lift this flag into that
+    // state machine at the same time.
+    pub game_over: bool,
 }
 
 impl Default for RunState {
@@ -38,6 +45,7 @@ impl Default for RunState {
             score: 0,
             enemies_killed: 0,
             cascade_beacon_alive: true,
+            game_over: false,
         }
     }
 }
@@ -98,6 +106,8 @@ pub struct GameSettings {
     pub hitstop_duration_s: f32,
     pub screen_shake_intensity: f32,
     pub screen_shake_duration_s: f32,
+    // Day 15-16 — polish
+    pub projectile_cap: u32,
 }
 
 impl Default for GameSettings {
@@ -139,6 +149,13 @@ impl Default for GameSettings {
             hitstop_duration_s: 0.05,
             screen_shake_intensity: 12.0,
             screen_shake_duration_s: 0.2,
+            // Day 15-16 — hard cap of 30 live projectiles. Holding
+            // fire and running around no longer spawns an unbounded
+            // stream; the 31st shot is silently dropped. Pick this
+            // high enough that legit gameplay (clearing a room) never
+            // hits it, but low enough that pathological cases don't
+            // tank the frame rate on weaker machines.
+            projectile_cap: 30,
         }
     }
 }
