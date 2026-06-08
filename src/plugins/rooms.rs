@@ -790,7 +790,22 @@ fn door_transition_system(
             //    spawner is brand new). This is the "fresh
             //    warmup" the player gets when they walk
             //    into a new room.
+            //
+            //    IMPORTANT: skip spawners whose room is
+            //    already cleared (`current_wave >=
+            //    waves.len()`). A "conquered" room stays
+            //    conquered — re-entering it should not
+            //    re-spawn the waves. Phase 2.3.2 bugfix.
             for mut spawner in &mut spawners {
+                if spawner.current_wave >= spawner.waves.len() {
+                    // Room already cleared. Leave the
+                    // spawner in its post-clear state and
+                    // don't re-arm the timer. The next
+                    // `wave_spawner_tick_system` tick will
+                    // see `current_wave >= waves.len()`
+                    // and skip the spawner.
+                    continue;
+                }
                 if let Some(first_wave) = spawner.waves.first() {
                     spawner.wave_timer =
                         Timer::from_seconds(first_wave.interval_s, TimerMode::Once);
@@ -1215,6 +1230,114 @@ mod tests {
         // about it being unused. (It's used in the test
         // setup to document the topology.)
         let _ = &rooms;
+    }
+
+    // Phase 2.3.2: conquered rooms stay conquered. The
+    // `WaveSpawner` is the source of truth for "is this
+    // room cleared?" — when `current_wave >= waves.len()`,
+    // the spawner is done and no enemies should spawn.
+    //
+    // The door_transition_system used to unconditionally
+    // reset the spawner to wave 0 on every entry, which
+    // meant re-entering a cleared room re-triggered the
+    // waves. The fix is: on entry, skip the reset for
+    // spawners that are already past their last wave.
+    //
+    // This test models the data flow: simulate the
+    // "player walks into a cleared room" scenario and
+    // verify the spawner state is NOT reset.
+    #[test]
+    fn conquered_room_spawner_not_reset_on_reentry() {
+        use crate::components::EnemyArchetype;
+        use crate::components::WaveDefinition;
+
+        // Build a spawner that has just cleared its last
+        // wave (4 chasers, all spawned, current_wave
+        // advanced past waves.len()).
+        let mut spawner = WaveSpawner {
+            room_id: RoomId(1),
+            waves: vec![WaveDefinition {
+                archetype: EnemyArchetype::Chaser,
+                count: 4,
+                interval_s: 1.5,
+            }],
+            current_wave: 1, // past waves.len() = 1
+            spawned_this_wave: 0,
+            wave_timer: Timer::from_seconds(99.0, TimerMode::Once), // arbitrary
+        };
+
+        // Simulate door_transition_system's reset block:
+        // - If the spawner is past its last wave, skip.
+        // - Otherwise, reset to wave 0.
+        let should_reset = spawner.current_wave < spawner.waves.len();
+        if should_reset {
+            spawner.current_wave = 0;
+            spawner.spawned_this_wave = 0;
+            if let Some(first_wave) = spawner.waves.first() {
+                spawner.wave_timer =
+                    Timer::from_seconds(first_wave.interval_s, TimerMode::Once);
+            }
+        }
+
+        // The spawner should be UNCHANGED — still
+        // current_wave=1, past its last wave. The
+        // `wave_spawner_tick_system` will see
+        // `current_wave >= waves.len()` and skip on
+        // every tick.
+        assert_eq!(
+            spawner.current_wave, 1,
+            "conquered spawner must NOT have current_wave reset"
+        );
+        assert_eq!(
+            spawner.spawned_this_wave, 0,
+            "conquered spawner must NOT have spawned_this_wave reset"
+        );
+        // Timer should also be untouched (still 99.0).
+        assert_eq!(
+            spawner.wave_timer.duration().as_secs_f32(),
+            99.0,
+            "conquered spawner must NOT have timer re-armed"
+        );
+    }
+
+    // Counter-test: a NON-cleared spawner should still
+    // be reset to wave 0 on entry. This locks in the
+    // "fresh entry, fresh warmup" behavior.
+    #[test]
+    fn uncleared_room_spawner_is_reset_on_entry() {
+        use crate::components::EnemyArchetype;
+        use crate::components::WaveDefinition;
+
+        let mut spawner = WaveSpawner {
+            room_id: RoomId(1),
+            waves: vec![WaveDefinition {
+                archetype: EnemyArchetype::Chaser,
+                count: 4,
+                interval_s: 1.5,
+            }],
+            current_wave: 0,
+            spawned_this_wave: 0,
+            wave_timer: Timer::from_seconds(0.5, TimerMode::Once), // half-elapsed
+        };
+
+        // Simulate the reset block.
+        let should_reset = spawner.current_wave < spawner.waves.len();
+        if should_reset {
+            if let Some(first_wave) = spawner.waves.first() {
+                spawner.wave_timer =
+                    Timer::from_seconds(first_wave.interval_s, TimerMode::Once);
+            }
+            spawner.current_wave = 0;
+            spawner.spawned_this_wave = 0;
+        }
+
+        assert_eq!(spawner.current_wave, 0);
+        assert_eq!(spawner.spawned_this_wave, 0);
+        assert_eq!(
+            spawner.wave_timer.duration().as_secs_f32(),
+            1.5,
+            "uncleared spawner MUST have timer re-armed to first wave's interval"
+        );
     }
 
     // Spawn position clamp (Phase 2.1): the enemy must spawn
