@@ -368,17 +368,13 @@ pub enum BossPhase {
     Phase2,
 }
 
-/// Periodic spawner. Owns a Timer; when it elapses, the spawner system
-/// creates one enemy at a random angle from the player and resets the
-/// timer. The `spawn` field picks which archetype comes out — Chaser
-/// (Phase 0) or Dasher (Phase 1). Persists for the whole run (no
-/// despawn) — Day 15-16 polish will add a max-alive cap and
-/// per-spawner despawn.
-#[derive(Component)]
-pub struct Spawner {
-    pub interval: Timer,
-    pub spawn: EnemyArchetype,
-}
+// Phase 2.3: replaced the 4 parallel `Spawner` entities (one
+// per archetype) with a single `WaveSpawner` per Fight room.
+// See `WaveSpawner` below. The old `Spawner` struct is removed.
+//
+// `EnemyArchetype` stays — it's the per-enemy tag that
+// `spawn_chaser/dasher/shooter/sniper` dispatches on, and it's
+// the value stored in `WaveDefinition.archetype`.
 
 /// What a Spawner produces. Mirrors AiBehavior (every spawned enemy
 /// has a corresponding AI behavior) but lives separately so the
@@ -697,10 +693,30 @@ pub enum RoomKind {
 /// `Collider` is just the AABB used for the overlap check.
 /// (Walls are full-perimeter; doors are floor triggers on
 /// the inside of the room, not gaps in the walls.)
+///
+/// Phase 2.3: added `from_room`, `locked`, and `forward`.
+/// - `from_room`: the room the player is IN when they step
+///   on this door's trigger. The "source" of the transition.
+///   Symmetric to `to_room` (the destination). Without this
+///   field, `door_unlock_system` would have to infer the
+///   source from the door's position relative to a room,
+///   which is brittle and breaks for branching paths in
+///   Phase 3+.
+/// - `locked = true` means the door refuses to fire the
+///   transition even if the player overlaps its AABB.
+///   Set to `false` by `door_unlock_system` when the
+///   source room's waves are cleared.
+/// - `forward = true` marks this door as a "progression"
+///   door — it's locked by default and unlocks on clear.
+///   Backward doors (`forward = false`) are never locked:
+///   the player can always retreat to a previous room.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Door {
+    pub from_room: RoomId,
     pub to_room: RoomId,
     pub entry_position: Vec2,
+    pub locked: bool,
+    pub forward: bool,
 }
 
 /// Marker on entities that belong to a specific room. Used
@@ -725,3 +741,58 @@ pub struct RoomScope {
 /// system can find them.
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct Wall;
+
+// ─── Wave spawning (Phase 2.3) ────────────────────────────────────────────
+
+/// One wave in a room's progression: spawn `count` enemies of
+/// `archetype`, spaced `interval_s` apart.
+///
+/// A wave is "done" when `count` enemies have been spawned.
+/// The `WaveSpawner` then advances to the next wave in its
+/// `waves` vec. When all waves are done, the room is "cleared"
+/// and its forward door(s) unlock.
+///
+/// `interval_s = 0.0` means "spawn all enemies of this wave
+/// on the same frame" — useful for cinematic openings or
+/// scripted "ambush" waves. The `wave_spawner_tick_system`
+/// treats 0.0 as a special case (spawn all remaining, then
+/// advance immediately).
+#[derive(Clone, Copy, Debug)]
+pub struct WaveDefinition {
+    pub archetype: EnemyArchetype,
+    pub count: u32,
+    pub interval_s: f32,
+}
+
+/// One wave spawner per room that has enemies. Replaces the
+/// Phase 1 / 2.0 design of 4 parallel `Spawner` entities
+/// (one per archetype, all firing every 3s in parallel).
+///
+/// State machine:
+/// 1. `current_wave < waves.len()` → ticking `wave_timer`
+/// 2. When the timer fires and `spawned_this_wave < waves[current_wave].count`,
+///    spawn one enemy and reset the timer to `interval_s`.
+/// 3. When `spawned_this_wave == waves[current_wave].count`, advance:
+///    `current_wave += 1`, `spawned_this_wave = 0`, re-arm `wave_timer`
+///    with the NEXT wave's `interval_s`.
+/// 4. When `current_wave == waves.len()` (all waves done), the
+///    spawner stops ticking. `door_unlock_system` observes this
+///    and sets `locked = false` on the room's forward door(s).
+///
+/// `room_id` replaces the Phase 2.0 `RoomScope` marker for
+/// spawners — the spawner is now a struct with its own room
+/// field, so it doesn't need a separate component.
+///
+/// `wave_timer` is `TimerMode::Repeating`-equivalent: each
+/// spawn resets it to the current wave's `interval_s` (so
+/// the next spawn is `interval_s` later, not on the next
+/// frame). This matches the Phase 1 `Spawner.interval`
+/// semantics.
+#[derive(Component, Debug)]
+pub struct WaveSpawner {
+    pub room_id: RoomId,
+    pub waves: Vec<WaveDefinition>,
+    pub current_wave: usize,
+    pub spawned_this_wave: u32,
+    pub wave_timer: Timer,
+}

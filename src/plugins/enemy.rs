@@ -11,12 +11,12 @@ use log::warn;
 use crate::components::{
     AiBehavior, AppState, BaseColor, BaseVelocity, Boss, BossPhase, BossState, CascadeAffected,
     Collider, DasherPhase, DasherState, DeathPuff, Enemy, EnemyAI, EnemyArchetype, Health,
-    HitFlash, Invulnerable, Knockback, Player, Projectile, Room, RoomScope, ShooterState, SniperState,
-    Spawner, Team, Velocity,
+    HitFlash, Invulnerable, Knockback, Player, Projectile, Room, ShooterState,
+    SniperState, Team, Velocity, WaveDefinition, WaveSpawner,
 };
-use crate::events::DamageEvent;
+use crate::events::{DamageEvent, RoomClearedEvent};
 use crate::plugins::fx::spawn_hit_spark;
-use crate::resources::{BiomeState, GameSettings, Hitstop, RunState, ScreenShake};
+use crate::resources::{BiomeState, GameSettings, Hitstop, RunRng, RunState, ScreenShake};
 
 /// Color of the chaser — high-contrast red so it reads as "danger" at
 /// a glance against the orange player and the dark background we'll
@@ -138,7 +138,7 @@ impl Plugin for EnemyPlugin {
         app.add_systems(
             Update,
             (
-                spawner_tick_system,
+                wave_spawner_tick_system,
                 enemy_ai_system,
                 enemy_contact_damage_system,
                 death_puff_tick_system,
@@ -156,30 +156,50 @@ impl Plugin for EnemyPlugin {
         );
     }
 }
+// ─── Wave Spawner (Phase 2.3) ─────────────────────────────────────────────
 
-// ─── Spawner ─────────────────────────────────────────────────────────────
-
-// Each frame, advance every spawner's timer. When the timer elapses,
-// spawn an enemy of the spawner's `archetype` at a random angle from
-// the player at a random distance in [min_distance, max_distance],
-// then reset the timer. Frozen during global hitstop so kills don't
-// immediately spawn a new wave mid-freeze.
+// Replaces the Phase 2.0 `spawner_tick_system` (4 parallel
+// `Spawner` entities, one per archetype, all firing every
+// 3s in parallel). Now there's one `WaveSpawner` per Fight
+// room with a list of `WaveDefinition`s; this system ticks
+// the spawner in the CURRENT room, spawning enemies of the
+// current wave's archetype at the wave's `interval_s`.
 //
-// Phase 2: spawners are now scoped to a specific room via
-// `RoomScope { room_id }`. This system reads `BiomeState.current_room`
-// and skips spawners whose `room_id` doesn't match. The spawner
-// entities themselves persist across room transitions — they just
-// don't tick when the player is in a different room. On room
-// transition, `door_transition_system` resets the timers (so the
-// new room gets the standard warmup before the first enemy spawns).
-fn spawner_tick_system(
+// State machine (per frame):
+// 1. If `current_wave >= waves.len()` → all waves done, skip.
+// 2. Tick `wave_timer`.
+// 3. If `wave_timer` fired AND `spawned_this_wave < waves[current_wave].count`:
+//    - Spawn one enemy of `waves[current_wave].archetype`
+//      at a random position in the current room
+//    - Reset `wave_timer` to the current wave's `interval_s`
+//    - Increment `spawned_this_wave`
+// 4. If `spawned_this_wave == waves[current_wave].count` (wave done):
+//    - Advance `current_wave`
+//    - Reset `spawned_this_wave = 0`
+//    - Re-arm `wave_timer` with the NEXT wave's `interval_s`
+// 5. If we just advanced PAST the last wave (i.e. was
+//    `waves.len() - 1`, now `waves.len()`): emit
+//    `RoomClearedEvent { room_id }` so `door_unlock_system`
+//    can unlock the room's forward door.
+//
+// Frozen during global hitstop so kills don't immediately
+// trigger the next spawn. Frozen outside the current room
+// (skipped by the `room_id != current_room` filter) so
+// re-entering a room doesn't dump a backlog.
+//
+// On room transition, `door_transition_system` resets all
+// `WaveSpawner.wave_timer` to the current wave's
+// `interval_s` (so the new room gets a fresh warmup).
+fn wave_spawner_tick_system(
     time: Res<Time>,
     settings: Res<GameSettings>,
     hitstop: Option<Res<Hitstop>>,
     biome: Res<BiomeState>,
+    mut rng: ResMut<RunRng>,
     mut commands: Commands,
-    mut spawners: Query<(&mut Spawner, &RoomScope)>,
+    mut spawners: Query<&mut WaveSpawner>,
     player_query: Query<&Transform, With<Player>>,
+    mut room_cleared_events: EventWriter<RoomClearedEvent>,
 ) {
     if hitstop.is_some() {
         return;
@@ -189,22 +209,110 @@ fn spawner_tick_system(
     };
     let player_pos = player_transform.translation.truncate();
 
-    for (mut spawner, scope) in &mut spawners {
-        // Skip spawners in other rooms. The persistent spawner
-        // entity exists, but its timer doesn't tick while the
-        // player is elsewhere — so the next time the player
-        // re-enters this room, the timer is still wherever it
-        // was when they left. (Mitigated by
-        // `door_transition_system` resetting all spawner timers
-        // on every room transition.)
-        if scope.room_id != biome.current_room {
+    for mut spawner in &mut spawners {
+        if spawner.room_id != biome.current_room {
             continue;
         }
-        spawner.interval.tick(time.delta());
-        if !spawner.interval.finished() {
+        // All waves done: do nothing (we already emitted
+        // the event on the frame we transitioned).
+        if spawner.current_wave >= spawner.waves.len() {
             continue;
         }
-        spawn_enemy(&mut commands, &settings, &biome, player_pos, spawner.spawn);
+
+        // Step 2: tick the timer.
+        spawner.wave_timer.tick(time.delta());
+        if !spawner.wave_timer.finished() {
+            continue;
+        }
+
+        let current_wave: &WaveDefinition = &spawner.waves[spawner.current_wave];
+
+        // Snapshot the wave fields up front so the immutable
+        // borrow of `spawner.waves[spawner.current_wave]`
+        // doesn't extend across the mutable `spawner.spawned_this_wave += 1`
+        // / `spawner.wave_timer = ...` below.
+        let current_count = current_wave.count;
+        let current_interval = current_wave.interval_s;
+        let next_wave_interval = spawner
+            .waves
+            .get(spawner.current_wave + 1)
+            .map(|w| w.interval_s);
+
+        // Step 3: timer fired — spawn if we still have
+        // enemies to spawn in this wave.
+        if spawner.spawned_this_wave < current_count {
+            spawn_wave_enemy(
+                &mut commands,
+                &settings,
+                &biome,
+                &mut rng,
+                player_pos,
+                current_wave.archetype,
+            );
+            spawner.spawned_this_wave += 1;
+            // Reset the timer for the next spawn. The
+            // next interval is:
+            //  - the current wave's interval, if we still
+            //    have enemies to spawn in this wave
+            //  - the NEXT wave's interval, if we just
+            //    finished this wave and there's another
+            //    wave coming
+            //  - the current wave's interval, if this
+            //    was the last wave (we just emit the
+            //    RoomClearedEvent on the same frame)
+            let next_interval = if spawner.spawned_this_wave < current_count {
+                current_interval
+            } else {
+                next_wave_interval.unwrap_or(current_interval)
+            };
+            spawner.wave_timer = Timer::from_seconds(next_interval, TimerMode::Once);
+        }
+
+        // Step 4: wave done — advance.
+        if spawner.spawned_this_wave >= current_count {
+            spawner.current_wave += 1;
+            spawner.spawned_this_wave = 0;
+
+            // Step 5: just cleared the last wave. Emit
+            // RoomClearedEvent so door_unlock_system can
+            // unlock the room's forward door.
+            if spawner.current_wave == spawner.waves.len() {
+                room_cleared_events.write(RoomClearedEvent {
+                    room_id: spawner.room_id,
+                });
+            }
+        }
+    }
+}
+
+// Spawn a single enemy of `archetype` at a random
+// position in the current room. Reads randomness from
+// the per-run `RunRng` so the same seed gives the same
+// enemy positions (Phase 2.3 determinism).
+fn spawn_wave_enemy(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    biome: &BiomeState,
+    rng: &mut RunRng,
+    player_pos: Vec2,
+    archetype: EnemyArchetype,
+) {
+    let room = biome
+        .rooms
+        .iter()
+        .find(|r| r.id == biome.current_room)
+        .expect("current room must exist in biome");
+    let spawn_pos = random_spawn_position(settings, player_pos, room, rng);
+    match archetype {
+        EnemyArchetype::Chaser => spawn_chaser(commands, settings, room, spawn_pos),
+        EnemyArchetype::Dasher => spawn_dasher(commands, settings, room, spawn_pos),
+        EnemyArchetype::Shooter => spawn_shooter(commands, settings, room, spawn_pos),
+        EnemyArchetype::Sniper => spawn_sniper(commands, settings, room, spawn_pos),
+        // Phase 2.3: Boss is still on the timer-driven
+        // path (boss_spawn_system at run midpoint), not
+        // a wave. Future patch will fold it into the
+        // wave system.
+        EnemyArchetype::Boss => {}
     }
 }
 
@@ -239,8 +347,7 @@ fn spawn_enemy(
     }
 }
 
-fn spawn_chaser(commands: &mut Commands, settings: &GameSettings, room: &Room, player_pos: Vec2) {
-    let (spawn_pos, _) = random_spawn_position(settings, player_pos, room);
+fn spawn_chaser(commands: &mut Commands, settings: &GameSettings, room: &Room, spawn_pos: Vec2) {
 
     commands.spawn((
         Sprite {
@@ -278,14 +385,13 @@ fn spawn_chaser(commands: &mut Commands, settings: &GameSettings, room: &Room, p
 // Phase 1 dasher. Same shape as the chaser, plus a `DasherState`
 // component that the AI ticks each frame to advance the
 // approach → dash → recover cycle. The dasher starts in Approach.
-fn spawn_dasher(commands: &mut Commands, settings: &GameSettings, room: &Room, player_pos: Vec2) {
+fn spawn_dasher(commands: &mut Commands, settings: &GameSettings, room: &Room, spawn_pos: Vec2) {
     // Spawn position is the same as a chaser — random angle at a
     // random distance in [min, max]. We could spawn dashers
     // further out (so the player has time to read the charge
     // before they arrive) but that conflicts with the unified
     // spawner distance; Phase 2 will let each archetype override
     // its spawn range.
-    let (spawn_pos, _) = random_spawn_position(settings, player_pos, room);
 
     commands.spawn((
         Sprite {
@@ -330,8 +436,7 @@ fn spawn_dasher(commands: &mut Commands, settings: &GameSettings, room: &Room, p
 // wave of shooters doesn't all open fire on the same frame —
 // Phase 2 will use seeded RNG to make this deterministic per
 // run.
-fn spawn_shooter(commands: &mut Commands, settings: &GameSettings, room: &Room, player_pos: Vec2) {
-    let (spawn_pos, _) = random_spawn_position(settings, player_pos, room);
+fn spawn_shooter(commands: &mut Commands, settings: &GameSettings, room: &Room, spawn_pos: Vec2) {
 
     // Spread the first shot over the fire interval. Without
     // this, a fresh wave of 3 shooters all open fire on the
@@ -380,8 +485,7 @@ fn spawn_shooter(commands: &mut Commands, settings: &GameSettings, room: &Room, 
 // on the same frame — the spawn-time spread is the cooldown
 // duration itself, so the first shot from a fresh sniper
 // lands ~1.0s after spawn.
-fn spawn_sniper(commands: &mut Commands, settings: &GameSettings, room: &Room, player_pos: Vec2) {
-    let (spawn_pos, _) = random_spawn_position(settings, player_pos, room);
+fn spawn_sniper(commands: &mut Commands, settings: &GameSettings, room: &Room, spawn_pos: Vec2) {
 
     commands.spawn((
         Sprite {
@@ -611,63 +715,46 @@ pub fn spawn_boss(commands: &mut Commands, settings: &GameSettings, position: Ve
     ));
 }
 
-// Shared spawn-position math: random angle, random distance in
-// [min, max]. The xorshift state is seeded from the system clock
-// at call time, so two spawns in the same frame get different
-// values (they share the same `state` but advance it through the
-// two `next_unit` calls).
+// Shared spawn-position math: random angle, random distance
+// in [min, max]. Reads randomness from the per-run `RunRng`
+// resource (Phase 2.3 determinism: same seed → same enemy
+// positions, so recorded runs can be replayed).
 //
-// Phase 2: takes the current room's bounds and clamps the
-// final position to be `margin` units inside the room on every
-// axis. Without this, an enemy could spawn in a wall (when the
-// random angle points toward a wall and the distance is large
-// enough) or even in an adjacent room (when the player is near
-// a wall and the offset points outward). Both were visual bugs
-// in Patch 2.0: the player saw enemies "popping in" through
-// the wall or appearing in the Spawn room while still in the
-// Fight room.
+// Returns just the position (not `(Vec2, u64)` as in
+// Phase 2) because the RNG state lives in the `RunRng`
+// resource, not in the return value. Simpler API for the
+// same behavior.
 //
-// The clamp is per-axis (not "fit inside the room's AABB")
-// because each axis is independent. If the random offset
-// pushes X outside but keeps Y inside, we clamp X only.
-// This is the cheapest correct behavior — full AABB clamping
-// would also work but is overkill for spawn placement.
+// Phase 2.1 also added the room-bounds clamp: enemies
+// can't spawn in a wall or in an adjacent room. The
+// per-axis clamp is the cheapest correct behavior.
 fn random_spawn_position(
     settings: &GameSettings,
     player_pos: Vec2,
     room: &Room,
-) -> (Vec2, u64) {
-    let mut state = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0xCAFEBABE);
-
-    let next_unit = |s: &mut u64| -> f32 {
-        let mut x = *s;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        *s = x;
-        ((x >> 40) as f32) / ((1u32 << 24) as f32)
-    };
-
-    let angle = next_unit(&mut state) * std::f32::consts::TAU;
+    rng: &mut RunRng,
+) -> Vec2 {
+    let angle = rng.next_unit() * std::f32::consts::TAU;
     let distance = settings.spawner_min_distance
-        + next_unit(&mut state) * (settings.spawner_max_distance - settings.spawner_min_distance);
+        + rng.next_unit() * (settings.spawner_max_distance - settings.spawner_min_distance);
     let offset = Vec2::new(angle.cos(), angle.sin()) * distance;
     let raw = player_pos + offset;
 
     // Margin: half the largest enemy (40px chaser) + a small
-    // buffer. The buffer keeps the enemy AABB entirely inside
-    // the room after spawn (so the wall_collision_system
-    // doesn't push them on the first frame, which would
-    // visually look like a "teleport inward").
+    // buffer. Keeps the enemy AABB entirely inside the room
+    // after spawn (so the wall_collision_system doesn't push
+    // them on the first frame).
     const SPAWN_MARGIN: f32 = 25.0;
-    let clamped = Vec2::new(
-        raw.x.clamp(room.bounds_min.x + SPAWN_MARGIN, room.bounds_max.x - SPAWN_MARGIN),
-        raw.y.clamp(room.bounds_min.y + SPAWN_MARGIN, room.bounds_max.y - SPAWN_MARGIN),
-    );
-    (clamped, state)
+    Vec2::new(
+        raw.x.clamp(
+            room.bounds_min.x + SPAWN_MARGIN,
+            room.bounds_max.x - SPAWN_MARGIN,
+        ),
+        raw.y.clamp(
+            room.bounds_min.y + SPAWN_MARGIN,
+            room.bounds_max.y - SPAWN_MARGIN,
+        ),
+    )
 }
 
 // ─── AI ──────────────────────────────────────────────────────────────────
@@ -1263,13 +1350,21 @@ mod tests {
         }
     }
 
+    fn test_rng() -> RunRng {
+        // Phase 2.3: deterministic seed so the test is reproducible.
+        // Each call site uses a different seed so the 3 tests don't
+        // all hit the same first-spawn position.
+        RunRng::new(0xDEADBEEF)
+    }
+
     #[test]
     fn spawn_position_clamp_when_player_in_center() {
         let room = test_room();
         let settings = test_settings();
         let player = Vec2::new(400.0, 400.0);
         for _ in 0..50 {
-            let (pos, _) = random_spawn_position(&settings, player, &room);
+            let mut rng = test_rng();
+            let pos = random_spawn_position(&settings, player, &room, &mut rng);
             assert!(
                 pos.x >= 25.0 && pos.x <= 775.0,
                 "x outside room: {:?}",
@@ -1292,7 +1387,8 @@ mod tests {
         let settings = test_settings();
         let player = Vec2::new(0.0, 0.0); // corner
         for _ in 0..50 {
-            let (pos, _) = random_spawn_position(&settings, player, &room);
+            let mut rng = test_rng();
+            let pos = random_spawn_position(&settings, player, &room, &mut rng);
             assert!(
                 pos.x >= 25.0 && pos.x <= 775.0,
                 "x outside room from corner: {:?}",
@@ -1319,7 +1415,8 @@ mod tests {
             for player_y in [0.0, 200.0, 400.0, 600.0, 800.0] {
                 let player = Vec2::new(player_x, player_y);
                 for _ in 0..10 {
-                    let (pos, _) = random_spawn_position(&settings, player, &room);
+                    let mut rng = test_rng();
+                    let pos = random_spawn_position(&settings, player, &room, &mut rng);
                     assert!(
                         pos.x >= 25.0 && pos.x <= 775.0,
                         "player ({}, {}) → spawn x outside: {:?}",
@@ -1337,5 +1434,21 @@ mod tests {
                 }
             }
         }
+    }
+
+    // Phase 2.3: same seed → same spawn position.
+    // The RunRng-based function is deterministic. Two
+    // fresh RNGs with the same seed should produce
+    // identical first-spawn positions.
+    #[test]
+    fn spawn_position_is_deterministic_for_same_seed() {
+        let room = test_room();
+        let settings = test_settings();
+        let player = Vec2::new(400.0, 400.0);
+        let mut rng_a = RunRng::new(0xCAFEBABE);
+        let mut rng_b = RunRng::new(0xCAFEBABE);
+        let pos_a = random_spawn_position(&settings, player, &room, &mut rng_a);
+        let pos_b = random_spawn_position(&settings, player, &room, &mut rng_b);
+        assert_eq!(pos_a, pos_b, "same seed must give same spawn pos");
     }
 }

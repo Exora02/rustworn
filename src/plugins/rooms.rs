@@ -66,9 +66,10 @@ use bevy::prelude::*;
 use log::info;
 
 use crate::components::{
-    AimIndicator, AppState, Collider, DeathPuff, Door, Enemy, MainCamera, Pickup, Player,
-    Projectile, Room, RoomId, RoomKind, Spawner, Velocity, Wall,
+    AimIndicator, AppState, Collider, DeathPuff, Door, Enemy, EnemyArchetype, MainCamera, Pickup,
+    Player, Projectile, Room, RoomId, RoomKind, Velocity, Wall, WaveDefinition, WaveSpawner,
 };
+use crate::events::RoomClearedEvent;
 use crate::resources::{BiomeState, GameSettings, Hitstop, RunState};
 
 /// Size of each room (square). 800 units = same scale as
@@ -150,14 +151,27 @@ impl Plugin for RoomsPlugin {
                     // add a "despawn projectile on wall hit"
                     // rule).
                     physics_step_system,
-                    // Door transition: if the player overlaps a
-                    // door, fire the room change. Runs after
-                    // physics_step so the player's AABB is
-                    // current.
+                    // Door transition: if the player overlaps an
+                    // UNLOCKED door, fire the room change. Runs
+                    // after physics_step so the player's AABB is
+                    // current. Locked doors are skipped (the
+                    // player walks through the trigger zone but
+                    // nothing happens).
                     door_transition_system,
                 )
                     .chain()
                     .run_if(in_state(AppState::InRun)),
+            )
+            .add_systems(
+                Update,
+                // Door unlock: reads RoomClearedEvent from the
+                // wave spawner (enemy plugin) and sets
+                // `locked = false` on the matching room's forward
+                // door. Runs in any state to keep the event
+                // channel drained (a chained gate to InRun
+                // would leak events if fired at the wrong
+                // moment).
+                door_unlock_system,
             );
     }
 }
@@ -223,6 +237,62 @@ fn setup_rooms_system(
         spawn_walls(&mut commands, room);
         spawn_doors(&mut commands, room, &rooms);
     }
+
+    // Phase 2.3: spawn one `WaveSpawner` per Fight room. R0
+    // (Spawn) and R2 (Extract) have no spawners — they're
+    // "safe" rooms. The wave definitions are hard-coded
+    // for Phase 2.3; Patch 5 ("deterministic procgen") will
+    // derive them from `RunState.seed` so each seed gives a
+    // different layout.
+    //
+    // The 3-wave progression for R1:
+    //
+    //   Wave 1 — 4 chasers, 1.5s apart (8s total, matches
+    //            the plan's acceptance: "wave 1 (4 chasers),
+    //            see all 4 spawn then auto-clear")
+    //   Wave 2 — 2 dashers + 2 shooters, 1.0s apart
+    //            (mixed-archetype wave: the dasher charges
+    //            while the shooter plinks; the player has
+    //            to dodge both)
+    //   Wave 3 — 1 sniper, 0.5s apart (single hard
+    //            enemy; the wave is short and climactic)
+    //
+    // Total time to clear R1: ~17s + combat. The 5-minute
+    // run cap (Patch 6) leaves plenty of headroom.
+    let fight_waves = vec![
+        WaveDefinition {
+            archetype: EnemyArchetype::Chaser,
+            count: 4,
+            interval_s: 1.5,
+        },
+        WaveDefinition {
+            archetype: EnemyArchetype::Dasher,
+            count: 2,
+            interval_s: 1.0,
+        },
+        WaveDefinition {
+            archetype: EnemyArchetype::Shooter,
+            count: 2,
+            interval_s: 1.0,
+        },
+        WaveDefinition {
+            archetype: EnemyArchetype::Sniper,
+            count: 1,
+            interval_s: 0.5,
+        },
+    ];
+    commands.spawn(WaveSpawner {
+        room_id: RoomId(1),
+        waves: fight_waves,
+        current_wave: 0,
+        spawned_this_wave: 0,
+        // Timer fires after the FIRST interval_s of wave 1
+        // (1.5s), so the player gets a small grace period
+        // when entering the room. The wave_timer is reset
+        // to the current wave's interval_s after each
+        // spawn (see wave_spawner_tick_system).
+        wave_timer: Timer::from_seconds(1.5, TimerMode::Once),
+    });
 
     biome.rooms = rooms;
     biome.current_room = RoomId(0);
@@ -374,8 +444,18 @@ fn spawn_doors(commands: &mut Commands, room: &Room, all_rooms: &[Room]) {
                 half_extents: DOOR_SIZE * 0.5,
             },
             Door {
+                from_room: RoomId(0),
                 to_room: RoomId(1),
                 entry_position: Vec2::new(r1.bounds_min.x + ENTRY_INSET, r1.center().y),
+                // R0 → R1 is a forward door (the player
+                // is heading "deeper" into the run). It's
+                // NOT locked, though — R1's waves unlock
+                // the R1 → R2 door, not the R0 → R1 door.
+                // The player can always re-enter the
+                // Fight room from the Spawn room, even
+                // mid-fight.
+                locked: false,
+                forward: true,
             },
         ));
     } else if room.id == RoomId(1) {
@@ -395,8 +475,15 @@ fn spawn_doors(commands: &mut Commands, room: &Room, all_rooms: &[Room]) {
                 half_extents: DOOR_SIZE * 0.5,
             },
             Door {
+                from_room: RoomId(1),
                 to_room: RoomId(0),
                 entry_position: Vec2::new(r0.bounds_max.x - ENTRY_INSET, r0.center().y),
+                // Backward door (returning to Spawn) —
+                // always open. The player can retreat
+                // from the Fight room to recover HP at
+                // any time, even mid-wave.
+                locked: false,
+                forward: false,
             },
         ));
         // R1 → R2: north door
@@ -415,8 +502,19 @@ fn spawn_doors(commands: &mut Commands, room: &Room, all_rooms: &[Room]) {
                 half_extents: DOOR_SIZE * 0.5,
             },
             Door {
+                from_room: RoomId(1),
                 to_room: RoomId(2),
                 entry_position: Vec2::new(r2.center().x, r2.bounds_min.y + ENTRY_INSET),
+                // R1 → R2 is the canonical "progression"
+                // door: locked until R1's waves are
+                // cleared, then unlocked by
+                // `door_unlock_system`. This enforces
+                // "fight through the room before moving
+                // on" without forcing a clear (a future
+                // patch can add an "extract" option that
+                // skips the clear).
+                locked: true,
+                forward: true,
             },
         ));
     } else if room.id == RoomId(2) {
@@ -436,8 +534,15 @@ fn spawn_doors(commands: &mut Commands, room: &Room, all_rooms: &[Room]) {
                 half_extents: DOOR_SIZE * 0.5,
             },
             Door {
+                from_room: RoomId(2),
                 to_room: RoomId(1),
                 entry_position: Vec2::new(r1.center().x, r1.bounds_max.y - ENTRY_INSET),
+                // Backward door (returning to Fight) —
+                // always open. The player can always go
+                // back from the Extract room to the
+                // Fight room.
+                locked: false,
+                forward: false,
             },
         ));
     }
@@ -598,7 +703,7 @@ fn door_transition_system(
     mut commands: Commands,
     mut biome: ResMut<BiomeState>,
     settings: Res<GameSettings>,
-    mut spawners: Query<&mut Spawner>,
+    mut spawners: Query<&mut WaveSpawner>,
     enemies: Query<Entity, With<Enemy>>,
     projectiles: Query<Entity, With<Projectile>>,
     pickups: Query<Entity, With<Pickup>>,
@@ -614,6 +719,14 @@ fn door_transition_system(
     };
 
     for (door_tf, door_col, door) in &doors {
+        // Phase 2.3: skip locked doors. The player can stand
+        // on the trigger zone, but nothing happens. The
+        // trigger is a 60×30 AABB on the floor in front of
+        // the wall — it doesn't block movement, so the
+        // player can walk freely over it while it's locked.
+        if door.locked {
+            continue;
+        }
         // AABB overlap check (we don't need the resolution
         // vector, just "is there overlap?").
         if aabb_resolve(
@@ -638,10 +751,19 @@ fn door_transition_system(
                 commands.entity(e).despawn();
             }
 
-            // 2. Reset spawner timers.
+            // 2. Reset wave timers. Re-arm each spawner's
+            //    timer with the first wave's interval
+            //    (current_wave was reset on entry, or the
+            //    spawner is brand new). This is the "fresh
+            //    warmup" the player gets when they walk
+            //    into a new room.
             for mut spawner in &mut spawners {
-                spawner.interval =
-                    Timer::from_seconds(settings.spawner_interval_s, TimerMode::Repeating);
+                if let Some(first_wave) = spawner.waves.first() {
+                    spawner.wave_timer =
+                        Timer::from_seconds(first_wave.interval_s, TimerMode::Once);
+                }
+                spawner.current_wave = 0;
+                spawner.spawned_this_wave = 0;
             }
 
             // 3. Move player to entry position (keep their
@@ -783,3 +905,38 @@ mod tests {
     // (Tests live in enemy.rs — `random_spawn_position` is
     // defined there, so the clamp tests need access to it.)
 }
+
+// ─── door_unlock_system ───────────────────────────────────────────────────
+
+// Reacts to `RoomClearedEvent` (emitted by the wave spawner
+// in enemy.rs when a room's last wave finishes). For each
+// event, find the room's forward door(s) and unlock them.
+//
+// "Forward" is the `Door.forward` flag set at room-setup
+// time: R0→R1 is forward (true), R1→R0 is backward (false),
+// R1→R2 is forward (true, starts locked), R2→R1 is backward
+// (false). Only the forward door out of the cleared room
+// is unlocked — backward doors are always open.
+//
+// We match by `Door.from_room == event.room_id`: a door
+// that the player uses to LEAVE the cleared room. The
+// `Door.from_room` field was added in Phase 2.3 so this
+// system doesn't need to infer the source from position
+// (which would break for branching paths in Phase 3+).
+//
+// Runs outside the InRun chain (no `run_if(in_state(...))`).
+// The event channel is in any state — reading it eagerly
+// is safer than relying on Bevy's event-clear semantics.
+fn door_unlock_system(mut events: EventReader<RoomClearedEvent>, mut doors: Query<&mut Door>) {
+    for event in events.read() {
+        for mut door in &mut doors {
+            if !door.forward || !door.locked {
+                continue;
+            }
+            if door.from_room == event.room_id {
+                door.locked = false;
+            }
+        }
+    }
+}
+

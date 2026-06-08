@@ -3,6 +3,8 @@
 
 use bevy::prelude::*;
 
+use crate::components::RoomId;
+
 /// Fired when an entity takes damage. Carries the victim so a single
 /// system can drive health bars, hit-flash, and damage numbers.
 #[derive(Event)]
@@ -29,4 +31,15 @@ pub struct EnemyKilledEvent {
     pub victim: Entity,
     pub killer: Entity,
     pub position: Vec2,
+}
+
+// Phase 2.3: emitted by `wave_spawner_tick_system` when a
+// room's last wave finishes. `door_unlock_system` consumes
+// the event and sets `locked = false` on the room's forward
+// door(s). Future subscribers (HUD "ROOM CLEAR" banner,
+// Cascade beacon spawner, run-stat counters) can attach
+// without changing the spawner.
+#[derive(Event)]
+pub struct RoomClearedEvent {
+    pub room_id: RoomId,
 }

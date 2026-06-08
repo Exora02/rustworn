@@ -19,12 +19,11 @@ use bevy::prelude::*;
 use log::info;
 
 use crate::components::{
-    AimIndicator, AppState, BaseVelocity, Collider, DashCooldown, DeathPuff, Enemy, EnemyArchetype,
+    AimIndicator, AppState, BaseVelocity, Collider, DashCooldown, DeathPuff, Enemy,
     Health, HudElement, HudElementKind, Invulnerable, Knockback, LastMoveDirection, MainCamera,
-    Pickup, Player, Projectile, RoomId, RoomScope, Spawner, Velocity, Weapon, WeaponArchetype,
-    PLAYER_COLOR,
+    Pickup, Player, Projectile, Velocity, Weapon, WeaponArchetype, PLAYER_COLOR,
 };
-use crate::resources::{BiomeState, CascadeState, GameSettings, RunState, ScreenShake};
+use crate::resources::{BiomeState, CascadeState, GameSettings, RunRng, RunState, ScreenShake};
 
 /// Color of the aim indicator line — high-contrast white so it stays
 /// readable against any background we'll add later.
@@ -55,6 +54,7 @@ impl Plugin for SetupPlugin {
         // `Res<State<AppState>>` / `ResMut<NextState<AppState>>`.
         app.init_state::<AppState>()
             .init_resource::<BiomeState>()
+            .init_resource::<RunRng>()
             .init_resource::<CascadeState>()
             .init_resource::<RunState>()
             .init_resource::<GameSettings>()
@@ -163,69 +163,25 @@ fn spawn_world(mut commands: Commands, settings: Res<GameSettings>) {
             ));
         });
 
-    // Day 8-10: chaser spawner entity — persists for the run, ticks
-    // every `spawner_interval_s` and creates a chaser at a random
-    // angle from the player, at a random distance in [min_distance,
-    // max_distance].
+    // Day 8-10: chaser spawner entity — Phase 2.3 removes this
+    // and the 3 siblings below. Wave spawning now lives in
+    // `setup_rooms_system` (rooms.rs) as one `WaveSpawner`
+    // per Fight room, driven by `WaveDefinition` lists. The
+    // `Spawner { interval, spawn }` struct is gone (see
+    // components.rs).
     //
-    // Phase 2: `RoomScope { room_id: RoomId(1) }` scopes this
-    // spawner to the Fight room (Room 1). The spawner entity
-    // exists from startup through the whole run; the
-    // `spawner_tick_system` in enemy.rs filters by
-    // `BiomeState.current_room` and only ticks spawners in the
-    // current room. The Spawn / Extract rooms have no spawners
-    // (R0 is the player's safe spawn, R2 is the extract endpoint
-    // for Patch 6).
-    commands.spawn((
-        Spawner {
-            interval: Timer::from_seconds(settings.spawner_interval_s, TimerMode::Repeating),
-            spawn: EnemyArchetype::Chaser,
-        },
-        RoomScope { room_id: RoomId(1) },
-    ));
-
-    // Phase 1: dasher spawner. Same interval, separate entity — the
-    // two spawners tick independently, so the player sees a chaser
-    // every 3s and a dasher every 3s in alternating (well, parallel)
-    // waves. Phase 2 will fold this into a single wave-spawner
-    // entity that picks archetypes from a wave definition.
-    commands.spawn((
-        Spawner {
-            interval: Timer::from_seconds(settings.spawner_interval_s, TimerMode::Repeating),
-            spawn: EnemyArchetype::Dasher,
-        },
-        RoomScope { room_id: RoomId(1) },
-    ));
-
-    // Phase 1: shooter spawner. Same parallel-spawner pattern as
-    // dasher. A fresh wave of shooters will land every 3s, spread
-    // their first shot over the fire interval (so they don't
-    // triple-tap on the first frame — see `spawn_shooter`), and
-    // start plinking at the player from 250 units away. With
-    // chaser + dasher + shooter all spawning every 3s, the player
-    // sees 3 archetypes in parallel waves.
-    commands.spawn((
-        Spawner {
-            interval: Timer::from_seconds(settings.spawner_interval_s, TimerMode::Repeating),
-            spawn: EnemyArchetype::Shooter,
-        },
-        RoomScope { room_id: RoomId(1) },
-    ));
-
-    // Phase 1: sniper spawner. Same parallel pattern. A fresh
-    // sniper spawns in the post-fire cooldown state (not
-    // charging) so the wave doesn't all open fire on the same
-    // frame — see `spawn_sniper`. Sniper max range is 400 vs
-    // shooter's 250, so the two ranged archetypes naturally
-    // space out and the player faces pressure from multiple
-    // distances.
-    commands.spawn((
-        Spawner {
-            interval: Timer::from_seconds(settings.spawner_interval_s, TimerMode::Repeating),
-            spawn: EnemyArchetype::Sniper,
-        },
-        RoomScope { room_id: RoomId(1) },
-    ));
+    // Why move spawners to per-room? Because Phase 2 added
+    // rooms: enemies in R0 (Spawn) and R2 (Extract) make no
+    // sense, so the 4 "always firing" spawners are wrong by
+    // construction. A per-room wave definition lets each room
+    // have its own progression (R1: 3 waves; later biomes:
+    // 5+ waves with mini-bosses; etc.).
+    //
+    // The old spawner queries (e.g. `Query<&mut Spawner>` in
+    // enter_in_run_system) are removed; the wave spawner is
+    // re-armed on room transition (door_transition_system)
+    // and on full restart (setup_rooms_system creates a
+    // fresh WaveSpawner on every OnEnter InRun).
 
     // Phase 2: title-screen overlay. Spawned once at startup and
     // toggled visible by `state_visibility_system` when state is
@@ -397,8 +353,8 @@ fn state_visibility_system(
 fn enter_in_run_system(
     settings: Res<GameSettings>,
     mut run: ResMut<RunState>,
+    mut rng: ResMut<RunRng>,
     mut player_query: Query<(Entity, &mut Transform, &mut Health, &mut Weapon), With<Player>>,
-    mut spawner_query: Query<&mut Spawner>,
     mut camera_query: Query<&mut Transform, (With<MainCamera>, Without<Player>)>,
     mut shake: ResMut<ScreenShake>,
     mut cascade: ResMut<CascadeState>,
@@ -449,9 +405,22 @@ fn enter_in_run_system(
         });
     }
 
-    for mut spawner in &mut spawner_query {
-        spawner.interval = Timer::from_seconds(settings.spawner_interval_s, TimerMode::Repeating);
-    }
+    // Phase 2.3: seed the run's RNG from system time. Phase 3+
+    // will let the player pick a seed (daily-challenge mode)
+    // and the seed will come from the menu screen instead of
+    // the clock. For Patch 3, "fresh run = different enemies
+    // each time" is the right behavior.
+    //
+    // The seed goes into both `run.seed` (a record of the seed
+    // for the run summary screen — Phase 6 will read it) and
+    // `rng.state` (the actual xorshift state, advanced by
+    // every random call this run).
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0xDEADBEEF);
+    run.seed = seed;
+    *rng = RunRng::new(seed);
 
     if let Ok(mut cam_tf) = camera_query.single_mut() {
         cam_tf.translation = Vec3::ZERO;

@@ -61,6 +61,11 @@ pub fn run() {
         .add_event::<events::EnemyKilledEvent>()
         .add_event::<events::CascadeStartEvent>()
         .add_event::<events::CascadeEndEvent>()
+        // Phase 2.3: emitted by `wave_spawner_tick_system`
+        // when a room's last wave finishes, consumed by
+        // `door_unlock_system` to flip the room's forward
+        // door(s) to `locked = false`.
+        .add_event::<events::RoomClearedEvent>()
         .add_plugins(SetupPlugin)
         // Phase 2: RoomsPlugin must be added AFTER SetupPlugin so
         // its `setup_rooms_system` (OnEnter InRun) fires after

@@ -6,10 +6,8 @@
 use bevy::prelude::*;
 
 use crate::components::{
-    AimDirection, AimIndicator, AppState, BaseVelocity, Boss, CascadeAffected, Collider,
-    DashCooldown, DeathPuff, Enemy, Health, HitFlash, Invulnerable, Knockback, LastMoveDirection,
-    MainCamera, Pickup, Player, Projectile, Spawner, Team, Velocity, Weapon, WeaponArchetype,
-    PLAYER_COLOR,
+    AimDirection, AimIndicator, AppState, BaseVelocity, CascadeAffected, DashCooldown, Health,
+    Invulnerable, Knockback, LastMoveDirection, MainCamera, Player, Velocity, PLAYER_COLOR,
 };
 use crate::plugins::enemy::spawn_boss;
 use crate::resources::{CascadeState, GameSettings, Hitstop, RunState, ScreenShake};
