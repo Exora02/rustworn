@@ -723,7 +723,7 @@ fn door_transition_system(
         (&mut Transform, &Collider),
         (With<Player>, Without<AimIndicator>, Without<MainCamera>),
     >,
-    doors: Query<(&Transform, &Collider, &Door), Without<Player>>,
+    mut doors: Query<(&Transform, &Collider, &mut Door), Without<Player>>,
     // Per-system-instance state. The previous `bool` is
     // read at the top of the system: if it's true, we
     // skip the door check entirely this frame (the player
@@ -760,6 +760,16 @@ fn door_transition_system(
         )
         .is_some()
         {
+            // Snapshot the door's destination into a local
+            // before we drop the `&doors` borrow. The
+            // locking pass below needs `&mut doors`, which
+            // conflicts with the active `&doors` from the
+            // for-loop iterator. Rust's NLL can't see that
+            // we're about to `return`, so we make the
+            // drop explicit.
+            let to_room = door.to_room;
+            let entry_pos = door.entry_position;
+
             // 1. Despawn old room's transient entities.
             for e in &enemies {
                 commands.entity(e).despawn();
@@ -792,10 +802,32 @@ fn door_transition_system(
             // 3. Move player to entry position (keep their
             //    current z so the AIM indicator child renders
             //    at the right depth).
-            player_tf.translation = door.entry_position.extend(player_tf.translation.z);
+            player_tf.translation = entry_pos.extend(player_tf.translation.z);
 
             // 4. Update current room.
-            biome.current_room = door.to_room;
+            biome.current_room = to_room;
+
+            // 5. Lock all doors in the destination room —
+            //    but only if it's a "challenge" room
+            //    (has a WaveSpawner). Safe rooms (Spawn,
+            //    Extract) have no waves, so the player
+            //    can move in and out freely. This matches
+            //    the user's model: "all doors lock when
+            //    entering" the room-with-enemies; safe
+            //    rooms stay open.
+            //
+            //    We mutate the `doors` query directly here.
+            //    The for-loop borrow was released when we
+            //    copied `to_room` into a local; we're now
+            //    free to take `&mut doors`.
+            let dest_has_waves = spawners.iter().any(|s| s.room_id == to_room);
+            if dest_has_waves {
+                for (_, _, mut sibling) in &mut doors {
+                    if sibling.from_room == to_room && !sibling.locked {
+                        sibling.locked = true;
+                    }
+                }
+            }
 
             // Mark the next frame as "just teleported" so
             // a marginal AABB overlap on the new room's
@@ -808,7 +840,7 @@ fn door_transition_system(
 
             info!(
                 "RUSTWORN — room transition → {:?} (entry at ({:.0}, {:.0}))",
-                door.to_room, door.entry_position.x, door.entry_position.y
+                to_room, entry_pos.x, entry_pos.y
             );
 
             // One transition per frame.
@@ -1029,6 +1061,162 @@ mod tests {
         );
     }
 
+    // Phase 2.3: door state machine. Documents the
+    // "lock on entry to a challenge room, unlock on
+    // clear" contract by simulating the data flow
+    // directly (we can't test the systems without a
+    // full ECS harness, but we can verify the
+    // state-machine contract).
+    //
+    // The rules are:
+    //  1. A door is "open" if `locked == false`,
+    //     "closed" if `locked == true`.
+    //  2. When the player enters a challenge room
+    //     (one with a WaveSpawner), every door whose
+    //     `from_room == destination.room_id` becomes
+    //     closed. This is the "doors lock behind you"
+    //     effect.
+    //  3. When a room's waves are cleared
+    //     (RoomClearedEvent fires), every door whose
+    //     `from_room == cleared.room_id` becomes
+    //     open. This is the "doors open when cleared"
+    //     effect.
+    //  4. Safe rooms (no WaveSpawner) never trigger
+    //     rule 2, so their doors stay open. This
+    //     lets the player move freely in and out of
+    //     the Spawn and Extract rooms.
+    #[test]
+    fn door_locks_when_entering_challenge_room_and_unlocks_on_clear() {
+        // Build the 3 rooms, mirrors of setup_rooms_system.
+        let rooms = vec![
+            Room {
+                id: RoomId(0),
+                kind: RoomKind::Spawn,
+                bounds_min: Vec2::new(-ROOM_SIZE, -ROOM_SIZE),
+                bounds_max: Vec2::new(0.0, 0.0),
+            },
+            Room {
+                id: RoomId(1),
+                kind: RoomKind::Fight,
+                bounds_min: Vec2::new(0.0, -ROOM_SIZE),
+                bounds_max: Vec2::new(ROOM_SIZE, 0.0),
+            },
+            Room {
+                id: RoomId(2),
+                kind: RoomKind::Extract,
+                bounds_min: Vec2::new(0.0, 0.0),
+                bounds_max: Vec2::new(ROOM_SIZE, ROOM_SIZE),
+            },
+        ];
+
+        // Build the 4 doors with initial state (forward
+        // doors unlocked except R1→R2 which starts locked
+        // — the canonical "progression" door).
+        let mut doors = vec![
+            // R0→R1: forward, unlocked
+            Door {
+                from_room: RoomId(0),
+                to_room: RoomId(1),
+                entry_position: Vec2::ZERO,
+                locked: false,
+                forward: true,
+            },
+            // R1→R0: back, unlocked
+            Door {
+                from_room: RoomId(1),
+                to_room: RoomId(0),
+                entry_position: Vec2::ZERO,
+                locked: false,
+                forward: false,
+            },
+            // R1→R2: forward, LOCKED (unlocks on R1 clear)
+            Door {
+                from_room: RoomId(1),
+                to_room: RoomId(2),
+                entry_position: Vec2::ZERO,
+                locked: true,
+                forward: true,
+            },
+            // R2→R1: back, unlocked
+            Door {
+                from_room: RoomId(2),
+                to_room: RoomId(1),
+                entry_position: Vec2::ZERO,
+                locked: false,
+                forward: false,
+            },
+        ];
+        // Mark which rooms have a WaveSpawner (R1 only).
+        let rooms_with_spawners = [RoomId(1)];
+
+        // ── Step 1: player enters R1 via R0→R1. ──
+        // R1 has a spawner, so all R1 doors should lock.
+        let dest = RoomId(1);
+        if rooms_with_spawners.contains(&dest) {
+            for door in &mut doors {
+                if door.from_room == dest && !door.locked {
+                    door.locked = true;
+                }
+            }
+        }
+        // R1→R0: was unlocked, now locked ✓
+        // R1→R2: was locked, stays locked ✓
+        assert!(doors[1].locked, "R1→R0 should lock when entering R1");
+        assert!(doors[2].locked, "R1→R2 should stay locked when entering R1");
+
+        // ── Step 2: player enters R0 via (hypothetical) R1→R0. ──
+        // R0 has NO spawner, so R0 doors stay unlocked.
+        // (The actual `door_transition_system` would refuse to
+        // transition here because R1→R0 is now locked. So
+        // this is a "what if the door were walkable" check.)
+        // We simulate by temporarily marking R1→R0 as unlocked
+        // and walking it.
+        doors[1].locked = false; // simulate
+        let dest = RoomId(0);
+        if rooms_with_spawners.contains(&dest) {
+            for door in &mut doors {
+                if door.from_room == dest && !door.locked {
+                    door.locked = true;
+                }
+            }
+        }
+        // R0→R1 should remain UNLOCKED (no spawner in R0).
+        assert!(!doors[0].locked, "R0→R1 should stay open (R0 is safe)");
+
+        // ── Step 3: R1 waves cleared → emit RoomClearedEvent. ──
+        // All doors with from_room == R1 should unlock.
+        let cleared = RoomId(1);
+        for door in &mut doors {
+            if !door.locked {
+                continue;
+            }
+            if door.from_room == cleared {
+                door.locked = false;
+            }
+        }
+        // R1→R0 and R1→R2 both unlock.
+        assert!(!doors[1].locked, "R1→R0 should unlock when R1 is cleared");
+        assert!(!doors[2].locked, "R1→R2 should unlock when R1 is cleared");
+
+        // ── Step 4: player walks R1→R2 into R2. ──
+        // R2 has NO spawner, so R2 doors stay unlocked.
+        let dest = RoomId(2);
+        if rooms_with_spawners.contains(&dest) {
+            for door in &mut doors {
+                if door.from_room == dest && !door.locked {
+                    door.locked = true;
+                }
+            }
+        }
+        // R2→R1 should stay unlocked.
+        assert!(!doors[3].locked, "R2→R1 should stay open (R2 is safe)");
+
+        // Touch the rooms var so the compiler doesn't warn
+        // about it being unused. (It's used in the test
+        // setup to document the topology.)
+        let _ = &rooms;
+    }
+
     // Spawn position clamp (Phase 2.1): the enemy must spawn
     // inside the current room, with a margin from each wall.
     // The clamp is a simple Vec2::clamp on each axis, so the
@@ -1042,19 +1230,23 @@ mod tests {
 
 // Reacts to `RoomClearedEvent` (emitted by the wave spawner
 // in enemy.rs when a room's last wave finishes). For each
-// event, find the room's forward door(s) and unlock them.
+// event, unlock ALL doors with `from_room == event.room_id`.
 //
-// "Forward" is the `Door.forward` flag set at room-setup
-// time: R0→R1 is forward (true), R1→R0 is backward (false),
-// R1→R2 is forward (true, starts locked), R2→R1 is backward
-// (false). Only the forward door out of the cleared room
-// is unlocked — backward doors are always open.
+// "All doors in the cleared room" — the same set that was
+// locked on entry by `door_transition_system`. The
+// "forward" flag is not consulted: we want the player to
+// be able to leave through ANY door once the room's
+// enemies are dead, including the door they originally
+// entered through. This means after clearing R1, the
+// player can walk back to R0 via the R1→R0 back door —
+// the door they just used to enter is now re-unlocked
+// for exit.
 //
 // We match by `Door.from_room == event.room_id`: a door
-// that the player uses to LEAVE the cleared room. The
-// `Door.from_room` field was added in Phase 2.3 so this
-// system doesn't need to infer the source from position
-// (which would break for branching paths in Phase 3+).
+// that leads OUT of the cleared room. The `Door.from_room`
+// field was added in Phase 2.3 so this system doesn't
+// need to infer the source from position (which would
+// break for branching paths in Phase 3+).
 //
 // Runs outside the InRun chain (no `run_if(in_state(...))`).
 // The event channel is in any state — reading it eagerly
@@ -1062,7 +1254,7 @@ mod tests {
 fn door_unlock_system(mut events: EventReader<RoomClearedEvent>, mut doors: Query<&mut Door>) {
     for event in events.read() {
         for mut door in &mut doors {
-            if !door.forward || !door.locked {
+            if !door.locked {
                 continue;
             }
             if door.from_room == event.room_id {
