@@ -9,9 +9,9 @@ use bevy::prelude::*;
 use log::warn;
 
 use crate::components::{
-    AiBehavior, BaseColor, BaseVelocity, CascadeAffected, Collider, DasherPhase, DasherState,
-    DeathPuff, Enemy, EnemyAI, EnemyArchetype, Health, HitFlash, Invulnerable, Knockback, Player,
-    Projectile, ShooterState, SniperState, Spawner, Team, Velocity,
+    AiBehavior, BaseColor, BaseVelocity, Boss, BossPhase, BossState, CascadeAffected, Collider,
+    DasherPhase, DasherState, DeathPuff, Enemy, EnemyAI, EnemyArchetype, Health, HitFlash,
+    Invulnerable, Knockback, Player, Projectile, ShooterState, SniperState, Spawner, Team, Velocity,
 };
 use crate::resources::{GameSettings, Hitstop, RunState, ScreenShake};
 
@@ -90,6 +90,37 @@ const SHOOTER_PROJECTILE_SIZE: Vec2 = Vec2::new(5.0, 8.0);
 /// (sniper charges a big slow bullet).
 const SNIPER_SIZE: f32 = 30.0;
 
+// ─── Mini-boss constants (Phase 1) ─────────────────────────────────────
+
+/// Boss color. Deep red, slightly darker than the chaser's
+/// bright red, so the two don't blend. The boss reads as
+/// "scarier version of the chaser" — the player learns
+/// "bright red = chaser, deep red = boss" in one beat.
+/// Spec: 0.70, 0.05, 0.05.
+const BOSS_COLOR: Color = Color::srgb(0.70, 0.05, 0.05);
+
+/// Boss sprite size. 50x50 — bigger than the player (40x40)
+/// and the other enemies (30x30) so the boss is the visually
+/// dominant enemy on screen. The bigger silhouette also
+/// reads as "this is a different class of enemy" before the
+/// player has read the HP bar.
+const BOSS_SIZE: f32 = 50.0;
+
+/// Boss projectile color. Same red family as the boss body
+/// but lighter / more saturated so the bullet pops against
+/// the world. Distinct from the shooter's teal and the
+/// sniper's orange so the player can tell at a glance whose
+/// round is incoming.
+const BOSS_PROJECTILE_COLOR: Color = Color::srgb(0.95, 0.20, 0.15);
+
+/// Boss projectile size. 12x12 — chunkier than the
+/// shooter's 5x8 and the sniper's 8x14. The bigger AABB
+/// means a player can't thread the needle between adjacent
+/// bullets in a 3-burst — the spread is wide enough to
+/// cover a 90° arc, the bullets are fat enough that any
+/// attempt to step between them catches at least one.
+const BOSS_PROJECTILE_SIZE: Vec2 = Vec2::new(12.0, 12.0);
+
 pub struct EnemyPlugin;
 
 impl Plugin for EnemyPlugin {
@@ -161,6 +192,11 @@ fn spawn_enemy(
         EnemyArchetype::Dasher => spawn_dasher(commands, settings, player_pos),
         EnemyArchetype::Shooter => spawn_shooter(commands, settings, player_pos),
         EnemyArchetype::Sniper => spawn_sniper(commands, settings, player_pos),
+        // Note: `Boss` is not spawned via the random spawner —
+        // it spawns at the run-midpoint (60s) at a fixed
+        // distance from the player. See `boss_spawn_system`
+        // in the player plugin.
+        EnemyArchetype::Boss => {}
     }
 }
 
@@ -405,7 +441,6 @@ fn spawn_shooter_projectile(
     let angle = dir.y.atan2(dir.x) - std::f32::consts::FRAC_PI_2;
 
     let speed = settings.shooter_projectile_speed;
-
     commands.spawn((
         Sprite {
             color: SHOOTER_PROJECTILE_COLOR,
@@ -432,6 +467,115 @@ fn spawn_shooter_projectile(
             damage: settings.shooter_projectile_damage,
             lifetime: Timer::from_seconds(settings.shooter_projectile_lifetime_s, TimerMode::Once),
             team: Team::Enemy,
+        },
+    ));
+}
+
+// Phase 1 mini-boss: spawn a `Team::Enemy` boss projectile
+// aimed in `dir`. Mirrors `spawn_shooter_projectile` /
+// `spawn_sniper_projectile` but with boss-tuned values: fatter
+// sprite (12x12), slower speed (200 vs shooter's 300), and
+// CascadeAffected so Cascade Mode slows the projectiles too.
+// The bigger sprite means a player can't thread the needle
+// between adjacent bullets in a 3-burst.
+fn spawn_boss_projectile(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    enemy_pos: Vec2,
+    dir: Vec2,
+) {
+    let muzzle = BOSS_SIZE * 0.5
+        + settings.boss_projectile_size_y * 0.5
+        + 2.0;
+    let spawn_pos = enemy_pos + dir * muzzle;
+    let angle = dir.y.atan2(dir.x) - std::f32::consts::FRAC_PI_2;
+    let speed = settings.boss_projectile_speed;
+
+    commands.spawn((
+        Sprite {
+            color: BOSS_PROJECTILE_COLOR,
+            custom_size: Some(Vec2::new(
+                settings.boss_projectile_size_x,
+                settings.boss_projectile_size_y,
+            )),
+            ..default()
+        },
+        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.5)
+            .with_rotation(Quat::from_rotation_z(angle)),
+        BaseVelocity(dir * speed),
+        Velocity(dir * speed),
+        CascadeAffected,
+        Collider {
+            half_extents: Vec2::new(
+                settings.boss_projectile_size_x * 0.5,
+                settings.boss_projectile_size_y * 0.5,
+            ),
+        },
+        Projectile {
+            damage: settings.boss_projectile_damage,
+            lifetime: Timer::from_seconds(
+                settings.boss_projectile_lifetime_s,
+                TimerMode::Once,
+            ),
+            team: Team::Enemy,
+        },
+    ));
+}
+
+// Phase 1 mini-boss: spawn the boss at `position` with full
+// HP. The single instance lives until killed (cascade beacon
+// flips on death) or the player dies (restart_system despawns
+// it). `boss_spawn_system` in the player plugin handles the
+// "spawn once at the run-midpoint" gate via
+// `RunState.boss_spawned`.
+//
+// The boss carries: Boss marker (so the HUD's boss HP bar
+// query can find it), BossState (mirrored HP + phase +
+// attack timer for the AI state machine), BossPhase
+// (Phase1/Phase2 enum), EnemyAI + Enemy markers, full Health,
+// standard physics + collision components, CascadeAffected
+// (so Cascade Mode slows it AND its projectiles), and
+// BaseColor (so the hit-flash system can reset the sprite
+// tint back to deep red, not the chaser's bright red).
+pub fn spawn_boss(commands: &mut Commands, settings: &GameSettings, position: Vec2) {
+    commands.spawn((
+        Sprite {
+            color: BOSS_COLOR,
+            custom_size: Some(Vec2::splat(BOSS_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(position.x, position.y, 0.0),
+        Boss,
+        Enemy,
+        EnemyAI {
+            behavior: AiBehavior::Boss,
+        },
+        Collider {
+            half_extents: Vec2::splat(BOSS_SIZE * 0.5),
+        },
+        Health::new(settings.boss_max_hp),
+        Velocity::default(),
+        BaseVelocity::default(),
+        // Phase 1 cascade: boss is CascadeAffected so
+        // Cascade Mode slows the chase AND the 3-burst
+        // projectiles (since they also carry the marker).
+        // This gives the player a free-hits window during
+        // a Cascade window, which is the intended
+        // difficulty curve — Cascade is your "I can deal
+        // with the boss" moment.
+        CascadeAffected,
+        // Per-entity base color so the hit-flash system
+        // resets the sprite tint back to deep red (not the
+        // chaser's bright red) when a flash ends without
+        // killing.
+        BaseColor(BOSS_COLOR),
+        BossState {
+            phase: BossPhase::Phase1,
+            attack_timer: Timer::from_seconds(
+                settings.boss_phase2_attack_interval_s,
+                TimerMode::Once,
+            ),
+            current_hp: settings.boss_max_hp,
         },
     ));
 }
@@ -499,9 +643,11 @@ fn enemy_ai_system(
             &EnemyAI,
             &mut BaseVelocity,
             &mut Sprite,
+            &Health,
             Option<&mut DasherState>,
             Option<&mut ShooterState>,
             Option<&mut SniperState>,
+            Option<&mut BossState>,
         ),
         With<Enemy>,
     >,
@@ -514,7 +660,7 @@ fn enemy_ai_system(
     };
     let player_pos = player_transform.translation.truncate();
 
-    for (enemy_transform, ai, mut base, mut sprite, dasher_state, shooter_state, sniper_state) in &mut enemies {
+    for (enemy_transform, ai, mut base, mut sprite, health, dasher_state, shooter_state, sniper_state, boss_state) in &mut enemies {
         match ai.behavior {
             AiBehavior::Chaser => {
                 let to_player = player_pos - enemy_transform.translation.truncate();
@@ -742,6 +888,88 @@ fn enemy_ai_system(
                     }
                 }
             }
+            AiBehavior::Boss => {
+                let Some(mut state) = boss_state else {
+                    continue;
+                };
+                let enemy_pos = enemy_transform.translation.truncate();
+                let to_player = player_pos - enemy_pos;
+                let dir = if to_player.length_squared() > 0.0 {
+                    to_player.normalize()
+                } else {
+                    Vec2::ZERO
+                };
+
+                // Sync the mirrored HP first so the phase
+                // transition below can read it.
+                state.current_hp = health.current;
+
+                // Phase detection: switch from Phase1 to
+                // Phase2 the frame HP crosses the half-HP
+                // threshold. We carry `current_hp` on the
+                // state component (mirroring `Health.current`)
+                // so the transition triggers on the
+                // crossing, not on every frame the boss is
+                // at low HP. Reset the attack timer so the
+                // first Phase 2 burst doesn't fire on the
+                // enrage frame.
+                let half_hp = settings.boss_max_hp * 0.5;
+                if state.phase == BossPhase::Phase1 && state.current_hp <= half_hp {
+                    state.phase = BossPhase::Phase2;
+                    state.attack_timer = Timer::from_seconds(
+                        settings.boss_phase2_attack_interval_s,
+                        TimerMode::Once,
+                    );
+                }
+
+                // Movement: chase the player. Phase 1 at
+                // base speed, Phase 2 at multiplier speed.
+                let speed = match state.phase {
+                    BossPhase::Phase1 => settings.boss_move_speed,
+                    BossPhase::Phase2 => {
+                        settings.boss_move_speed
+                            * settings.boss_phase2_speed_multiplier
+                    }
+                };
+                base.0 = dir * speed;
+
+                // Phase 2: 3-burst spread every interval.
+                // Tick the timer; on finish, fire a 3-round
+                // fan aimed at the current player pos, then
+                // reset. The burst is a 17° spread (same
+                // arc as the shotgun) so a player running
+                // perpendicular dodges cleanly.
+                if state.phase == BossPhase::Phase2 {
+                    state.attack_timer.tick(time.delta());
+                    if state.attack_timer.finished() {
+                        let n = settings.boss_phase2_burst_count.max(1) as i32;
+                        let total_spread: f32 = 0.30; // ~17°
+                        for i in 0..n {
+                            let t = if n == 1 {
+                                0.0
+                            } else {
+                                i as f32 / (n - 1) as f32 - 0.5
+                            };
+                            let angle_offset = t * total_spread;
+                            let (s, c) = angle_offset.sin_cos();
+                            let burst_dir = Vec2::new(
+                                dir.x * c - dir.y * s,
+                                dir.x * s + dir.y * c,
+                            );
+                            spawn_boss_projectile(
+                                &mut commands,
+                                &settings,
+                                enemy_pos,
+                                burst_dir,
+                            );
+                        }
+                        state.attack_timer = Timer::from_seconds(
+                            settings.boss_phase2_attack_interval_s,
+                            TimerMode::Once,
+                        );
+                    }
+                }
+            }
         }
     }
 }
@@ -824,6 +1052,7 @@ fn enemy_contact_damage_system(
             AiBehavior::Dasher => settings.dasher_contact_damage,
             AiBehavior::Shooter => settings.shooter_contact_damage,
             AiBehavior::Sniper => settings.sniper_contact_damage,
+            AiBehavior::Boss => settings.boss_contact_damage,
         };
         health.current = (health.current - damage).max(0.0);
         warn!(
