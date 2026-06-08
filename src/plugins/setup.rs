@@ -7,8 +7,8 @@ use bevy::prelude::*;
 use log::info;
 
 use crate::components::{
-    AimIndicator, BaseVelocity, Collider, EnemyArchetype, Health, MainCamera, Player, Spawner,
-    Velocity, Weapon, WeaponArchetype, PLAYER_COLOR,
+    AimIndicator, BaseVelocity, Collider, EnemyArchetype, Health, LastMoveDirection, MainCamera,
+    Player, Spawner, Velocity, Weapon, WeaponArchetype, PLAYER_COLOR,
 };
 use crate::resources::{CascadeState, GameSettings, RunState, ScreenShake};
 
@@ -48,6 +48,15 @@ fn spawn_camera_and_player(mut commands: Commands, settings: Res<GameSettings>) 
             Health::new(4.0),
             Velocity::default(),
             BaseVelocity::default(),
+            // Initial movement direction is up — the dash
+            // system reads this if the player dashes before
+            // pressing WASD. Default (`Vec2::ZERO`) is fine
+            // too because the dash has a fallback chain
+            // (last_move → aim → up), but starting at +Y
+            // means a reflex dash at game start goes up the
+            // screen (away from spawn-ward enemies) rather
+            // than falling through to the aim fallback.
+            LastMoveDirection(Vec2::Y),
             // Day 8-10: 40x40 sprite → 20x20 half-extents for AABB.
             Collider {
                 half_extents: Vec2::splat(20.0),
