@@ -11,6 +11,7 @@ pub mod fx;
 pub mod hud;
 pub mod pickups;
 pub mod player;
+pub mod rooms;
 pub mod setup;
 
 pub use combat::CombatPlugin;
@@ -19,4 +20,5 @@ pub use fx::FxPlugin;
 pub use hud::HudPlugin;
 pub use pickups::PickupsPlugin;
 pub use player::PlayerPlugin;
+pub use rooms::RoomsPlugin;
 pub use setup::SetupPlugin;

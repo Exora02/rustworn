@@ -53,6 +53,36 @@ impl Default for CascadeState {
     }
 }
 
+/// Phase 2: the current biome's room layout + the player's
+/// current room. Loaded once at InRun entry (via
+/// `setup_rooms_system` in `rooms.rs`). `current_room` is
+/// read by `spawner_tick_system` to filter which spawners
+/// tick and by `door_transition_system` to know which room
+/// the player is in. `rooms` is loaded once and never
+/// mutated during the run (Phase 3+ will allow mutations
+/// for procedural room changes).
+///
+/// `Default` gives an empty `rooms` vec and `current_room = 0`,
+/// which is the placeholder state before `setup_rooms_system`
+/// runs. A system that reads `biome.rooms[0]` before setup
+/// will panic — but `setup_rooms_system` is `OnEnter(InRun)`,
+/// so by the time any gameplay system runs in InRun, the
+/// biome is fully populated.
+#[derive(Resource)]
+pub struct BiomeState {
+    pub rooms: Vec<crate::components::Room>,
+    pub current_room: crate::components::RoomId,
+}
+
+impl Default for BiomeState {
+    fn default() -> Self {
+        Self {
+            rooms: Vec::new(),
+            current_room: crate::components::RoomId(0),
+        }
+    }
+}
+
 /// Per-run state. Reset on `InRun` state entry.
 #[derive(Resource)]
 pub struct RunState {

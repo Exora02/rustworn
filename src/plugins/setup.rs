@@ -18,13 +18,13 @@
 use bevy::prelude::*;
 use log::info;
 
-use crate::components::Enemy;
 use crate::components::{
-    AimIndicator, AppState, BaseVelocity, Collider, DashCooldown, DeathPuff, EnemyArchetype,
+    AimIndicator, AppState, BaseVelocity, Collider, DashCooldown, DeathPuff, Enemy, EnemyArchetype,
     Health, HudElement, HudElementKind, Invulnerable, Knockback, LastMoveDirection, MainCamera,
-    Pickup, Player, Projectile, Spawner, Velocity, Weapon, WeaponArchetype, PLAYER_COLOR,
+    Pickup, Player, Projectile, RoomId, RoomScope, Spawner, Velocity, Weapon, WeaponArchetype,
+    PLAYER_COLOR,
 };
-use crate::resources::{CascadeState, GameSettings, RunState, ScreenShake};
+use crate::resources::{BiomeState, CascadeState, GameSettings, RunState, ScreenShake};
 
 /// Color of the aim indicator line — high-contrast white so it stays
 /// readable against any background we'll add later.
@@ -54,6 +54,7 @@ impl Plugin for SetupPlugin {
         // come BEFORE any system that uses `in_state(...)` /
         // `Res<State<AppState>>` / `ResMut<NextState<AppState>>`.
         app.init_state::<AppState>()
+            .init_resource::<BiomeState>()
             .init_resource::<CascadeState>()
             .init_resource::<RunState>()
             .init_resource::<GameSettings>()
@@ -166,20 +167,35 @@ fn spawn_world(mut commands: Commands, settings: Res<GameSettings>) {
     // every `spawner_interval_s` and creates a chaser at a random
     // angle from the player, at a random distance in [min_distance,
     // max_distance].
-    commands.spawn(Spawner {
-        interval: Timer::from_seconds(settings.spawner_interval_s, TimerMode::Repeating),
-        spawn: EnemyArchetype::Chaser,
-    });
+    //
+    // Phase 2: `RoomScope { room_id: RoomId(1) }` scopes this
+    // spawner to the Fight room (Room 1). The spawner entity
+    // exists from startup through the whole run; the
+    // `spawner_tick_system` in enemy.rs filters by
+    // `BiomeState.current_room` and only ticks spawners in the
+    // current room. The Spawn / Extract rooms have no spawners
+    // (R0 is the player's safe spawn, R2 is the extract endpoint
+    // for Patch 6).
+    commands.spawn((
+        Spawner {
+            interval: Timer::from_seconds(settings.spawner_interval_s, TimerMode::Repeating),
+            spawn: EnemyArchetype::Chaser,
+        },
+        RoomScope { room_id: RoomId(1) },
+    ));
 
     // Phase 1: dasher spawner. Same interval, separate entity — the
     // two spawners tick independently, so the player sees a chaser
     // every 3s and a dasher every 3s in alternating (well, parallel)
     // waves. Phase 2 will fold this into a single wave-spawner
     // entity that picks archetypes from a wave definition.
-    commands.spawn(Spawner {
-        interval: Timer::from_seconds(settings.spawner_interval_s, TimerMode::Repeating),
-        spawn: EnemyArchetype::Dasher,
-    });
+    commands.spawn((
+        Spawner {
+            interval: Timer::from_seconds(settings.spawner_interval_s, TimerMode::Repeating),
+            spawn: EnemyArchetype::Dasher,
+        },
+        RoomScope { room_id: RoomId(1) },
+    ));
 
     // Phase 1: shooter spawner. Same parallel-spawner pattern as
     // dasher. A fresh wave of shooters will land every 3s, spread
@@ -188,10 +204,13 @@ fn spawn_world(mut commands: Commands, settings: Res<GameSettings>) {
     // start plinking at the player from 250 units away. With
     // chaser + dasher + shooter all spawning every 3s, the player
     // sees 3 archetypes in parallel waves.
-    commands.spawn(Spawner {
-        interval: Timer::from_seconds(settings.spawner_interval_s, TimerMode::Repeating),
-        spawn: EnemyArchetype::Shooter,
-    });
+    commands.spawn((
+        Spawner {
+            interval: Timer::from_seconds(settings.spawner_interval_s, TimerMode::Repeating),
+            spawn: EnemyArchetype::Shooter,
+        },
+        RoomScope { room_id: RoomId(1) },
+    ));
 
     // Phase 1: sniper spawner. Same parallel pattern. A fresh
     // sniper spawns in the post-fire cooldown state (not
@@ -200,10 +219,13 @@ fn spawn_world(mut commands: Commands, settings: Res<GameSettings>) {
     // shooter's 250, so the two ranged archetypes naturally
     // space out and the player faces pressure from multiple
     // distances.
-    commands.spawn(Spawner {
-        interval: Timer::from_seconds(settings.spawner_interval_s, TimerMode::Repeating),
-        spawn: EnemyArchetype::Sniper,
-    });
+    commands.spawn((
+        Spawner {
+            interval: Timer::from_seconds(settings.spawner_interval_s, TimerMode::Repeating),
+            spawn: EnemyArchetype::Sniper,
+        },
+        RoomScope { room_id: RoomId(1) },
+    ));
 
     // Phase 2: title-screen overlay. Spawned once at startup and
     // toggled visible by `state_visibility_system` when state is

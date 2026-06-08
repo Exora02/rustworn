@@ -27,7 +27,8 @@ use bevy::prelude::*;
 use bevy::window::WindowResolution;
 
 use crate::plugins::{
-    CombatPlugin, EnemyPlugin, FxPlugin, HudPlugin, PickupsPlugin, PlayerPlugin, SetupPlugin,
+    CombatPlugin, EnemyPlugin, FxPlugin, HudPlugin, PickupsPlugin, PlayerPlugin, RoomsPlugin,
+    SetupPlugin,
 };
 
 /// Boot the Bevy app. Called from `main.rs` and (eventually) from tests.
@@ -61,6 +62,15 @@ pub fn run() {
         .add_event::<events::CascadeStartEvent>()
         .add_event::<events::CascadeEndEvent>()
         .add_plugins(SetupPlugin)
+        // Phase 2: RoomsPlugin must be added AFTER SetupPlugin so
+        // its `setup_rooms_system` (OnEnter InRun) fires after
+        // `enter_in_run_system`. The OnEnter systems run in
+        // registration order; we want the player reset (HP,
+        // position, weapon, etc.) to happen first, then the
+        // room walls + doors to spawn on top of that
+        // already-reset world, then `setup_rooms_system` to
+        // re-anchor the player to R0's center.
+        .add_plugins(RoomsPlugin)
         .add_plugins(PlayerPlugin)
         .add_plugins(CombatPlugin)
         .add_plugins(EnemyPlugin)

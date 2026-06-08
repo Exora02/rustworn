@@ -11,12 +11,12 @@ use log::warn;
 use crate::components::{
     AiBehavior, AppState, BaseColor, BaseVelocity, Boss, BossPhase, BossState, CascadeAffected,
     Collider, DasherPhase, DasherState, DeathPuff, Enemy, EnemyAI, EnemyArchetype, Health,
-    HitFlash, Invulnerable, Knockback, Player, Projectile, ShooterState, SniperState, Spawner,
-    Team, Velocity,
+    HitFlash, Invulnerable, Knockback, Player, Projectile, RoomScope, ShooterState, SniperState,
+    Spawner, Team, Velocity,
 };
 use crate::events::DamageEvent;
 use crate::plugins::fx::spawn_hit_spark;
-use crate::resources::{GameSettings, Hitstop, RunState, ScreenShake};
+use crate::resources::{BiomeState, GameSettings, Hitstop, RunState, ScreenShake};
 
 /// Color of the chaser — high-contrast red so it reads as "danger" at
 /// a glance against the orange player and the dark background we'll
@@ -163,15 +163,22 @@ impl Plugin for EnemyPlugin {
 // spawn an enemy of the spawner's `archetype` at a random angle from
 // the player at a random distance in [min_distance, max_distance],
 // then reset the timer. Frozen during global hitstop so kills don't
-// immediately spawn a new wave mid-freeze. Frozen during game over
-// for the same reason.
+// immediately spawn a new wave mid-freeze.
+//
+// Phase 2: spawners are now scoped to a specific room via
+// `RoomScope { room_id }`. This system reads `BiomeState.current_room`
+// and skips spawners whose `room_id` doesn't match. The spawner
+// entities themselves persist across room transitions — they just
+// don't tick when the player is in a different room. On room
+// transition, `door_transition_system` resets the timers (so the
+// new room gets the standard warmup before the first enemy spawns).
 fn spawner_tick_system(
     time: Res<Time>,
     settings: Res<GameSettings>,
     hitstop: Option<Res<Hitstop>>,
-    run: Res<RunState>,
+    biome: Res<BiomeState>,
     mut commands: Commands,
-    mut spawners: Query<&mut Spawner>,
+    mut spawners: Query<(&mut Spawner, &RoomScope)>,
     player_query: Query<&Transform, With<Player>>,
 ) {
     if hitstop.is_some() {
@@ -182,7 +189,17 @@ fn spawner_tick_system(
     };
     let player_pos = player_transform.translation.truncate();
 
-    for mut spawner in &mut spawners {
+    for (mut spawner, scope) in &mut spawners {
+        // Skip spawners in other rooms. The persistent spawner
+        // entity exists, but its timer doesn't tick while the
+        // player is elsewhere — so the next time the player
+        // re-enters this room, the timer is still wherever it
+        // was when they left. (Mitigated by
+        // `door_transition_system` resetting all spawner timers
+        // on every room transition.)
+        if scope.room_id != biome.current_room {
+            continue;
+        }
         spawner.interval.tick(time.delta());
         if !spawner.interval.finished() {
             continue;

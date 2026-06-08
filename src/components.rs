@@ -625,3 +625,103 @@ pub enum AppState {
     /// and we can add the plumbing without another refactor.
     Paused,
 }
+
+// ─── Room system (Phase 2) ────────────────────────────────────────────────
+
+/// Unique identifier for a room in a biome. `u8` gives 256 rooms
+/// per biome — more than enough for Phase 2's 3 rooms and the
+/// Phase 3+ multi-biome scaling.
+///
+/// Newtype (not a bare `u8`) so the type system catches "you
+/// passed an enemy archetype id where a room id was expected"
+/// at compile time. `#[derive(Default)]` defaults to `RoomId(0)`
+/// so a freshly-spawned enemy / projectile etc. has a
+/// placeholder room id (it'll be overwritten by the spawner
+/// or filtered out by `RoomScope`-aware systems).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub struct RoomId(pub u8);
+
+/// A rectangular room in a biome. The player can move freely
+/// inside the `bounds` rectangle. Walls sit on the rectangle's
+/// edges; doors are triggers on the floor in front of the walls.
+///
+/// `bounds_min` and `bounds_max` are the world-space corners.
+/// The room is the closed set `[min, max]` on each axis. Walls
+/// sit just outside the rectangle (offset by
+/// `RoomsPlugin::WALL_THICKNESS` / 2) so the AABB is
+/// `bounds_max + thickness` in extent.
+#[derive(Clone, Copy, Debug)]
+pub struct Room {
+    pub id: RoomId,
+    pub kind: RoomKind,
+    pub bounds_min: Vec2,
+    pub bounds_max: Vec2,
+}
+
+impl Room {
+    pub fn center(&self) -> Vec2 {
+        (self.bounds_min + self.bounds_max) * 0.5
+    }
+    pub fn size(&self) -> Vec2 {
+        self.bounds_max - self.bounds_min
+    }
+}
+
+/// Semantic role of a room. Phase 2 ships 3 rooms (Spawn /
+/// Fight / Extract); Patch 6 will add the "Extract" exit portal
+/// inside the Extract room. New room kinds (Treasure, Gauntlet
+/// per PLAN.md §6) slot in here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RoomKind {
+    /// Where the player spawns at the start of a run. No
+    /// enemies, no pickups. The "calm before the storm".
+    Spawn,
+    /// Where the bulk of combat happens. Spawners are
+    /// scoped to this room (Phase 2 minimum: all 4 spawners
+    /// in the Fight room).
+    Fight,
+    /// Where the run ends. Phase 2: just a labeled room
+    /// with no enemies. Phase 6 adds the extraction portal
+    /// here.
+    Extract,
+}
+
+/// Door trigger: a small AABB on the floor in front of a wall.
+/// When the player's AABB overlaps a door,
+/// `door_transition_system` teleports them to `to_room` at
+/// `entry_position` and despawns the old room's transient
+/// entities (enemies, projectiles, puffs, pickups).
+///
+/// Doors don't have a collider of their own that blocks the
+/// player — the surrounding wall does that. The door's
+/// `Collider` is just the AABB used for the overlap check.
+/// (Walls are full-perimeter; doors are floor triggers on
+/// the inside of the room, not gaps in the walls.)
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Door {
+    pub to_room: RoomId,
+    pub entry_position: Vec2,
+}
+
+/// Marker on entities that belong to a specific room. Used
+/// by `spawner_tick_system` to filter which spawners tick
+/// (only the ones in the current room) and by future per-
+/// room scoping systems (e.g. per-room decoration lights,
+/// per-room audio cues).
+///
+/// Phase 2 attaches `RoomScope` only to spawner entities
+/// (one per archetype, all in the Fight room). Enemies
+/// don't need it — they're spawned in the current room and
+/// despawned on transition.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RoomScope {
+    pub room_id: RoomId,
+}
+
+/// Static wall entity. Walls block player + enemy movement
+/// (but not projectiles, which fly through freely in Patch 2).
+/// Has `Transform + Sprite + Collider` like other colliders,
+/// plus this marker so `physics_step_system` and the door
+/// system can find them.
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct Wall;

@@ -58,7 +58,14 @@ impl Plugin for PlayerPlugin {
                 cooldown_tick_system,
                 knockback_system,
                 velocity_apply_system,
-                movement_system,
+                // Phase 2: `movement_system` removed. Its replacement,
+                // `physics_step_system` in rooms.rs, integrates
+                // Velocity into Transform AND resolves wall
+                // collisions. The player chain ends at
+                // velocity_apply (which writes Velocity from
+                // BaseVelocity + Cascade scale); the rooms chain
+                // picks up from there with the actual Transform
+                // integration.
                 player_color_system,
                 aim_rotation_system,
                 camera_follow_system,
@@ -398,25 +405,16 @@ fn velocity_apply_system(
     }
 }
 
-// Applies `Velocity` to `Transform` for every entity that has both.
-// Used by the player and by projectiles (Day 5-7+). The Cascade-aware
-// velocity scaling will live in `velocity_apply_system` (Phase 1).
-// Frozen during global hitstop so neither the player nor projectiles
-// drift during the freeze.
-fn movement_system(
-    time: Res<Time>,
-    hitstop: Option<Res<Hitstop>>,
-    run: Res<RunState>,
-    mut query: Query<(&Velocity, &mut Transform)>,
-) {
-    if in_hitstop(&hitstop) {
-        return;
-    }
-    for (velocity, mut transform) in &mut query {
-        transform.translation.x += velocity.0.x * time.delta_secs();
-        transform.translation.y += velocity.0.y * time.delta_secs();
-    }
-}
+// Phase 2: `movement_system` (which lived here through Phase 0
+// and Phase 1) has been moved to `rooms.rs` as part of
+// `physics_step_system`. The new system combines velocity
+// integration + wall collision resolution in a single
+// system to avoid B0001 across two same-Transform-writing
+// queries. The "no integration during hitstop" behavior is
+// preserved (the new system early-returns on hitstop).
+// Projectiles are still integrated; they just skip wall
+// collision in Patch 2 (a future patch can despawn
+// projectiles on wall hit).
 
 // Player color: orange by default, pulse-toward-white during the dash
 // iframe window. The reset on invuln-end is automatic because the system
