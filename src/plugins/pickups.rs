@@ -10,7 +10,10 @@
 
 use bevy::prelude::*;
 
-use crate::components::{AiBehavior, AppState, Health, Pickup, PickupKind, Player, Velocity};
+use crate::components::{
+    AiBehavior, AppState, Health, Pickup, PickupKind, Player, Velocity, WeaponArchetype,
+    WeaponInventory,
+};
 use crate::resources::{GameSettings, RunState};
 
 const PICKUP_SIZE: f32 = 14.0;
@@ -92,6 +95,7 @@ fn pickup_collect_system(
     player_q: Query<&Transform, With<Player>>,
     pickup_q: Query<(Entity, &Pickup, &Transform)>,
     mut health_q: Query<&mut Health, With<Player>>,
+    mut inventory_q: Query<&mut WeaponInventory, With<Player>>,
 ) {
     let Ok(player_tf) = player_q.single() else {
         return;
@@ -102,7 +106,13 @@ fn pickup_collect_system(
         if pos.distance(player_pos) > settings.pickup_collect_radius {
             continue;
         }
-        apply_pickup(pickup.kind, &mut run, &settings, &mut health_q);
+        apply_pickup(
+            pickup.kind,
+            &mut run,
+            &settings,
+            &mut health_q,
+            &mut inventory_q,
+        );
         commands.entity(entity).despawn();
     }
 }
@@ -113,11 +123,18 @@ fn pickup_collect_system(
 /// 1.5625× damage. Regen is special-cased: it doesn't stack
 /// a multiplier, it stacks a flat HP/sec regen. Each Regen
 /// pickup adds another +0.5 HP/sec to the running total.
+///
+/// Weapon pickups are special-cased too: they add the
+/// archetype to the first empty `WeaponInventory` slot.
+/// If the inventory is full, the pickup is silently
+/// discarded (no swap UI in P4 — that's a future patch
+/// with a confirmation prompt).
 fn apply_pickup(
     kind: PickupKind,
     run: &mut RunState,
     settings: &GameSettings,
     health_q: &mut Query<&mut Health, With<Player>>,
+    inventory_q: &mut Query<&mut WeaponInventory, With<Player>>,
 ) {
     match kind {
         PickupKind::DamageUp => {
@@ -132,11 +149,27 @@ fn apply_pickup(
         PickupKind::Regen => {
             run.regen_per_sec += settings.pickup_regen_hp_per_sec;
         }
+        PickupKind::Weapon(archetype) => {
+            if let Ok(mut inv) = inventory_q.single_mut() {
+                if let Some(slot) = inv.slots.iter_mut().find(|s| s.is_none()) {
+                    *slot = Some(archetype);
+                }
+                // Inventory full → silently discard the
+                // pickup. The despawn already happened in
+                // `pickup_collect_system`; we just don't
+                // modify the inventory. Future P5+ patch
+                // can add a swap prompt here.
+            }
+        }
     }
     // Heal a small chunk on every pickup so the player can
     // feel the collect even when the stacked effect is small.
-    if let Ok(mut h) = health_q.single_mut() {
-        h.current = (h.current + 1.0).min(h.max);
+    // Skipped for weapon pickups: the player already has the
+    // weapon as the reward, the +1 HP is redundant.
+    if !matches!(kind, PickupKind::Weapon(_)) {
+        if let Ok(mut h) = health_q.single_mut() {
+            h.current = (h.current + 1.0).min(h.max);
+        }
     }
 }
 
@@ -195,6 +228,51 @@ pub fn roll_pickup_drop(
     })
 }
 
+/// Phase 2.4 (P4 loot drops): roll whether a kill of
+/// `behavior` should drop a WEAPON pickup (vs the stat-stick
+/// roll in `roll_pickup_drop`). Both rolls are independent —
+/// a single kill can drop a stat-stick AND a weapon.
+///
+/// Returns `Some(WeaponArchetype)` on a successful roll,
+/// `None` otherwise. The dropped archetype is
+/// **enemies-don't-carry-weapons** for Phase 2.4: we
+/// roll uniformly across the 4 player weapon archetypes
+/// (Pistol / Shotgun / Burst / Beam). Future patches can
+/// tie drops to the killing archetype (e.g. snipers
+/// always drop Sniper-class weapons) but that's a
+/// design decision for the rarity/mod-system patch.
+///
+/// Like `roll_pickup_drop`, the `rng` is a closure
+/// returning a `f32` in [0, 1) for testability.
+pub fn roll_weapon_drop(
+    behavior: AiBehavior,
+    settings: &GameSettings,
+    rng: &mut impl FnMut() -> f32,
+) -> Option<WeaponArchetype> {
+    let chance = match behavior {
+        AiBehavior::Chaser => settings.pickup_drop_chance_weapon_chaser,
+        AiBehavior::Dasher => settings.pickup_drop_chance_weapon_dasher,
+        AiBehavior::Shooter => settings.pickup_drop_chance_weapon_shooter,
+        AiBehavior::Sniper => settings.pickup_drop_chance_weapon_sniper,
+        AiBehavior::Boss => settings.pickup_drop_chance_weapon_boss,
+    };
+    if rng() >= chance {
+        return None;
+    }
+    // Roll uniformly across the 4 player weapon
+    // archetypes. `as u32` truncates, so 0.9999 → 3
+    // (Beam), giving the roll a tiny upward bias toward
+    // Beam but it's a 4-way uniform for practical
+    // purposes.
+    let r = (rng() * 4.0) as u32;
+    Some(match r {
+        0 => WeaponArchetype::Pistol,
+        1 => WeaponArchetype::Shotgun,
+        2 => WeaponArchetype::Burst,
+        _ => WeaponArchetype::Beam,
+    })
+}
+
 /// Lifetime: separate from the per-frame drift + tick, so the
 /// drift system can focus on motion and the lifetime is a
 /// background tick. (Both are checked each frame in the same
@@ -219,12 +297,26 @@ fn pickup_lifetime_system(
 /// lifetime. The visual is a colored square (one color per
 /// kind) so the player can read the kind at a glance — no
 /// text needed.
+///
+/// Phase 2.4 (P4): weapon pickups get a distinct
+/// orange-amber color and a slightly larger size (24u
+/// square vs 14u) so they read as "rare" — bigger and
+/// warmer than the stat-stick pickups.
 pub fn spawn_pickup(commands: &mut Commands, settings: &GameSettings, pos: Vec2, kind: PickupKind) {
-    let color = match kind {
-        PickupKind::Regen => Color::srgb(0.30, 0.95, 0.30),
-        PickupKind::DamageUp => Color::srgb(0.95, 0.30, 0.30),
-        PickupKind::FireRateUp => Color::srgb(0.95, 0.95, 0.30),
-        PickupKind::SpeedUp => Color::srgb(0.30, 0.65, 0.95),
+    let (color, size) = match kind {
+        PickupKind::Regen => (Color::srgb(0.30, 0.95, 0.30), PICKUP_SIZE),
+        PickupKind::DamageUp => (Color::srgb(0.95, 0.30, 0.30), PICKUP_SIZE),
+        PickupKind::FireRateUp => (Color::srgb(0.95, 0.95, 0.30), PICKUP_SIZE),
+        PickupKind::SpeedUp => (Color::srgb(0.30, 0.65, 0.95), PICKUP_SIZE),
+        PickupKind::Weapon(_) => (
+            Color::srgb(1.0, 0.55, 0.10), // orange — same family as the
+            // player's PLAYER_COLOR but
+            // brighter, so weapon pickups
+            // pop against the background
+            // but don't blend with the
+            // player sprite.
+            24.0, // bigger than stat-sticks
+        ),
     };
     commands.spawn((
         Pickup {
@@ -233,11 +325,136 @@ pub fn spawn_pickup(commands: &mut Commands, settings: &GameSettings, pos: Vec2,
         },
         Sprite {
             color,
-            custom_size: Some(Vec2::splat(PICKUP_SIZE)),
+            custom_size: Some(Vec2::splat(size)),
             ..default()
         },
         Transform::from_xyz(pos.x, pos.y, 0.3),
         Velocity(Vec2::ZERO),
         Visibility::Inherited,
     ));
+}
+
+// ─── Tests ────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::components::WeaponArchetype;
+
+    fn settings() -> GameSettings {
+        // All weapon drop chances at 1.0 so the roll
+        // always succeeds (we're testing the archetype
+        // distribution, not the drop chance).
+        GameSettings {
+            pickup_drop_chance_weapon_chaser: 1.0,
+            pickup_drop_chance_weapon_dasher: 1.0,
+            pickup_drop_chance_weapon_shooter: 1.0,
+            pickup_drop_chance_weapon_sniper: 1.0,
+            pickup_drop_chance_weapon_boss: 1.0,
+            ..Default::default()
+        }
+    }
+
+    // `roll_weapon_drop` returns one of the 4 player
+    // weapon archetypes. Smoke-test that the roll
+    // actually fires (returns Some) when the chance
+    // is 1.0 and the rng always returns 0.0.
+    #[test]
+    fn roll_weapon_drop_returns_some_when_chance_is_one() {
+        let s = settings();
+        let mut rng = || 0.0_f32; // first rng() < 1.0 → drop
+        let result = roll_weapon_drop(AiBehavior::Chaser, &s, &mut rng);
+        assert!(result.is_some(), "chance=1.0 must always drop");
+        assert!(matches!(
+            result.unwrap(),
+            WeaponArchetype::Pistol | WeaponArchetype::Shotgun | WeaponArchetype::Burst | WeaponArchetype::Beam
+        ));
+    }
+
+    // `roll_weapon_drop` returns None when the chance
+    // is 0.0 (or when the rng() returns >= chance).
+    #[test]
+    fn roll_weapon_drop_returns_none_when_chance_is_zero() {
+        let s = GameSettings {
+            pickup_drop_chance_weapon_chaser: 0.0,
+            ..Default::default()
+        };
+        let mut rng = || 0.0_f32;
+        assert!(roll_weapon_drop(AiBehavior::Chaser, &s, &mut rng).is_none());
+    }
+
+    // `roll_weapon_drop` returns None when rng() >= chance.
+    // With chance = 0.5 and rng = 0.6, no drop.
+    #[test]
+    fn roll_weapon_drop_respects_rng_threshold() {
+        let s = GameSettings {
+            pickup_drop_chance_weapon_chaser: 0.5,
+            ..Default::default()
+        };
+        let mut rng = || 0.6_f32;
+        assert!(roll_weapon_drop(AiBehavior::Chaser, &s, &mut rng).is_none());
+
+        // And with rng = 0.4 < 0.5, drop.
+        let mut rng = || 0.4_f32;
+        assert!(roll_weapon_drop(AiBehavior::Chaser, &s, &mut rng).is_some());
+    }
+
+    // `WeaponInventory::default()` has Pistol in slot 0
+    // and 3 empty slots. This is the starting state
+    // for every run.
+    #[test]
+    fn weapon_inventory_default_has_pistol_in_slot_zero() {
+        let inv = WeaponInventory::default();
+        assert_eq!(inv.slots[0], Some(WeaponArchetype::Pistol));
+        assert_eq!(inv.slots[1], None);
+        assert_eq!(inv.slots[2], None);
+        assert_eq!(inv.slots[3], None);
+    }
+
+    // Pickup behavior: a weapon pickup adds the
+    // archetype to the first empty slot. We test
+    // by simulating the same code path that
+    // `apply_pickup` uses (the actual apply_pickup
+    // function takes a Query, which is hard to
+    // construct in a unit test without an App).
+    #[test]
+    fn weapon_pickup_fills_first_empty_slot() {
+        let mut inv = WeaponInventory {
+            slots: [Some(WeaponArchetype::Pistol), None, None, None],
+        };
+        // Simulate the apply_pickup logic for
+        // PickupKind::Weapon(Shotgun).
+        if let Some(slot) = inv.slots.iter_mut().find(|s| s.is_none()) {
+            *slot = Some(WeaponArchetype::Shotgun);
+        }
+        assert_eq!(inv.slots[0], Some(WeaponArchetype::Pistol));
+        assert_eq!(inv.slots[1], Some(WeaponArchetype::Shotgun));
+        assert_eq!(inv.slots[2], None);
+        assert_eq!(inv.slots[3], None);
+    }
+
+    // Pickup behavior: if the inventory is full, a
+    // weapon pickup is silently discarded. The slot
+    // array is unchanged.
+    #[test]
+    fn weapon_pickup_silently_discarded_when_inventory_full() {
+        let mut inv = WeaponInventory {
+            slots: [
+                Some(WeaponArchetype::Pistol),
+                Some(WeaponArchetype::Shotgun),
+                Some(WeaponArchetype::Burst),
+                Some(WeaponArchetype::Beam),
+            ],
+        };
+        // Simulate the apply_pickup logic for
+        // PickupKind::Weapon(Shotgun).
+        if let Some(slot) = inv.slots.iter_mut().find(|s| s.is_none()) {
+            *slot = Some(WeaponArchetype::Shotgun);
+        }
+        // Inventory unchanged.
+        assert_eq!(inv.slots[0], Some(WeaponArchetype::Pistol));
+        assert_eq!(inv.slots[1], Some(WeaponArchetype::Shotgun));
+        assert_eq!(inv.slots[2], Some(WeaponArchetype::Burst));
+        assert_eq!(inv.slots[3], Some(WeaponArchetype::Beam));
+    }
 }

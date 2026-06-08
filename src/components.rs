@@ -482,6 +482,16 @@ pub enum PickupKind {
     FireRateUp,
     /// +20% move speed for the rest of the run.
     SpeedUp,
+    /// Weapon pickup. Adds the weapon to the first empty
+    /// inventory slot. If the inventory is full, the pickup
+    /// is silently destroyed (no swap UI in P4).
+    ///
+    /// Phase 2.4: P4 loot drops. The weapon is a fresh copy
+    /// of the archetype's base stats (no rarity yet — that's
+    /// a future PLAN.md §5 mod-system patch). The pickup
+    /// drops per-archetype chance on `GameSettings`
+    /// (`pickup_drop_chance_weapon_*`).
+    Weapon(WeaponArchetype),
 }
 
 /// Phase 1 hit feedback: a small white sprite that flashes briefly
@@ -492,6 +502,37 @@ pub enum PickupKind {
 #[derive(Component)]
 pub struct HitSpark {
     pub lifetime: Timer,
+}
+
+/// Multi-slot weapon inventory. The player has 4 slots (PLAN.md
+/// §5) — 2 to 6 is the meta-progression range, but 4 is the
+/// Phase 2 default. `None` is an empty slot; `Some(archetype)`
+/// is a weapon the player owns.
+///
+/// The player entity ALSO has a `Weapon` component that holds
+/// the ACTIVE weapon's full state (damage, fire_timer, burst
+/// state, etc.). The inventory is the source of truth for
+/// "what the player owns"; the `Weapon` component is the
+/// source of truth for "what the player is currently using".
+/// Switching weapons (via 1-4 hotkeys) copies the inventory
+/// slot's archetype + its base stats into the `Weapon` component.
+///
+/// P4 scope: picking up a weapon adds it to the first empty
+/// slot. If the inventory is full, the pickup is silently
+/// destroyed (no swap UI yet — that's a future patch that
+/// needs a confirmation prompt). The active weapon is
+/// unchanged on pickup.
+#[derive(Component, Clone, Debug)]
+pub struct WeaponInventory {
+    pub slots: [Option<WeaponArchetype>; 4],
+}
+
+impl Default for WeaponInventory {
+    fn default() -> Self {
+        Self {
+            slots: [Some(WeaponArchetype::Pistol), None, None, None],
+        }
+    }
 }
 
 /// The enemy's "true" color — its archetype's base tint. Stored as a

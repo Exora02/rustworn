@@ -9,12 +9,12 @@ use log::warn;
 
 use crate::components::{
     AimDirection, AppState, BeamVisual, Collider, Enemy, EnemyAI, Health, HitFlash, Invulnerable,
-    Knockback, Player, Projectile, Team, Velocity, Weapon, WeaponArchetype,
+    Knockback, PickupKind, Player, Projectile, Team, Velocity, Weapon, WeaponArchetype,
 };
 use crate::events::{DamageEvent, EnemyKilledEvent};
 use crate::plugins::enemy::spawn_death_puff;
 use crate::plugins::fx::spawn_hit_spark;
-use crate::plugins::pickups::{roll_pickup_drop, spawn_pickup};
+use crate::plugins::pickups::{roll_pickup_drop, roll_weapon_drop, spawn_pickup};
 use crate::resources::{GameSettings, Hitstop, RunState, ScreenShake};
 
 /// Color of the player projectile — warm white, clearly readable as a
@@ -650,6 +650,21 @@ fn beam_damage_system(
             if let Some(kind) = roll_pickup_drop(enemy_ai.behavior, &settings, &mut rng) {
                 spawn_pickup(&mut commands, &settings, enemy_pos, kind);
             }
+            // Phase 2.4 (P4): independent weapon-drop roll.
+            // Both rolls share the same `rng` closure so the
+            // sequence is deterministic per kill count, but
+            // the two rolls are independent (a single kill
+            // can drop a stat-stick AND a weapon).
+            if let Some(weapon_kind) =
+                roll_weapon_drop(enemy_ai.behavior, &settings, &mut rng)
+            {
+                spawn_pickup(
+                    &mut commands,
+                    &settings,
+                    enemy_pos,
+                    PickupKind::Weapon(weapon_kind),
+                );
+            }
             kill_events.send(EnemyKilledEvent {
                 victim: enemy_entity,
                 killer: Entity::PLACEHOLDER,
@@ -775,6 +790,19 @@ fn projectile_damage_system(
                 };
                 if let Some(kind) = roll_pickup_drop(enemy_ai.behavior, &settings, &mut rng) {
                     spawn_pickup(&mut commands, &settings, enemy_pos, kind);
+                }
+                // Phase 2.4 (P4): independent weapon-drop roll.
+                // See the matching block in the beam/contact
+                // kill handler above for the rationale.
+                if let Some(weapon_kind) =
+                    roll_weapon_drop(enemy_ai.behavior, &settings, &mut rng)
+                {
+                    spawn_pickup(
+                        &mut commands,
+                        &settings,
+                        enemy_pos,
+                        PickupKind::Weapon(weapon_kind),
+                    );
                 }
                 kill_events.send(EnemyKilledEvent {
                     victim: enemy_entity,

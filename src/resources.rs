@@ -396,6 +396,25 @@ pub struct GameSettings {
     pub pickup_drop_chance_shooter: f32,
     pub pickup_drop_chance_sniper: f32,
     pub pickup_drop_chance_boss: f32,
+    /// Phase 2.4 (P4 loot drops): per-archetype chance of
+    /// dropping a weapon pickup (vs a stat-stick pickup).
+    /// Both rolls are independent; the player can get
+    /// BOTH a stat-stick AND a weapon from one kill (rare).
+    ///
+    /// Tuning (per design-shift doc §2.5):
+    ///   chasers:  0.08 (the most common enemy; drops weapons
+    ///             rarely so the player doesn't get spammed)
+    ///   dashers:  0.12
+    ///   shooters: 0.15
+    ///   snipers:  0.25 (high-threat, often the only kill in
+    ///             a wave that yields a weapon)
+    ///   boss:     1.0  (guaranteed weapon drop on boss kill,
+    ///             separate from the boss's stat-stick drop)
+    pub pickup_drop_chance_weapon_chaser: f32,
+    pub pickup_drop_chance_weapon_dasher: f32,
+    pub pickup_drop_chance_weapon_shooter: f32,
+    pub pickup_drop_chance_weapon_sniper: f32,
+    pub pickup_drop_chance_weapon_boss: f32,
     pub pickup_lifetime_s: f32,
     pub pickup_drift_speed: f32,
     pub pickup_collect_radius: f32,
@@ -588,6 +607,13 @@ impl Default for GameSettings {
             pickup_drop_chance_shooter: 0.15,
             pickup_drop_chance_sniper: 0.08,
             pickup_drop_chance_boss: 1.0,
+            // Phase 2.4 (P4): weapon drop chances. See the
+            // field docs above for the tuning rationale.
+            pickup_drop_chance_weapon_chaser: 0.08,
+            pickup_drop_chance_weapon_dasher: 0.12,
+            pickup_drop_chance_weapon_shooter: 0.15,
+            pickup_drop_chance_weapon_sniper: 0.25,
+            pickup_drop_chance_weapon_boss: 1.0,
             pickup_lifetime_s: 8.0,
             pickup_drift_speed: 60.0,
             pickup_collect_radius: 25.0,

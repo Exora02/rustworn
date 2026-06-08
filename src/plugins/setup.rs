@@ -19,9 +19,9 @@ use bevy::prelude::*;
 use log::info;
 
 use crate::components::{
-    AimIndicator, AppState, BaseVelocity, Collider, DashCooldown, DeathPuff, Enemy,
-    Health, HudElement, HudElementKind, Invulnerable, Knockback, LastMoveDirection, MainCamera,
-    Pickup, Player, Projectile, Velocity, Weapon, WeaponArchetype, PLAYER_COLOR,
+    AimIndicator, AppState, BaseVelocity, Collider, DashCooldown, DeathPuff, Enemy, Health,
+    HudElement, HudElementKind, Invulnerable, Knockback, LastMoveDirection, MainCamera, Pickup,
+    Player, Projectile, Velocity, Weapon, WeaponArchetype, WeaponInventory, PLAYER_COLOR,
 };
 use crate::resources::{BiomeState, CascadeState, GameSettings, RunRng, RunState, ScreenShake};
 
@@ -115,6 +115,15 @@ fn spawn_world(mut commands: Commands, settings: Res<GameSettings>) {
             Collider {
                 half_extents: Vec2::splat(20.0),
             },
+            // Phase 2.4 (P4): multi-slot weapon inventory.
+            // The player owns up to 4 weapons (PLAN.md §5).
+            // Starts with Pistol in slot 0 and 3 empty
+            // slots. The `Weapon` component below is the
+            // ACTIVE weapon (slot 0's archetype by
+            // default). Picking up a weapon adds it to
+            // the first empty slot; the 1-4 hotkeys
+            // swap which slot is active.
+            WeaponInventory::default(),
             // Day 5-7: starting pistol. Timer is set to a zero-duration
             // finished timer so the first click fires immediately.
             // Phase 1 (shotgun): `pellet_count` + `spread_rad` round
@@ -354,7 +363,16 @@ fn enter_in_run_system(
     settings: Res<GameSettings>,
     mut run: ResMut<RunState>,
     mut rng: ResMut<RunRng>,
-    mut player_query: Query<(Entity, &mut Transform, &mut Health, &mut Weapon), With<Player>>,
+    mut player_query: Query<
+        (
+            Entity,
+            &mut Transform,
+            &mut Health,
+            &mut Weapon,
+            &mut WeaponInventory,
+        ),
+        With<Player>,
+    >,
     mut camera_query: Query<&mut Transform, (With<MainCamera>, Without<Player>)>,
     mut shake: ResMut<ScreenShake>,
     mut cascade: ResMut<CascadeState>,
@@ -377,7 +395,7 @@ fn enter_in_run_system(
         commands.entity(e).despawn();
     }
 
-    if let Ok((entity, mut tf, mut h, mut weapon)) = player_query.single_mut() {
+    if let Ok((entity, mut tf, mut h, mut weapon, mut inventory)) = player_query.single_mut() {
         tf.translation = Vec3::ZERO;
         h.current = h.max;
         // Reset fire timer to a zero-duration finished timer so the
@@ -390,6 +408,11 @@ fn enter_in_run_system(
         // burst — the new run should boot with a fresh weapon
         // ready to fire on click.
         weapon.burst_rounds_remaining = 0;
+        // Phase 2.4 (P4): reset the weapon inventory to the
+        // default (Pistol in slot 0, 3 empty slots). The
+        // player should boot into a fresh run with no
+        // carryover weapons from a previous attempt.
+        *inventory = WeaponInventory::default();
         // Drop any leftover dash / hit / knockback state from the
         // previous run. The player boots clean, no i-frames, no
         // knockback direction, no cooldown.
