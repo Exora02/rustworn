@@ -6,9 +6,9 @@
 use bevy::prelude::*;
 
 use crate::components::{
-    AimDirection, AimIndicator, BaseVelocity, CascadeAffected, Collider, DashCooldown, DeathPuff,
-    Enemy, Health, Invulnerable, Knockback, MainCamera, Player, Projectile, Spawner, Velocity,
-    Weapon, PLAYER_COLOR,
+    AimDirection, AimIndicator, BaseVelocity, Boss, CascadeAffected, Collider, DashCooldown,
+    DeathPuff, Enemy, Health, HitFlash, Invulnerable, Knockback, LastMoveDirection, MainCamera,
+    Pickup, Player, Projectile, Spawner, Team, Velocity, Weapon, WeaponArchetype, PLAYER_COLOR,
 };
 use crate::plugins::enemy::spawn_boss;
 use crate::resources::{CascadeState, GameSettings, Hitstop, RunState, ScreenShake};
@@ -138,12 +138,12 @@ fn player_input_system(
     settings: Res<GameSettings>,
     hitstop: Option<Res<Hitstop>>,
     run: Res<RunState>,
-    mut query: Query<&mut BaseVelocity, With<Player>>,
+    mut query: Query<(&mut BaseVelocity, &mut LastMoveDirection), With<Player>>,
 ) {
     if in_hitstop(&hitstop) || in_game_over(&run) {
         return;
     }
-    let Ok(mut base_velocity) = query.single_mut() else {
+    let Ok((mut base_velocity, mut last_move)) = query.single_mut() else {
         return;
     };
 
@@ -162,11 +162,28 @@ fn player_input_system(
     }
 
     // Diagonal is the same speed as cardinal — normalize if there's input.
-    base_velocity.0 = if dir.length() > 0.0 {
-        dir.normalize() * settings.player_move_speed
+    // Phase 1 pickup multiplier: each SpeedUp pickup adds
+    // `pickup_speed_per_stack` (0.20) to a 1.0 base. 2 SpeedUp
+    // = 1.0 × 1.2 × 1.2 = 1.44× move speed.
+    let speed_mult = 1.0 + run.speed_stacks as f32 * settings.pickup_speed_per_stack;
+    let move_dir = if dir.length() > 0.0 {
+        dir.normalize()
     } else {
         Vec2::ZERO
     };
+    base_velocity.0 = if move_dir != Vec2::ZERO {
+        move_dir * settings.player_move_speed * speed_mult
+    } else {
+        Vec2::ZERO
+    };
+    // Record the last non-zero movement direction so the dash
+    // system knows which way the player was going. Only update
+    // on input — while standing still, the previous direction
+    // is preserved (a dash with no WASD goes the way you were
+    // last moving, not the way the mouse is pointing).
+    if move_dir != Vec2::ZERO {
+        last_move.0 = move_dir;
+    }
 }
 
 // Tracks the mouse's world-space direction from the player. Sticks at
@@ -236,9 +253,14 @@ fn dash_input_system(
 }
 
 // While Invulnerable, the player's BaseVelocity is forced to
-// `aim_dir × dash_speed` — this overrides the input system for the
-// duration of the iframe. When the timer elapses, the Invulnerable
-// component is removed and a DashCooldown is attached.
+// `last_move_dir × dash_speed` — this overrides the input
+// system for the duration of the iframe. The dash direction
+// is the WASD movement direction (where the player is
+// going), not the aim direction (where the mouse is). The
+// aim direction is used only as a first-dash fallback: if
+// the player has never pressed WASD since spawn, the dash
+// still has a sensible direction (their last-known aim, or
+// straight up if neither has been recorded).
 fn dash_state_system(
     time: Res<Time>,
     aim: Res<AimDirection>,
@@ -246,12 +268,15 @@ fn dash_state_system(
     hitstop: Option<Res<Hitstop>>,
     run: Res<RunState>,
     mut commands: Commands,
-    mut query: Query<(Entity, &mut BaseVelocity, &mut Invulnerable), With<Player>>,
+    mut query: Query<
+        (Entity, &mut BaseVelocity, &mut Invulnerable, &LastMoveDirection),
+        With<Player>,
+    >,
 ) {
     if in_hitstop(&hitstop) || in_game_over(&run) {
         return;
     }
-    for (entity, mut base, mut inv) in &mut query {
+    for (entity, mut base, mut inv, last_move) in &mut query {
         inv.0.tick(time.delta());
         if inv.0.finished() {
             base.0 = Vec2::ZERO;
@@ -259,9 +284,18 @@ fn dash_state_system(
             let cd = Timer::from_seconds(settings.player_dash_cooldown_s, TimerMode::Once);
             commands.entity(entity).insert(DashCooldown(cd));
         } else {
-            // Use the last known aim direction; fall back to +Y so the
-            // first dash after game boot has a sensible direction.
-            let dir = if aim.0 == Vec2::ZERO { Vec2::Y } else { aim.0 };
+            // Prefer the last WASD movement direction. Fall
+            // back to aim if the player hasn't moved yet
+            // (`LastMoveDirection` defaults to `Vec2::ZERO`
+            // before the first input), and finally straight
+            // up if neither has been set.
+            let dir = if last_move.0 != Vec2::ZERO {
+                last_move.0
+            } else if aim.0 != Vec2::ZERO {
+                aim.0
+            } else {
+                Vec2::Y
+            };
             base.0 = dir * settings.player_dash_speed;
         }
     }
@@ -539,10 +573,8 @@ fn boss_spawn_system(
     state ^= state << 13;
     state ^= state >> 7;
     state ^= state << 17;
-    let angle = ((state >> 40) as f32) / ((1u32 << 24) as f32)
-        * std::f32::consts::TAU;
-    let spawn_pos = player_pos
-        + Vec2::new(angle.cos(), angle.sin()) * settings.boss_spawn_distance;
+    let angle = ((state >> 40) as f32) / ((1u32 << 24) as f32) * std::f32::consts::TAU;
+    let spawn_pos = player_pos + Vec2::new(angle.cos(), angle.sin()) * settings.boss_spawn_distance;
 
     spawn_boss(&mut commands, &settings, spawn_pos);
     run.boss_spawned = true;
@@ -577,6 +609,7 @@ fn restart_system(
     enemies: Query<Entity, With<Enemy>>,
     projectiles: Query<Entity, With<Projectile>>,
     puffs: Query<Entity, With<DeathPuff>>,
+    pickups: Query<Entity, With<Pickup>>,
 ) {
     if !run.game_over {
         return;
@@ -592,6 +625,9 @@ fn restart_system(
         commands.entity(e).despawn();
     }
     for e in &puffs {
+        commands.entity(e).despawn();
+    }
+    for e in &pickups {
         commands.entity(e).despawn();
     }
 
@@ -664,4 +700,14 @@ fn restart_system(
     run.time_elapsed = 0.0;
     run.enemies_killed = 0;
     run.score = 0;
+    // Phase 1 pickups: reset the run-long stat stacks so the
+    // fresh run boots at baseline. The pickups themselves
+    // are despawned by the `enemies` / `projectiles` /
+    // `puffs` loops above (pickups have no `Projectile`
+    // marker, so a separate `pickups` loop is needed —
+    // handled below).
+    run.damage_stacks = 0;
+    run.fire_rate_stacks = 0;
+    run.speed_stacks = 0;
+    run.regen_per_sec = 0.0;
 }
