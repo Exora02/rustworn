@@ -94,23 +94,50 @@ have many rooms. But the data model needs to support it from Phase 2 forward:
 ### 2.5 Infinite runs with exponential difficulty + build progression
 
 The original plan has "3-5 biomes" (a fixed end point). The new design has
-**infinite rooms** with two scaling axes:
+**infinite rooms** with two scaling axes.
+
+> **Design principle (user feedback, 2026-06-08)**: don't ramp up too fast,
+> runs should be able to last a while. The player should feel a sense of
+> growing pressure across many rooms, not a sudden spike after room 3-4.
+> Apply this to BOTH the difficulty curve AND the reward curve — the
+> player should never feel like they out-gear the game in 5 rooms, but
+> the difficulty should also not crush them before they've had time to
+> build up.
 
 **Difficulty scaling (per room cleared):**
-- Enemy HP: ×1.15 per room (cumulative)
-- Enemy damage: ×1.10 per room
+- Enemy HP: ×1.08 per room (cumulative) — gentle ramp, ~2× HP by room 9
+- Enemy damage: ×1.05 per room — even gentler
 - Enemy count per wave: +1 per room (capped at a reasonable max)
 - Spawn interval: ×0.95 per room (faster spawns)
 - Mini-boss / boss HP scales the same as regular enemies
+
+The "room 8-10 sweet spot" in the original draft was too aggressive — at
+×1.15 / ×1.10 the player hits a wall at room 4-5, not room 8-10. The
+gentler slopes (×1.08 / ×1.05) push the "where the build outpaces the
+difficulty" crossover out to room 12-15, giving runs a real long tail.
 
 **Build progression (per room cleared):**
 - The player accumulates weapons (auto-attack slots fill up)
 - Each weapon has rarities (PLAN.md §5) — rare drops are exponentially more
   powerful
-- The exponential growth of the player's build outpaces the exponential
-  growth of enemy difficulty in the short term (Vampire Survivors-style
-  power curve), but the difficulty curve catches up around room 8-10
-  (where each room takes 2+ minutes to clear and one mistake = death)
+- The build outpaces difficulty in the short term (Vampire Survivors-style
+  power curve) but the curves cross around room 12-15 (where each room
+  takes 2+ minutes to clear and one mistake = death)
+
+**Reward curve (per room type):**
+- Regular combat rooms: 5-15% drop chance on enemies, common-rarity-biased
+- Mini-boss rooms: guaranteed rare+ drop (NOT epic+) — one tier above
+  regular rooms, not two
+- Regular boss rooms: guaranteed epic+ drop — only bosses give the
+  top tier, and only one boss per floor
+- Reward rooms: 2× drop chance (boost on top of the regular rate) plus
+  1-2 guaranteed pickups on the ground
+
+The "boss drops epic+" was the original §6 design. Keeping it — but
+making regular combat rooms ALSO drop rewards (Isaac-style, see §3
+table) means the player's build progresses every room, not just in
+boss rooms. This avoids the "first 4 rooms are filler, then boss
+gives everything" pattern.
 
 This creates the "how deep can I go?" loop: each cleared room is a checkpoint
 (you can teleport back to it for free), but the next room is harder, and
@@ -126,10 +153,10 @@ accommodate them:
 
 | Room type | Enemy count | Reward | Notes |
 |---|---|---|---|
-| **Regular combat** | 4-6 enemies per wave, 4-5 waves | Common drops | The "Arena" type from §6 |
-| **Mini-boss** | 1 mini-boss + 4 adds | Guaranteed rare+ drop | The "Boss" type from §6 (mini) |
-| **Regular boss** | 1 boss + adds | Guaranteed epic+ drop | New type — full boss room |
-| **Reward** | None (or weak adds) | 2-3 high-rarity pickups | The "Treasure" type from §6 |
+| **Regular combat** | 4-6 enemies per wave, 4-5 waves | Common-rarity drops (5-15% per enemy) | The "Arena" type from §6 — now also drops rewards (Isaac-style) |
+| **Mini-boss** | 1 mini-boss + 4 adds | Guaranteed **rare+** drop | One tier above regular; not epic (the boss's job) |
+| **Regular boss** | 1 boss + adds | Guaranteed **epic+** drop | The only source of epic+ in a normal floor; one boss per floor |
+| **Reward** | None (or weak adds) | 2-3 high-rarity pickups on the ground + 2× drop chance for the room | The "Treasure" type from §6 — now a drop-rate boost, not a separate type |
 | **Gauntlet** | Timed (60s) escalating waves | Common drops | From §6 — time-attack variant |
 | **Shop** | None | Buy/sell weapons | From §6 — meta-progression adjacent |
 | **Safe / Hub** | None | Heal to full, weapons stash | R0 (Spawn) of each floor |
@@ -196,17 +223,19 @@ Phase 3+ (post-shift) acceptance:
 
 ## 6. Open questions for the user
 
-1. **Difficulty curve tuning**: is ×1.15 HP / ×1.10 damage per room the
-   right slope, or should it be more aggressive (×1.25 / ×1.20)?
+1. **Difficulty curve tuning**: settled at ×1.08 HP / ×1.05 damage per
+   room (gentle, runs have a long tail — see §2.5). Can be tuned
+   later via `GameSettings` once we have playtest data.
 2. **Per-floor vs. per-room scaling**: should difficulty reset between
    floors (like Gungeon does) or accumulate across the whole run
    (like Vampire Survivors)?
 3. **Reward-room "free heal"**: should cleared rooms be a place to heal
    to full HP, or should healing be limited to pickups and Cascade
    bonuses only?
-4. **Boss room reward**: guaranteed epic+ drop is the current §6 design.
-   Does that change with the new rarity tiers in §5, or is epic+ still
-   the right floor for bosses?
+4. **Boss room reward**: ✅ settled at "guaranteed epic+, mini-boss
+   rare+, regular combat rooms can also drop common-rarity rewards".
+   See §2.5 reward curve and §3 table. (User feedback: don't ramp up
+   too fast either — runs should last a while.)
 5. **Floor transition**: when the player clears a boss room, do they
    auto-advance to the next floor, or do they have a choice
    ("continue" / "teleport back to a previous boss")?
