@@ -36,6 +36,10 @@ bevy = { version = "=0.16.1", default-features = false, features = [
     "png",         # for sprite assets
     "serialize",
     "tonemapping_luts",
+    "default_font", # FiraMono-subset bundled into bevy_text; without this,
+                    # Handle::<Font>::default() is unbound and Text2d renders
+                    # nothing (no glyphs to draw). Was missing in the original
+                    # cherry-pick list — the "text shows as colored box" bug.
 ] }
 
 # Panic handler that prints a useful backtrace in release builds.
