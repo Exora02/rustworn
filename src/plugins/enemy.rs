@@ -11,8 +11,11 @@ use log::warn;
 use crate::components::{
     AiBehavior, BaseColor, BaseVelocity, Boss, BossPhase, BossState, CascadeAffected, Collider,
     DasherPhase, DasherState, DeathPuff, Enemy, EnemyAI, EnemyArchetype, Health, HitFlash,
-    Invulnerable, Knockback, Player, Projectile, ShooterState, SniperState, Spawner, Team, Velocity,
+    Invulnerable, Knockback, Player, Projectile, ShooterState, SniperState, Spawner, Team,
+    Velocity,
 };
+use crate::events::DamageEvent;
+use crate::plugins::fx::spawn_hit_spark;
 use crate::resources::{GameSettings, Hitstop, RunState, ScreenShake};
 
 /// Color of the chaser — high-contrast red so it reads as "danger" at
@@ -419,10 +422,7 @@ fn spawn_sniper_projectile(
         },
         Projectile {
             damage: settings.sniper_projectile_damage,
-            lifetime: Timer::from_seconds(
-                settings.sniper_projectile_lifetime_s,
-                TimerMode::Once,
-            ),
+            lifetime: Timer::from_seconds(settings.sniper_projectile_lifetime_s, TimerMode::Once),
             team: Team::Enemy,
         },
     ));
@@ -484,9 +484,7 @@ fn spawn_boss_projectile(
     enemy_pos: Vec2,
     dir: Vec2,
 ) {
-    let muzzle = BOSS_SIZE * 0.5
-        + settings.boss_projectile_size_y * 0.5
-        + 2.0;
+    let muzzle = BOSS_SIZE * 0.5 + settings.boss_projectile_size_y * 0.5 + 2.0;
     let spawn_pos = enemy_pos + dir * muzzle;
     let angle = dir.y.atan2(dir.x) - std::f32::consts::FRAC_PI_2;
     let speed = settings.boss_projectile_speed;
@@ -513,10 +511,7 @@ fn spawn_boss_projectile(
         },
         Projectile {
             damage: settings.boss_projectile_damage,
-            lifetime: Timer::from_seconds(
-                settings.boss_projectile_lifetime_s,
-                TimerMode::Once,
-            ),
+            lifetime: Timer::from_seconds(settings.boss_projectile_lifetime_s, TimerMode::Once),
             team: Team::Enemy,
         },
     ));
@@ -660,7 +655,18 @@ fn enemy_ai_system(
     };
     let player_pos = player_transform.translation.truncate();
 
-    for (enemy_transform, ai, mut base, mut sprite, health, dasher_state, shooter_state, sniper_state, boss_state) in &mut enemies {
+    for (
+        enemy_transform,
+        ai,
+        mut base,
+        mut sprite,
+        health,
+        dasher_state,
+        shooter_state,
+        sniper_state,
+        boss_state,
+    ) in &mut enemies
+    {
         match ai.behavior {
             AiBehavior::Chaser => {
                 let to_player = player_pos - enemy_transform.translation.truncate();
@@ -755,9 +761,7 @@ fn enemy_ai_system(
                 // when it finally gets in range; it fires once
                 // and resumes the normal cadence.
                 state.fire_timer.tick(time.delta());
-                if dist <= settings.shooter_preferred_range
-                    && state.fire_timer.finished()
-                {
+                if dist <= settings.shooter_preferred_range && state.fire_timer.finished() {
                     spawn_shooter_projectile(&mut commands, &settings, enemy_pos, dir);
                     let interval = 1.0 / settings.shooter_fire_rate;
                     state.fire_timer = Timer::from_seconds(interval, TimerMode::Once);
@@ -818,10 +822,8 @@ fn enemy_ai_system(
                         // charging. Reset the timer to the
                         // full charge duration.
                         state.is_charging = true;
-                        state.charge_timer = Timer::from_seconds(
-                            settings.sniper_charge_duration_s,
-                            TimerMode::Once,
-                        );
+                        state.charge_timer =
+                            Timer::from_seconds(settings.sniper_charge_duration_s, TimerMode::Once);
                     }
                     // While in cooldown, the sprite stays
                     // at SNIPER_COLOR (no telegraph).
@@ -832,17 +834,14 @@ fn enemy_ai_system(
                     // telegraph that a shot is incoming.
                     let dur = state.charge_timer.duration().as_secs_f32();
                     if dur > 0.0 {
-                        let progress = (1.0
-                            - state.charge_timer.remaining_secs() / dur)
-                            .clamp(0.0, 1.0);
+                        let progress =
+                            (1.0 - state.charge_timer.remaining_secs() / dur).clamp(0.0, 1.0);
                         let base_srgba = SNIPER_COLOR.to_srgba();
                         let charged_srgba = SNIPER_CHARGED_COLOR.to_srgba();
                         sprite.color = Color::srgba(
                             base_srgba.red + (charged_srgba.red - base_srgba.red) * progress,
-                            base_srgba.green
-                                + (charged_srgba.green - base_srgba.green) * progress,
-                            base_srgba.blue
-                                + (charged_srgba.blue - base_srgba.blue) * progress,
+                            base_srgba.green + (charged_srgba.green - base_srgba.green) * progress,
+                            base_srgba.blue + (charged_srgba.blue - base_srgba.blue) * progress,
                             base_srgba.alpha,
                         );
                     }
@@ -870,12 +869,7 @@ fn enemy_ai_system(
                         // during the charge (handled in the
                         // AI tick above, not here, since
                         // `dir` is recomputed each frame).
-                        spawn_sniper_projectile(
-                            &mut commands,
-                            &settings,
-                            enemy_pos,
-                            dir,
-                        );
+                        spawn_sniper_projectile(&mut commands, &settings, enemy_pos, dir);
                         state.is_charging = false;
                         state.charge_timer = Timer::from_seconds(
                             settings.sniper_post_fire_cooldown_s,
@@ -927,8 +921,7 @@ fn enemy_ai_system(
                 let speed = match state.phase {
                     BossPhase::Phase1 => settings.boss_move_speed,
                     BossPhase::Phase2 => {
-                        settings.boss_move_speed
-                            * settings.boss_phase2_speed_multiplier
+                        settings.boss_move_speed * settings.boss_phase2_speed_multiplier
                     }
                 };
                 base.0 = dir * speed;
@@ -952,16 +945,8 @@ fn enemy_ai_system(
                             };
                             let angle_offset = t * total_spread;
                             let (s, c) = angle_offset.sin_cos();
-                            let burst_dir = Vec2::new(
-                                dir.x * c - dir.y * s,
-                                dir.x * s + dir.y * c,
-                            );
-                            spawn_boss_projectile(
-                                &mut commands,
-                                &settings,
-                                enemy_pos,
-                                burst_dir,
-                            );
+                            let burst_dir = Vec2::new(dir.x * c - dir.y * s, dir.x * s + dir.y * c);
+                            spawn_boss_projectile(&mut commands, &settings, enemy_pos, burst_dir);
                         }
                         state.attack_timer = Timer::from_seconds(
                             settings.boss_phase2_attack_interval_s,
@@ -1018,6 +1003,7 @@ fn enemy_contact_damage_system(
     mut player_query: Query<PlayerForContact, With<Player>>,
     enemies: Query<(&Transform, &Collider, &EnemyAI), (With<Enemy>, With<Collider>)>,
     mut shake: ResMut<ScreenShake>,
+    mut damage_events: EventWriter<DamageEvent>,
 ) {
     if hitstop.is_some() || run.game_over {
         return;
@@ -1055,6 +1041,11 @@ fn enemy_contact_damage_system(
             AiBehavior::Boss => settings.boss_contact_damage,
         };
         health.current = (health.current - damage).max(0.0);
+        damage_events.send(DamageEvent {
+            victim: player_entity,
+            amount: damage,
+        });
+        spawn_hit_spark(&mut commands, &settings, enemy_pos);
         warn!(
             "Player took {:.1} damage ({:?}) — HP: {:.1}",
             damage, enemy_ai.behavior, health.current

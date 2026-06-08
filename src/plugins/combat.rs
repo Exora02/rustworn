@@ -8,10 +8,13 @@ use bevy::sprite::Anchor;
 use log::warn;
 
 use crate::components::{
-    AimDirection, BeamVisual, Collider, Enemy, Health, HitFlash, Invulnerable, Knockback, Player,
-    Projectile, Team, Velocity, Weapon, WeaponArchetype,
+    AimDirection, BeamVisual, Collider, Enemy, EnemyAI, Health, HitFlash, Invulnerable, Knockback,
+    Player, Projectile, Team, Velocity, Weapon, WeaponArchetype,
 };
+use crate::events::{DamageEvent, EnemyKilledEvent};
 use crate::plugins::enemy::spawn_death_puff;
+use crate::plugins::fx::spawn_hit_spark;
+use crate::plugins::pickups::{roll_pickup_drop, spawn_pickup};
 use crate::resources::{GameSettings, Hitstop, RunState, ScreenShake};
 
 /// Color of the player projectile — warm white, clearly readable as a
@@ -316,13 +319,12 @@ fn weapon_fire_system(
     mouse: Res<ButtonInput<MouseButton>>,
     aim: Res<AimDirection>,
     settings: Res<GameSettings>,
-    hitstop: Option<Res<Hitstop>>,
     run: Res<RunState>,
     mut commands: Commands,
-    mut weapons: Query<(&mut Weapon, &Transform), With<Player>>,
+    mut weapons: Query<(&mut Weapon, &mut Transform), With<Player>>,
     projectiles: Query<&Projectile>,
 ) {
-    if in_hitstop(&hitstop) || in_game_over(&run) {
+    if in_game_over(&run) {
         return;
     }
     let Ok((mut weapon, player_transform)) = weapons.single_mut() else {
@@ -333,9 +335,7 @@ fn weapon_fire_system(
     // enemies in the beam's capsule). The click path doesn't fire
     // a projectile for beam; instead, the press/release toggles
     // `Weapon::beam_active`, which the damage system reads each
-    // frame. We also reset the fire_timer on press to consume the
-    // click so the click doesn't immediately re-trigger on the
-    // next frame (mouse.just_pressed stays true for one frame).
+    // frame.
     if weapon.archetype == WeaponArchetype::Beam {
         if mouse.just_pressed(MouseButton::Left) {
             weapon.beam_active = true;
@@ -348,21 +348,37 @@ fn weapon_fire_system(
         // for beam is purely cosmetic (not used).
         return;
     }
+    // Phase 1 (Vampire Survivors fusion): weapons auto-fire
+    // on their `fire_timer` cadence regardless of mouse input.
+    // Click is now an "interrupt / force-fire" — it resets the
+    // timer so the next frame fires immediately. For burst,
+    // a click interrupts any in-flight burst and starts a
+    // fresh one. The click never suppresses auto-fire: even
+    // if the player mashes the mouse, the next frame will
+    // fire because the timer was just reset.
+    let click = mouse.just_pressed(MouseButton::Left);
+    if click {
+        weapon.fire_timer = Timer::from_seconds(0.0, TimerMode::Once);
+    }
     if !weapon.fire_timer.finished() {
         return;
     }
-
-    // Phase 1 (burst): decide whether to fire this frame.
-    //   - if a burst is in progress (remaining > 0), fire the
-    //     next round
-    //   - if a click just happened, start a new burst (or fire
-    //     a single shot for pistol/shotgun)
-    //   - otherwise, do nothing
+    // Phase 1 (burst): continue a burst if one is in progress.
+    // The auto-fire loop sets `burst_rounds_remaining` when a
+    // burst starts; each fire decrements it until it hits 0.
+    // For single-shot weapons, `burst_rounds_remaining` stays
+    // at 0 and the auto-fire loop just fires once per cooldown.
     let burst_in_progress = weapon.burst_rounds_remaining > 0;
-    let click = mouse.just_pressed(MouseButton::Left);
-    if !burst_in_progress && !click {
-        return;
-    }
+
+    // Apply the Phase 1 pickup multipliers. Damage and fire
+    // rate both stack multiplicatively: 2 DamageUp pickups
+    // give 1.0 × 1.25 × 1.25 = 1.5625× damage. The base
+    // `weapon.damage` and `weapon.fire_rate` are the
+    // archetype's stats (set in setup.rs); the multipliers
+    // come from `RunState` which `apply_pickup` updates.
+    let damage_mult = 1.0 + run.damage_stacks as f32 * settings.pickup_damage_per_stack;
+    let fire_rate_mult = 1.0 + run.fire_rate_stacks as f32 * settings.pickup_fire_rate_per_stack;
+    let damage = weapon.damage * damage_mult;
 
     // Projectile cap: count current live projectiles, skip the spawn
     // if we're already at the cap. Counts all teams since the cap is
@@ -421,7 +437,12 @@ fn weapon_fire_system(
                 half_extents: Vec2::new(PROJECTILE_SIZE.x * 0.5, PROJECTILE_SIZE.y * 0.5),
             },
             Projectile {
-                damage: weapon.damage,
+                // Pickup-multiplied damage: each DamageUp adds
+                // `pickup_damage_per_stack` (0.25) to a 1.0 base.
+                // The damage is stamped at spawn time; pickups
+                // picked up later apply to subsequent projectiles
+                // (not retroactively to ones already in flight).
+                damage,
                 lifetime: Timer::from_seconds(settings.projectile_lifetime_s, TimerMode::Once),
                 team: Team::Player,
             },
@@ -430,28 +451,34 @@ fn weapon_fire_system(
 
     // Update burst state. After this fire:
     //   - if a burst was in progress, decrement remaining
-    //   - if a click started a new burst, set remaining to
-    //     total - 1 (we just fired 1 round, total-1 left)
-    //   - if neither, the weapon is single-shot (burst_rounds = 1)
-    //     and remaining stays 0
+    //   - if we just started a burst (single-shot weapons skip
+    //     this branch because burst_rounds == 1), set
+    //     remaining to total - 1
     if burst_in_progress {
         weapon.burst_rounds_remaining -= 1;
-    } else if click && weapon.burst_rounds > 1 {
-        // Start of a new burst. We just fired round 1, so N-1
-        // remain. (For single-shot weapons, burst_rounds == 1
-        // and this branch doesn't fire, so remaining stays 0.)
+    } else if weapon.burst_rounds > 1 {
+        // Auto-fire starting a new burst. We just fired round 1
+        // (this system fires one round per fire_timer tick), so
+        // N-1 remain. The "click is required to start" rule is
+        // gone with auto-fire — the auto-fire loop starts the
+        // burst on its own.
         weapon.burst_rounds_remaining = weapon.burst_rounds - 1;
     }
+    // (Single-shot weapons: burst_rounds == 1, neither branch
+    // fires, remaining stays 0, every fire is independent.)
 
     // Set the next fire_timer. Two cases:
     //   - remaining > 0: more rounds in this burst, wait the
     //     round gap
     //   - remaining == 0: burst complete (or single-shot
-    //     weapon), wait the post-shot cooldown
+    //     weapon), wait the post-shot cooldown. The cooldown
+    //     is divided by the fire-rate multiplier (1.0 +
+    //     stacks × per_stack), so 1 FireRateUp makes the
+    //     cooldown 1/1.3 ≈ 0.77× as long.
     if weapon.burst_rounds_remaining > 0 {
         weapon.fire_timer = Timer::from_seconds(settings.burst_round_gap_s, TimerMode::Once);
     } else {
-        let interval = 1.0 / weapon.fire_rate;
+        let interval = 1.0 / (weapon.fire_rate * fire_rate_mult);
         weapon.fire_timer = Timer::from_seconds(interval, TimerMode::Once);
     }
 }
@@ -517,11 +544,13 @@ fn beam_damage_system(
     mut commands: Commands,
     mut weapons: Query<&mut Weapon, With<Player>>,
     player_query: Query<&Transform, With<Player>>,
-    mut enemies: Query<(Entity, &Transform, &Collider, &mut Health), With<Enemy>>,
+    mut enemies: Query<(Entity, &Transform, &Collider, &mut Health, &EnemyAI), With<Enemy>>,
     mut beam_visual: Query<
         (&mut Transform, &mut Visibility),
         (With<BeamVisual>, Without<Player>, Without<Enemy>),
     >,
+    mut damage_events: EventWriter<DamageEvent>,
+    mut kill_events: EventWriter<EnemyKilledEvent>,
 ) {
     if in_hitstop(&hitstop) || in_game_over(&run_state) {
         // Hide the beam during freeze/death so the visual
@@ -576,7 +605,7 @@ fn beam_damage_system(
     let half_thickness = settings.beam_thickness * 0.5;
     let damage = settings.beam_damage_per_tick;
 
-    for (enemy_entity, enemy_tf, enemy_col, mut health) in &mut enemies {
+    for (enemy_entity, enemy_tf, enemy_col, mut health, enemy_ai) in &mut enemies {
         // Same-frame corpse guard: see bevy-0.16-gotchas §9.
         if health.current <= 0.0 {
             continue;
@@ -591,9 +620,33 @@ fn beam_damage_system(
         commands.entity(enemy_entity).insert(HitFlash {
             timer: Timer::from_seconds(0.1, TimerMode::Once),
         });
+        spawn_hit_spark(&mut commands, &settings, enemy_pos);
+        damage_events.send(DamageEvent {
+            victim: enemy_entity,
+            amount: damage,
+        });
         if health.current <= 0.0 {
             spawn_death_puff(&mut commands, &settings, enemy_pos);
             run_state.enemies_killed += 1;
+            // Phase 1 pickups: roll the drop chance on kill using
+            // the enemy's archetype. RNG is `rand::random` —
+            // Phase 2 will replace with seeded RNG for
+            // determinism.
+            let mut rng = || -> f32 {
+                use std::collections::hash_map::DefaultHasher;
+                use std::hash::{Hash, Hasher};
+                let mut h = DefaultHasher::new();
+                run_state.enemies_killed.hash(&mut h);
+                h.finish() as f32 / u64::MAX as f32
+            };
+            if let Some(kind) = roll_pickup_drop(enemy_ai.behavior, &settings, &mut rng) {
+                spawn_pickup(&mut commands, &settings, enemy_pos, kind);
+            }
+            kill_events.send(EnemyKilledEvent {
+                victim: enemy_entity,
+                killer: Entity::PLACEHOLDER,
+                position: enemy_pos,
+            });
             commands.entity(enemy_entity).despawn();
         }
     }
@@ -641,7 +694,9 @@ fn projectile_damage_system(
     mut run: ResMut<RunState>,
     mut commands: Commands,
     projectiles: Query<(Entity, &Transform, &Collider, &Projectile)>,
-    mut enemies: Query<(Entity, &Transform, &Collider, &mut Health), With<Enemy>>,
+    mut enemies: Query<(Entity, &Transform, &Collider, &mut Health, &EnemyAI), With<Enemy>>,
+    mut damage_events: EventWriter<DamageEvent>,
+    mut kill_events: EventWriter<EnemyKilledEvent>,
 ) {
     // Frozen during global hitstop — a killing blow that triggers the
     // freeze should not also resolve follow-up hits in the same frame.
@@ -661,7 +716,7 @@ fn projectile_damage_system(
         let proj_pos = proj_tf.translation.truncate();
 
         let mut hit = false;
-        for (enemy_entity, enemy_tf, enemy_col, mut health) in &mut enemies {
+        for (enemy_entity, enemy_tf, enemy_col, mut health, enemy_ai) in &mut enemies {
             if !aabb_overlap(
                 proj_pos,
                 proj_col.half_extents,
@@ -686,15 +741,40 @@ fn projectile_damage_system(
             commands.entity(enemy_entity).insert(HitFlash {
                 timer: Timer::from_seconds(settings.hit_flash_duration_s, TimerMode::Once),
             });
+            let enemy_pos = enemy_tf.translation.truncate();
+            spawn_hit_spark(&mut commands, &settings, enemy_pos);
+            damage_events.send(DamageEvent {
+                victim: enemy_entity,
+                amount: proj.damage,
+            });
             if health.current <= 0.0 {
-                let pos = enemy_tf.translation.truncate();
                 commands.entity(enemy_entity).despawn();
-                spawn_death_puff(&mut commands, &settings, pos);
+                spawn_death_puff(&mut commands, &settings, enemy_pos);
                 // Day 15-16: bump the kill counter so the HUD bar
                 // reflects progress. Saturating add would be cleaner
                 // if we ever expected a "win" state; for now an
                 // overflow at 4 billion kills is acceptable.
                 run.enemies_killed = run.enemies_killed.saturating_add(1);
+                // Phase 1 pickup drop. Deterministic hash of
+                // the kill counter — Phase 2 will swap in
+                // seeded RNG.
+                let mut rng = || -> f32 {
+                    use std::collections::hash_map::DefaultHasher;
+                    use std::hash::{Hash, Hasher};
+                    let mut h = DefaultHasher::new();
+                    run.enemies_killed.hash(&mut h);
+                    h.finish() as f32 / u64::MAX as f32
+                };
+                if let Some(kind) =
+                    roll_pickup_drop(enemy_ai.behavior, &settings, &mut rng)
+                {
+                    spawn_pickup(&mut commands, &settings, enemy_pos, kind);
+                }
+                kill_events.send(EnemyKilledEvent {
+                    victim: enemy_entity,
+                    killer: Entity::PLACEHOLDER,
+                    position: enemy_pos,
+                });
                 // Day 13-14: global hitstop on a killing blow. Insert
                 // (or refresh) the resource — every combat/player/
                 // enemy system gates on its presence, so the freeze
@@ -747,6 +827,7 @@ fn enemy_projectile_damage_system(
         With<Player>,
     >,
     mut shake: ResMut<ScreenShake>,
+    mut damage_events: EventWriter<DamageEvent>,
 ) {
     if in_hitstop(&hitstop) || in_game_over(&run) {
         return;
@@ -790,6 +871,12 @@ fn enemy_projectile_damage_system(
         }
 
         health.current = (health.current - proj.damage).max(0.0);
+        let player_pos = player_tf.translation.truncate();
+        damage_events.send(DamageEvent {
+            victim: player_entity,
+            amount: proj.damage,
+        });
+        spawn_hit_spark(&mut commands, &settings, player_pos);
         warn!(
             "Player took {:.1} damage from enemy projectile — HP: {:.1}",
             proj.damage, health.current

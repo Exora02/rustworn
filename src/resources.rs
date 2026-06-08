@@ -81,6 +81,16 @@ pub struct RunState {
     // game-over / pause split, and we'll lift this flag into that
     // state machine at the same time.
     pub game_over: bool,
+    // Phase 1 (Vampire Survivors fusion) pickup stacks. Each
+    // DamageUp / FireRateUp / SpeedUp pickup adds 1 to the
+    // corresponding stack (capped at 8 per kind to prevent
+    // runaway scaling). Regen is special: it stacks flat
+    // HP/sec on top of a base of 0, no cap. All effects are
+    // permanent for the run; `restart_system` resets them.
+    pub damage_stacks: u32,
+    pub fire_rate_stacks: u32,
+    pub speed_stacks: u32,
+    pub regen_per_sec: f32,
 }
 
 impl Default for RunState {
@@ -95,6 +105,10 @@ impl Default for RunState {
             cascade_beacon_alive: false,
             boss_spawned: false,
             game_over: false,
+            damage_stacks: 0,
+            fire_rate_stacks: 0,
+            speed_stacks: 0,
+            regen_per_sec: 0.0,
         }
     }
 }
@@ -279,6 +293,46 @@ pub struct GameSettings {
     pub beam_damage_per_tick: f32,
     pub beam_tick_interval_s: f32,
     pub beam_thickness: f32,
+    // Phase 1 — pickups (Vampire Survivors fusion). Each killed
+    // enemy has a per-archetype chance to drop one pickup, which
+    // drifts toward the player over its lifetime and auto-applies
+    // its permanent-for-the-run effect on contact. The 4 kinds:
+    //
+    //   Regen       — +0.5 HP/sec
+    //   DamageUp    — +25% on all weapons
+    //   FireRateUp  — +30% on all weapons
+    //   SpeedUp     — +20% move speed
+    //
+    // Drop rates are per-archetype: chasers are 25% (low-threat,
+    // common drops), snipers are 8% (high-threat, rare drops so
+    // killing them doesn't feel mandatory for the build). The
+    // boss has its own higher rate so killing it always feels
+    // rewarding.
+    pub pickup_drop_chance_chaser: f32,
+    pub pickup_drop_chance_dasher: f32,
+    pub pickup_drop_chance_shooter: f32,
+    pub pickup_drop_chance_sniper: f32,
+    pub pickup_drop_chance_boss: f32,
+    pub pickup_lifetime_s: f32,
+    pub pickup_drift_speed: f32,
+    pub pickup_collect_radius: f32,
+    // Multipliers applied as 1.0 + value on pickup collect.
+    // E.g. damage_multiplier_per_stack = 0.25 means each
+    // DamageUp pickup adds 25% to base damage. Stacks
+    // multiplicatively (2 DamageUp = 1.5625×, not 1.5×) so the
+    // scaling has a soft ceiling and the run doesn't snowball
+    // out of control.
+    pub pickup_damage_per_stack: f32,
+    pub pickup_fire_rate_per_stack: f32,
+    pub pickup_speed_per_stack: f32,
+    pub pickup_regen_hp_per_sec: f32,
+    // Phase 1 — damage number visual tunables.
+    pub damage_number_lifetime_s: f32,
+    pub damage_number_drift_speed: f32,
+    pub damage_number_font_size: f32,
+    // Phase 1 — hit spark visual tunables.
+    pub hit_spark_lifetime_s: f32,
+    pub hit_spark_size: f32,
 }
 
 impl Default for GameSettings {
@@ -441,6 +495,34 @@ impl Default for GameSettings {
             beam_damage_per_tick: 0.5,
             beam_tick_interval_s: 0.1,
             beam_thickness: 4.0,
+            // Phase 1 — pickup drop rates. 25% on chasers means a
+            // wave of 3 chasers will drop on average ~0.75 pickups
+            // (so 4 chasers → 1 pickup, 8 chasers → 2 pickups).
+            // Boss drop rate is 100% so killing the boss always
+            // hands the player a meaningful reward.
+            pickup_drop_chance_chaser: 0.25,
+            pickup_drop_chance_dasher: 0.20,
+            pickup_drop_chance_shooter: 0.15,
+            pickup_drop_chance_sniper: 0.08,
+            pickup_drop_chance_boss: 1.0,
+            pickup_lifetime_s: 8.0,
+            pickup_drift_speed: 60.0,
+            pickup_collect_radius: 25.0,
+            // Multipliers: each pickup adds X to a 1.0 base.
+            // 2 DamageUp = 1.0 × 1.25 × 1.25 = 1.5625× damage.
+            // 4 of each = 1.0 × 1.25^4 = 2.44× — strong but not
+            // run-winning.
+            pickup_damage_per_stack: 0.25,
+            pickup_fire_rate_per_stack: 0.30,
+            pickup_speed_per_stack: 0.20,
+            pickup_regen_hp_per_sec: 0.5,
+            // Phase 1 — damage number visual tunables.
+            damage_number_lifetime_s: 0.6,
+            damage_number_drift_speed: 50.0,
+            damage_number_font_size: 20.0,
+            // Phase 1 — hit spark visual tunables.
+            hit_spark_lifetime_s: 0.12,
+            hit_spark_size: 8.0,
         }
     }
 }

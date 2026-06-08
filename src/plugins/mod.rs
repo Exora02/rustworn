@@ -7,12 +7,16 @@
 
 pub mod combat;
 pub mod enemy;
+pub mod fx;
 pub mod hud;
+pub mod pickups;
 pub mod player;
 pub mod setup;
 
 pub use combat::CombatPlugin;
 pub use enemy::EnemyPlugin;
+pub use fx::FxPlugin;
 pub use hud::HudPlugin;
+pub use pickups::PickupsPlugin;
 pub use player::PlayerPlugin;
 pub use setup::SetupPlugin;

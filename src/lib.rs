@@ -26,7 +26,9 @@ mod resources;
 use bevy::prelude::*;
 use bevy::window::WindowResolution;
 
-use crate::plugins::{CombatPlugin, EnemyPlugin, HudPlugin, PlayerPlugin, SetupPlugin};
+use crate::plugins::{
+    CombatPlugin, EnemyPlugin, FxPlugin, HudPlugin, PickupsPlugin, PlayerPlugin, SetupPlugin,
+};
 
 /// Boot the Bevy app. Called from `main.rs` and (eventually) from tests.
 pub fn run() {
@@ -48,10 +50,22 @@ pub fn run() {
                     ..default()
                 }),
         )
+        // Event channels used by multiple plugins. Registered
+        // here once so each plugin doesn't have to remember
+        // to add them. `DamageEvent` drives the damage-number
+        // system in `fx`; `EnemyKilledEvent` drives pickup
+        // drops; `CascadeStart` / `CascadeEnd` are reserved
+        // for Phase 2 (the cascade UI transition).
+        .add_event::<events::DamageEvent>()
+        .add_event::<events::EnemyKilledEvent>()
+        .add_event::<events::CascadeStartEvent>()
+        .add_event::<events::CascadeEndEvent>()
         .add_plugins(SetupPlugin)
         .add_plugins(PlayerPlugin)
         .add_plugins(CombatPlugin)
         .add_plugins(EnemyPlugin)
+        .add_plugins(FxPlugin)
+        .add_plugins(PickupsPlugin)
         .add_plugins(HudPlugin)
         .add_systems(Update, exit_on_esc)
         .run();

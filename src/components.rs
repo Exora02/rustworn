@@ -62,6 +62,19 @@ pub struct Invulnerable(pub Timer);
 #[derive(Component)]
 pub struct DashCooldown(pub Timer);
 
+/// Last non-zero movement direction (WASD input). Updated every
+/// frame by `player_input_system`; read by `dash_state_system`
+/// when a dash fires. The dash direction is the movement
+/// direction (where you're going), NOT the aim direction
+/// (where the mouse is) — dashing toward the mouse feels
+/// disconnected from WASD movement. Stays at the last
+/// non-zero value while no WASD is pressed, so a dash with
+/// no input goes the way you were last moving. Initialized
+/// to `Vec2::Y` (up) at spawn so the very first dash has a
+/// sensible direction before the player has touched WASD.
+#[derive(Component, Default)]
+pub struct LastMoveDirection(pub Vec2);
+
 /// Marker for the white "aim indicator" child entity spawned alongside
 /// the player. Rotated each frame to point in the current `AimDirection`.
 #[derive(Component)]
@@ -432,6 +445,57 @@ pub struct DeathPuff {
 #[derive(Component)]
 pub struct HitFlash {
     pub timer: Timer,
+}
+
+/// Phase 1 (Vampire Survivors fusion): floating damage number. Spawned
+/// at the hit point on every `DamageEvent`, floats up + fades alpha
+/// over `lifetime`, then despawns. The `value` is the integer-rounded
+/// damage dealt (e.g. a 1.3-dmg pistol hit on a chaser shows "1",
+/// not "1.3") — fractional damage is rare and rounding reads as
+/// "definitely a number, not a calculation artifact" to the player.
+/// Renders as a Text2d entity so it lives in the world space and
+/// follows the camera naturally. The font is the default FiraMono
+/// bundled with the `default_font` bevy feature (see Cargo.toml).
+#[derive(Component)]
+pub struct DamageNumber {
+    pub value: i32,
+    pub lifetime: Timer,
+    pub drift_speed: f32,
+}
+
+/// Phase 1 (Vampire Survivors fusion): a pickup dropped by a killed
+/// enemy. Drifts gently toward the player each frame (or sits still
+/// in the world) and auto-applies its effect on contact. The drop
+/// chance is on `GameSettings` per archetype; chasers drop more
+/// often than snipers. Effects are permanent for the run (Phase 1
+/// is "kill → get stronger", not a slot system — Phase 2 will
+/// introduce a choose-1-of-3 chest).
+#[derive(Component)]
+pub struct Pickup {
+    pub kind: PickupKind,
+    pub lifetime: Timer,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PickupKind {
+    /// +0.5 HP/sec regen for the rest of the run.
+    Regen,
+    /// +25% damage on all weapons.
+    DamageUp,
+    /// +30% fire rate on all weapons.
+    FireRateUp,
+    /// +20% move speed for the rest of the run.
+    SpeedUp,
+}
+
+/// Phase 1 hit feedback: a small white sprite that flashes briefly
+/// at the hit point and despawns. Distinct from `HitFlash` (which
+/// tints an existing enemy) — this is a standalone particle. Cheap
+/// to spawn (single sprite, no physics), high readability ("I hit
+/// it" signal on every pellet / beam tick / contact).
+#[derive(Component)]
+pub struct HitSpark {
+    pub lifetime: Timer,
 }
 
 /// The enemy's "true" color — its archetype's base tint. Stored as a
