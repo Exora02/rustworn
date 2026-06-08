@@ -311,16 +311,43 @@ fn spawn_walls(commands: &mut Commands, room: &Room) {
     ));
 }
 
-// Spawn 0-1 doors per room based on the hard-coded layout.
-// R0 has an east door → R1. R1 has a north door → R2. R2
-// has no door (it's the extract endpoint for Patch 2 — Patch
-// 6 will add the extraction portal here).
+// Spawn 0-2 doors per room based on the hard-coded layout.
 //
-// The door's `entry_position` is the player's spawn point
-// in the new room. It's inset from the new room's wall by
-// ENTRY_INSET so the wall_collision_system doesn't immediately
-// push the player back out.
+// Layout (Patch 2.1 — bidirectional):
+//
+//   ┌──────────┐
+//   │ Room 2   │  Extract (no enemies, south door → R1)
+//   │          │  ↑ north door from R1
+//   └──────────┘
+//   ┌──────────┐
+//   │ Room 1   │  Fight (4 spawners, west door → R0, north door → R2)
+//   │          │  ← east door from R0
+//   └──────────┘
+//   ┌──────────┐
+//   │ Room 0   │  Spawn (player starts here, east door → R1)
+//   │          │  → door to R1 (east wall)
+//   └──────────┘
+//
+// Patch 2.0 had only forward doors (R0→R1, R1→R2). That made
+// rooms one-way — once the player walked R0→R1, they couldn't
+// go back to grab a missed pickup or scout ahead. The
+// back-doors added here are mirror images of the forward
+// doors, sitting on the opposite wall of the destination
+// room's "exit" side. So:
+//
+//   - R0's east door leads to R1's west side
+//   - R1's west door leads back to R0's east side
+//   - R1's north door leads to R2's south side
+//   - R2's south door leads back to R1's north side
+//
+// Each door's `entry_position` is inset from the destination
+// room's wall by ENTRY_INSET so the wall_collision_system
+// doesn't immediately push the player back out.
 fn spawn_doors(commands: &mut Commands, room: &Room, all_rooms: &[Room]) {
+    let r0 = all_rooms
+        .iter()
+        .find(|r| r.id == RoomId(0))
+        .expect("biome must have room 0");
     let r1 = all_rooms
         .iter()
         .find(|r| r.id == RoomId(1))
@@ -352,6 +379,26 @@ fn spawn_doors(commands: &mut Commands, room: &Room, all_rooms: &[Room]) {
             },
         ));
     } else if room.id == RoomId(1) {
+        // R1 → R0: west door (mirror of R0's east door)
+        commands.spawn((
+            Sprite {
+                color: DOOR_COLOR,
+                custom_size: Some(DOOR_SIZE),
+                ..default()
+            },
+            Transform::from_xyz(
+                room.bounds_min.x + DOOR_INSET,
+                (room.bounds_min.y + room.bounds_max.y) * 0.5,
+                DOOR_Z,
+            ),
+            Collider {
+                half_extents: DOOR_SIZE * 0.5,
+            },
+            Door {
+                to_room: RoomId(0),
+                entry_position: Vec2::new(r0.bounds_max.x - ENTRY_INSET, r0.center().y),
+            },
+        ));
         // R1 → R2: north door
         commands.spawn((
             Sprite {
@@ -372,8 +419,28 @@ fn spawn_doors(commands: &mut Commands, room: &Room, all_rooms: &[Room]) {
                 entry_position: Vec2::new(r2.center().x, r2.bounds_min.y + ENTRY_INSET),
             },
         ));
+    } else if room.id == RoomId(2) {
+        // R2 → R1: south door (mirror of R1's north door)
+        commands.spawn((
+            Sprite {
+                color: DOOR_COLOR,
+                custom_size: Some(DOOR_SIZE),
+                ..default()
+            },
+            Transform::from_xyz(
+                (room.bounds_min.x + room.bounds_max.x) * 0.5,
+                room.bounds_min.y + DOOR_INSET,
+                DOOR_Z,
+            ),
+            Collider {
+                half_extents: DOOR_SIZE * 0.5,
+            },
+            Door {
+                to_room: RoomId(1),
+                entry_position: Vec2::new(r1.center().x, r1.bounds_max.y - ENTRY_INSET),
+            },
+        ));
     }
-    // R2 has no door in Patch 2.
 }
 
 // ─── AABB collision resolution ────────────────────────────────────────────
@@ -707,4 +774,12 @@ mod tests {
             c
         );
     }
+
+    // Spawn position clamp (Phase 2.1): the enemy must spawn
+    // inside the current room, with a margin from each wall.
+    // The clamp is a simple Vec2::clamp on each axis, so the
+    // test cases are "raw pos inside", "raw pos outside on X",
+    // "raw pos outside on Y", "raw pos outside on both".
+    // (Tests live in enemy.rs — `random_spawn_position` is
+    // defined there, so the clamp tests need access to it.)
 }

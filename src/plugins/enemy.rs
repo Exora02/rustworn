@@ -11,7 +11,7 @@ use log::warn;
 use crate::components::{
     AiBehavior, AppState, BaseColor, BaseVelocity, Boss, BossPhase, BossState, CascadeAffected,
     Collider, DasherPhase, DasherState, DeathPuff, Enemy, EnemyAI, EnemyArchetype, Health,
-    HitFlash, Invulnerable, Knockback, Player, Projectile, RoomScope, ShooterState, SniperState,
+    HitFlash, Invulnerable, Knockback, Player, Projectile, Room, RoomScope, ShooterState, SniperState,
     Spawner, Team, Velocity,
 };
 use crate::events::DamageEvent;
@@ -204,22 +204,33 @@ fn spawner_tick_system(
         if !spawner.interval.finished() {
             continue;
         }
-        spawn_enemy(&mut commands, &settings, player_pos, spawner.spawn);
+        spawn_enemy(&mut commands, &settings, &biome, player_pos, spawner.spawn);
     }
 }
 
 // Dispatch on the spawner's archetype. New archetypes slot in here.
+//
+// Phase 2: takes `biome` so the per-archetype spawners can
+// clamp the spawn position to the current room's bounds
+// (see `random_spawn_position`). Without the clamp, an enemy
+// could spawn in a wall or in the next room over.
 fn spawn_enemy(
     commands: &mut Commands,
     settings: &GameSettings,
+    biome: &BiomeState,
     player_pos: Vec2,
     archetype: EnemyArchetype,
 ) {
+    let room = biome
+        .rooms
+        .iter()
+        .find(|r| r.id == biome.current_room)
+        .expect("current room must exist in biome");
     match archetype {
-        EnemyArchetype::Chaser => spawn_chaser(commands, settings, player_pos),
-        EnemyArchetype::Dasher => spawn_dasher(commands, settings, player_pos),
-        EnemyArchetype::Shooter => spawn_shooter(commands, settings, player_pos),
-        EnemyArchetype::Sniper => spawn_sniper(commands, settings, player_pos),
+        EnemyArchetype::Chaser => spawn_chaser(commands, settings, room, player_pos),
+        EnemyArchetype::Dasher => spawn_dasher(commands, settings, room, player_pos),
+        EnemyArchetype::Shooter => spawn_shooter(commands, settings, room, player_pos),
+        EnemyArchetype::Sniper => spawn_sniper(commands, settings, room, player_pos),
         // Note: `Boss` is not spawned via the random spawner —
         // it spawns at the run-midpoint (60s) at a fixed
         // distance from the player. See `boss_spawn_system`
@@ -228,8 +239,8 @@ fn spawn_enemy(
     }
 }
 
-fn spawn_chaser(commands: &mut Commands, settings: &GameSettings, player_pos: Vec2) {
-    let (spawn_pos, _) = random_spawn_position(settings, player_pos);
+fn spawn_chaser(commands: &mut Commands, settings: &GameSettings, room: &Room, player_pos: Vec2) {
+    let (spawn_pos, _) = random_spawn_position(settings, player_pos, room);
 
     commands.spawn((
         Sprite {
@@ -267,14 +278,14 @@ fn spawn_chaser(commands: &mut Commands, settings: &GameSettings, player_pos: Ve
 // Phase 1 dasher. Same shape as the chaser, plus a `DasherState`
 // component that the AI ticks each frame to advance the
 // approach → dash → recover cycle. The dasher starts in Approach.
-fn spawn_dasher(commands: &mut Commands, settings: &GameSettings, player_pos: Vec2) {
+fn spawn_dasher(commands: &mut Commands, settings: &GameSettings, room: &Room, player_pos: Vec2) {
     // Spawn position is the same as a chaser — random angle at a
     // random distance in [min, max]. We could spawn dashers
     // further out (so the player has time to read the charge
     // before they arrive) but that conflicts with the unified
     // spawner distance; Phase 2 will let each archetype override
     // its spawn range.
-    let (spawn_pos, _) = random_spawn_position(settings, player_pos);
+    let (spawn_pos, _) = random_spawn_position(settings, player_pos, room);
 
     commands.spawn((
         Sprite {
@@ -319,8 +330,8 @@ fn spawn_dasher(commands: &mut Commands, settings: &GameSettings, player_pos: Ve
 // wave of shooters doesn't all open fire on the same frame —
 // Phase 2 will use seeded RNG to make this deterministic per
 // run.
-fn spawn_shooter(commands: &mut Commands, settings: &GameSettings, player_pos: Vec2) {
-    let (spawn_pos, _) = random_spawn_position(settings, player_pos);
+fn spawn_shooter(commands: &mut Commands, settings: &GameSettings, room: &Room, player_pos: Vec2) {
+    let (spawn_pos, _) = random_spawn_position(settings, player_pos, room);
 
     // Spread the first shot over the fire interval. Without
     // this, a fresh wave of 3 shooters all open fire on the
@@ -369,8 +380,8 @@ fn spawn_shooter(commands: &mut Commands, settings: &GameSettings, player_pos: V
 // on the same frame — the spawn-time spread is the cooldown
 // duration itself, so the first shot from a fresh sniper
 // lands ~1.0s after spawn.
-fn spawn_sniper(commands: &mut Commands, settings: &GameSettings, player_pos: Vec2) {
-    let (spawn_pos, _) = random_spawn_position(settings, player_pos);
+fn spawn_sniper(commands: &mut Commands, settings: &GameSettings, room: &Room, player_pos: Vec2) {
+    let (spawn_pos, _) = random_spawn_position(settings, player_pos, room);
 
     commands.spawn((
         Sprite {
@@ -605,7 +616,27 @@ pub fn spawn_boss(commands: &mut Commands, settings: &GameSettings, position: Ve
 // at call time, so two spawns in the same frame get different
 // values (they share the same `state` but advance it through the
 // two `next_unit` calls).
-fn random_spawn_position(settings: &GameSettings, player_pos: Vec2) -> (Vec2, u64) {
+//
+// Phase 2: takes the current room's bounds and clamps the
+// final position to be `margin` units inside the room on every
+// axis. Without this, an enemy could spawn in a wall (when the
+// random angle points toward a wall and the distance is large
+// enough) or even in an adjacent room (when the player is near
+// a wall and the offset points outward). Both were visual bugs
+// in Patch 2.0: the player saw enemies "popping in" through
+// the wall or appearing in the Spawn room while still in the
+// Fight room.
+//
+// The clamp is per-axis (not "fit inside the room's AABB")
+// because each axis is independent. If the random offset
+// pushes X outside but keeps Y inside, we clamp X only.
+// This is the cheapest correct behavior — full AABB clamping
+// would also work but is overkill for spawn placement.
+fn random_spawn_position(
+    settings: &GameSettings,
+    player_pos: Vec2,
+    room: &Room,
+) -> (Vec2, u64) {
     let mut state = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
@@ -624,7 +655,19 @@ fn random_spawn_position(settings: &GameSettings, player_pos: Vec2) -> (Vec2, u6
     let distance = settings.spawner_min_distance
         + next_unit(&mut state) * (settings.spawner_max_distance - settings.spawner_min_distance);
     let offset = Vec2::new(angle.cos(), angle.sin()) * distance;
-    (player_pos + offset, state)
+    let raw = player_pos + offset;
+
+    // Margin: half the largest enemy (40px chaser) + a small
+    // buffer. The buffer keeps the enemy AABB entirely inside
+    // the room after spawn (so the wall_collision_system
+    // doesn't push them on the first frame, which would
+    // visually look like a "teleport inward").
+    const SPAWN_MARGIN: f32 = 25.0;
+    let clamped = Vec2::new(
+        raw.x.clamp(room.bounds_min.x + SPAWN_MARGIN, room.bounds_max.x - SPAWN_MARGIN),
+        raw.y.clamp(room.bounds_min.y + SPAWN_MARGIN, room.bounds_max.y - SPAWN_MARGIN),
+    );
+    (clamped, state)
 }
 
 // ─── AI ──────────────────────────────────────────────────────────────────
@@ -1185,5 +1228,114 @@ fn hit_flash_tick_system(
             base.blue + (1.0 - base.blue) * t,
             base.alpha,
         );
+    }
+}
+
+// ─── Tests ────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::components::{RoomId, RoomKind};
+
+    // Spawn position clamp (Phase 2.1): the enemy must
+    // spawn inside the current room, with a margin from
+    // each wall. The clamp is a simple Vec2::clamp on
+    // each axis. We test by running the function 50
+    // times (the xorshift PRNG gives different outputs
+    // each call) and verifying every result stays inside
+    // the room with the margin.
+
+    fn test_room() -> Room {
+        Room {
+            id: RoomId(1),
+            kind: RoomKind::Fight,
+            bounds_min: Vec2::new(0.0, 0.0),
+            bounds_max: Vec2::new(800.0, 800.0),
+        }
+    }
+
+    fn test_settings() -> GameSettings {
+        GameSettings {
+            spawner_min_distance: 100.0,
+            spawner_max_distance: 300.0,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn spawn_position_clamp_when_player_in_center() {
+        let room = test_room();
+        let settings = test_settings();
+        let player = Vec2::new(400.0, 400.0);
+        for _ in 0..50 {
+            let (pos, _) = random_spawn_position(&settings, player, &room);
+            assert!(
+                pos.x >= 25.0 && pos.x <= 775.0,
+                "x outside room: {:?}",
+                pos
+            );
+            assert!(
+                pos.y >= 25.0 && pos.y <= 775.0,
+                "y outside room: {:?}",
+                pos
+            );
+        }
+    }
+
+    #[test]
+    fn spawn_position_clamp_when_player_at_wall() {
+        // Player at the corner of the room. Even with the
+        // longest possible distance, the raw spawn position
+        // would be outside the room without clamping.
+        let room = test_room();
+        let settings = test_settings();
+        let player = Vec2::new(0.0, 0.0); // corner
+        for _ in 0..50 {
+            let (pos, _) = random_spawn_position(&settings, player, &room);
+            assert!(
+                pos.x >= 25.0 && pos.x <= 775.0,
+                "x outside room from corner: {:?}",
+                pos
+            );
+            assert!(
+                pos.y >= 25.0 && pos.y <= 775.0,
+                "y outside room from corner: {:?}",
+                pos
+            );
+        }
+    }
+
+    // Phase 2.1 regression: the player at a wall edge +
+    // a long spawn distance used to spawn the enemy
+    // outside the current room (visible as "enemies in
+    // the Spawn room while the player is in the Fight
+    // room"). The clamp fixes this.
+    #[test]
+    fn spawn_position_never_exits_room_bounds() {
+        let room = test_room();
+        let settings = test_settings();
+        for player_x in [0.0, 200.0, 400.0, 600.0, 800.0] {
+            for player_y in [0.0, 200.0, 400.0, 600.0, 800.0] {
+                let player = Vec2::new(player_x, player_y);
+                for _ in 0..10 {
+                    let (pos, _) = random_spawn_position(&settings, player, &room);
+                    assert!(
+                        pos.x >= 25.0 && pos.x <= 775.0,
+                        "player ({}, {}) → spawn x outside: {:?}",
+                        player_x,
+                        player_y,
+                        pos
+                    );
+                    assert!(
+                        pos.y >= 25.0 && pos.y <= 775.0,
+                        "player ({}, {}) → spawn y outside: {:?}",
+                        player_x,
+                        player_y,
+                        pos
+                    );
+                }
+            }
+        }
     }
 }
