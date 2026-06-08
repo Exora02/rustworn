@@ -198,6 +198,44 @@ pub struct GameSettings {
     // burst becomes "click, click, click, click" which
     // defeats the point.
     pub burst_round_gap_s: f32,
+    // Phase 1 — beam weapon. The beam is a held-trigger
+    // instant-hit "DPS hose" — it does NOT spawn a
+    // Projectile, it applies damage directly to every
+    // enemy in its line of sight on a per-tick cadence.
+    //
+    // beam_max_range (500 units): the line segment
+    // extends from the player to player + max_range *
+    // aim_dir. Enemies past this distance are not hit.
+    // 500 is well past the player's view radius (the
+    // view is 1280×720) so a long beam can paint across
+    // the visible screen; it also matches the shooter's
+    // projectile range (300 u/s × 1.5s) so the beam
+    // trades DPS for "no projectile to dodge" (good
+    // against clustered enemies, weak against spread-
+    // out enemies).
+    //
+    // beam_damage_per_tick (0.5) ×
+    // (1.0 / beam_tick_interval_s) (10Hz) = 5.0 DPS.
+    // Slightly above the pistol's 3.0 DPS, much below
+    // the shotgun's per-shot 2.5 (which is paid all at
+    // once). The beam's DPS is felt as continuous
+    // pressure rather than spike damage — different
+    // gameplay niche.
+    //
+    // beam_thickness (4.0) is the visual width of
+    // the beam sprite and the half-thickness used in
+    // the capsule-vs-AABB damage test (an enemy is hit
+    // when the perpendicular distance from the beam
+    // line to the enemy center is less than
+    // enemy_half_extent + beam_thickness/2). 4.0 is
+    // thin enough that the beam looks like a "laser"
+    // rather than a "tube", thick enough that close-
+    // range fights don't feel like pixel-perfect
+    // dodges.
+    pub beam_max_range: f32,
+    pub beam_damage_per_tick: f32,
+    pub beam_tick_interval_s: f32,
+    pub beam_thickness: f32,
 }
 
 impl Default for GameSettings {
@@ -311,6 +349,14 @@ impl Default for GameSettings {
             // Phase 1 — burst round gap. See `Weapon::burst_rounds`
             // for the full design.
             burst_round_gap_s: 0.1,
+            // Phase 1 — beam tunables. See the field-level
+            // doc comments for the full design rationale.
+            // 500 max range, 0.5 dmg/tick at 10Hz = 5 DPS,
+            // 4-unit visual + collision thickness.
+            beam_max_range: 500.0,
+            beam_damage_per_tick: 0.5,
+            beam_tick_interval_s: 0.1,
+            beam_thickness: 4.0,
         }
     }
 }
