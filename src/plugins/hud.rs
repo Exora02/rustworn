@@ -23,7 +23,8 @@ use bevy::prelude::*;
 use bevy::sprite::Anchor;
 
 use crate::components::{
-    Boss, CascadeTelegraph, Health, HudElement, HudElementKind, Player, Weapon, WeaponArchetype,
+    AppState, Boss, CascadeTelegraph, Health, HudElement, HudElementKind, Player, Weapon,
+    WeaponArchetype,
 };
 use crate::resources::{CascadeState, RunState};
 
@@ -185,11 +186,34 @@ pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        // The HUD doesn't care about hitstop or game over — it keeps
-        // updating through both so the player can see their HP drop
-        // during a freeze and the game-over overlay can stay visible.
+        // Phase 2: the HUD updates through both InRun and GameOver
+        // so the bars stay positioned and the game-over overlay
+        // sits at the player's death position (the world is
+        // frozen, but the camera + player don't move so the
+        // bars' positions are stable). The HUD does NOT update
+        // in MainMenu (no run to show progress for) — the
+        // state_visibility_system hides all the bars there.
         app.add_systems(Startup, (spawn_hud, spawn_cascade_telegraph))
-            .add_systems(Update, (cascade_telegraph_update, hud_update_system).chain());
+            .add_systems(
+                Update,
+                (
+                    // Cascade telegraph is gated to InRun only —
+                    // it shouldn't pulse during GameOver (the
+                    // world is frozen, no new Cascade window
+                    // should open, the screen tint should hold
+                    // steady on the death frame).
+                    cascade_telegraph_update.run_if(in_state(AppState::InRun)),
+                    // HUD update runs in both InRun and GameOver.
+                    // The `or` filter (instead of two separate
+                    // `.add_systems` calls) keeps the existing
+                    // chain ordering: cascade telegraph updates
+                    // first so the overlay's z position is
+                    // current before the HUD bars get re-sorted.
+                    hud_update_system
+                        .run_if(in_state(AppState::InRun).or(in_state(AppState::GameOver))),
+                )
+                    .chain(),
+            );
     }
 }
 
@@ -571,6 +595,17 @@ fn hud_update_system(
 
     for (mut tf, sprite, mut vis, element) in &mut hud_query {
         match element.kind {
+            // Phase 2: the MainMenu overlay is a static sprite + text
+            // pair that sits at the world origin. Its visibility
+            // is owned by `state_visibility_system` (AppState-driven),
+            // and its position is fixed at spawn (origin). The HUD
+            // update system has nothing to do per frame for it — the
+            // `vis` and `sprite` bindings here would otherwise trigger
+            // a "not used" warning, so we explicitly bind-and-ignore
+            // them in the no-op arm below.
+            HudElementKind::MainMenu => {
+                let _ = (&mut tf, sprite, &mut vis);
+            }
             HudElementKind::HpBar => {
                 let pos = player_pos + HUD_OFFSET;
                 tf.translation = pos.extend(tf.translation.z);
@@ -662,16 +697,16 @@ fn hud_update_system(
             HudElementKind::GameOver => {
                 // Position once on death and stay put — the camera is
                 // frozen so the overlay sits dead-center on screen.
+                // Phase 2: visibility is owned by `state_visibility_system`
+                // (AppState-driven), not by this system. This system
+                // only positions the overlay each frame so it tracks
+                // the player; whether it's drawn at all is decided
+                // outside.
                 tf.translation = Vec3::new(
                     player_pos.x,
                     player_pos.y + GAME_OVER_OFFSET_Y,
                     tf.translation.z,
                 );
-                *vis = if run.game_over {
-                    Visibility::Inherited
-                } else {
-                    Visibility::Hidden
-                };
             }
             HudElementKind::RestartPrompt => {
                 tf.translation = Vec3::new(
@@ -679,11 +714,6 @@ fn hud_update_system(
                     player_pos.y + RESTART_PROMPT_OFFSET_Y,
                     tf.translation.z,
                 );
-                *vis = if run.game_over {
-                    Visibility::Inherited
-                } else {
-                    Visibility::Hidden
-                };
             }
             HudElementKind::BossHpBar => {
                 // Top-center. The bar's local anchor is

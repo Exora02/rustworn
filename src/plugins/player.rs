@@ -6,9 +6,10 @@
 use bevy::prelude::*;
 
 use crate::components::{
-    AimDirection, AimIndicator, BaseVelocity, Boss, CascadeAffected, Collider, DashCooldown,
-    DeathPuff, Enemy, Health, HitFlash, Invulnerable, Knockback, LastMoveDirection, MainCamera,
-    Pickup, Player, Projectile, Spawner, Team, Velocity, Weapon, WeaponArchetype, PLAYER_COLOR,
+    AimDirection, AimIndicator, AppState, BaseVelocity, Boss, CascadeAffected, Collider,
+    DashCooldown, DeathPuff, Enemy, Health, HitFlash, Invulnerable, Knockback, LastMoveDirection,
+    MainCamera, Pickup, Player, Projectile, Spawner, Team, Velocity, Weapon, WeaponArchetype,
+    PLAYER_COLOR,
 };
 use crate::plugins::enemy::spawn_boss;
 use crate::resources::{CascadeState, GameSettings, Hitstop, RunState, ScreenShake};
@@ -26,13 +27,23 @@ impl Plugin for PlayerPlugin {
         // Order matters: input → state overrides → velocity copy →
         // movement + visuals → camera follow. hitstop_tick runs first
         // so its resource-mutation takes effect before the systems
-        // that early-return on it. time_tick / restart systems run
+        // that early-return on it. time_tick / boss_spawn systems run
         // alongside (no chain dependency) so they can mutate RunState
         // independently of input/state/movement.
         //
         // cascade_state_system runs at the start of the chain so the
         // `active` flag is current by the time cascade-scaled
         // velocity_apply reads it.
+        //
+        // Phase 2: the whole chain is gated on `in_state(AppState::InRun)`.
+        // This replaces the Phase 1 `if in_game_over(&run) { return; }`
+        // early-return at the top of every system. The chain runs
+        // during a live run and pauses (frozen world, all
+        // `Movement` / `AI` / `Weapons` systems idle) during
+        // MainMenu and GameOver. The `restart_system` that used to
+        // be the last system in this chain has been moved to
+        // `enter_in_run_system` in setup.rs (it now fires on
+        // `OnEnter(AppState::InRun)`).
         app.add_systems(
             Update,
             (
@@ -52,9 +63,9 @@ impl Plugin for PlayerPlugin {
                 aim_rotation_system,
                 camera_follow_system,
                 player_death_check_system,
-                restart_system,
             )
-                .chain(),
+                .chain()
+                .run_if(in_state(AppState::InRun)),
         );
     }
 }
@@ -65,15 +76,13 @@ fn in_hitstop(hitstop: &Option<Res<Hitstop>>) -> bool {
     hitstop.is_some()
 }
 
-// Day 15-16: returns true when the run is over (player HP reached
-// zero). Used by every gameplay system to freeze uniformly so the
-// game-over overlay and restart prompt can sit on a still frame.
-// Visual systems (color flash, aim rotation, camera follow) still
-// run — they need to keep rendering the dead player, frozen aim
-// indicator, and a stable camera so the HUD stays screen-locked.
-fn in_game_over(run: &RunState) -> bool {
-    run.game_over
-}
+// Day 15-16 (removed in Phase 2): the previous `in_game_over` helper
+// gated gameplay systems on `RunState.game_over: bool`. Phase 2 lifts
+// the bool into a Bevy `AppState` and gates the whole player chain
+// on `in_state(AppState::InRun)` at the chain level. The per-system
+// `if in_hitstop(&hitstop) || in_game_over(&run) { return; }` lines
+// are now just `if in_hitstop(&hitstop) { return; }` — the run_if on
+// the chain handles the game-over freeze uniformly.
 
 // Day 13-14: tick the global Hitstop resource. When the timer
 // elapses, remove the resource so the `Option<Res<Hitstop>>` checks
@@ -140,7 +149,7 @@ fn player_input_system(
     run: Res<RunState>,
     mut query: Query<(&mut BaseVelocity, &mut LastMoveDirection), With<Player>>,
 ) {
-    if in_hitstop(&hitstop) || in_game_over(&run) {
+    if in_hitstop(&hitstop) {
         return;
     }
     let Ok((mut base_velocity, mut last_move)) = query.single_mut() else {
@@ -235,7 +244,7 @@ fn dash_input_system(
     mut commands: Commands,
     query: Query<Entity, ReadyPlayer>,
 ) {
-    if in_hitstop(&hitstop) || in_game_over(&run) {
+    if in_hitstop(&hitstop) {
         return;
     }
     if !keys.just_pressed(KeyCode::Space) {
@@ -269,11 +278,16 @@ fn dash_state_system(
     run: Res<RunState>,
     mut commands: Commands,
     mut query: Query<
-        (Entity, &mut BaseVelocity, &mut Invulnerable, &LastMoveDirection),
+        (
+            Entity,
+            &mut BaseVelocity,
+            &mut Invulnerable,
+            &LastMoveDirection,
+        ),
         With<Player>,
     >,
 ) {
-    if in_hitstop(&hitstop) || in_game_over(&run) {
+    if in_hitstop(&hitstop) {
         return;
     }
     for (entity, mut base, mut inv, last_move) in &mut query {
@@ -308,7 +322,7 @@ fn cooldown_tick_system(
     mut commands: Commands,
     mut query: Query<(Entity, &mut DashCooldown), With<Player>>,
 ) {
-    if in_hitstop(&hitstop) || in_game_over(&run) {
+    if in_hitstop(&hitstop) {
         return;
     }
     for (entity, mut cd) in &mut query {
@@ -333,7 +347,7 @@ fn knockback_system(
     mut commands: Commands,
     mut query: Query<(Entity, &mut BaseVelocity, &mut Knockback), With<Player>>,
 ) {
-    if in_hitstop(&hitstop) || in_game_over(&run) {
+    if in_hitstop(&hitstop) {
         return;
     }
     for (entity, mut base, mut kb) in &mut query {
@@ -364,7 +378,7 @@ fn velocity_apply_system(
     run: Res<RunState>,
     mut query: Query<(&BaseVelocity, &mut Velocity, Has<CascadeAffected>)>,
 ) {
-    if in_hitstop(&hitstop) || in_game_over(&run) {
+    if in_hitstop(&hitstop) {
         return;
     }
     // The scale lives in `GameSettings::cascade_scale` (default 0.25)
@@ -395,7 +409,7 @@ fn movement_system(
     run: Res<RunState>,
     mut query: Query<(&Velocity, &mut Transform)>,
 ) {
-    if in_hitstop(&hitstop) || in_game_over(&run) {
+    if in_hitstop(&hitstop) {
         return;
     }
     for (velocity, mut transform) in &mut query {
@@ -494,33 +508,37 @@ fn camera_follow_system(
 }
 
 // Day 8-10: when the player's health hits zero, log a death message
-// and flip RunState::game_over. All gameplay systems gate on
-// `in_game_over(&run)` so the world freezes on a still frame, the
-// HUD renders the game-over overlay, and the restart prompt sits
-// waiting for the R key. `std::process::exit` was the previous
-// behavior — landing a real game-over loop here means the binary
-// can be re-run without a manual relaunch, and it's the foundation
-// the proper Bevy State machine in Phase 2 will replace.
-fn player_death_check_system(health: Query<&Health, With<Player>>, mut run: ResMut<RunState>) {
-    if run.game_over {
-        return;
-    }
+// and transition to `AppState::GameOver` via `NextState`. The whole
+// player chain is gated on `in_state(AppState::InRun)`, so the frame
+// we transition, every gameplay system (movement, AI, fire, contact
+// damage) early-returns and the world freezes on a still frame. The
+// `state_visibility_system` in setup.rs flips the game-over overlay
+// to `Visibility::Inherited` so the player sees "GAME OVER" + the
+// R-restart prompt.
+//
+// Phase 1 used `run.game_over = true` here and gated every system
+// on that bool. Phase 2 lifts the bool into a proper `States` enum
+// so the title screen + pause state can land without another
+// refactor.
+fn player_death_check_system(
+    health: Query<&Health, With<Player>>,
+    mut next_state: ResMut<NextState<AppState>>,
+) {
     let Ok(h) = health.single() else {
         return;
     };
     if h.current <= 0.0 {
         log::info!("RUSTWORN — you died. HP: 0.0");
-        run.game_over = true;
+        next_state.set(AppState::GameOver);
     }
 }
 
-// Day 15-16: tick the per-run timer. Frozen during game over so the
-// displayed time in the HUD reflects "time spent alive", not "time
-// since the app launched". Reset by the restart system on R.
+// Day 15-16: tick the per-run timer. The chain is gated on
+// `in_state(AppState::InRun)`, so this only runs during a live run
+// — no game-over early-return needed. The displayed time in the HUD
+// reflects "time spent alive", not "time since the app launched".
+// Reset by `enter_in_run_system` on each InRun entry.
 fn time_tick_system(time: Res<Time>, mut run: ResMut<RunState>) {
-    if run.game_over {
-        return;
-    }
     run.time_elapsed += time.delta_secs();
 }
 
@@ -540,7 +558,9 @@ fn time_tick_system(time: Res<Time>, mut run: ResMut<RunState>) {
 // fire on a normal kill).
 //
 // Frozen during game over so a death at t=59.9s followed by
-// no restart doesn't sneak a boss spawn in.
+// no restart doesn't sneak a boss spawn in. (The chain is gated
+// on InRun, so this is automatic — but the comment stays for
+// future readers tracing the timing.)
 fn boss_spawn_system(
     time: Res<Time>,
     settings: Res<GameSettings>,
@@ -548,9 +568,6 @@ fn boss_spawn_system(
     mut commands: Commands,
     player_query: Query<&Transform, With<Player>>,
 ) {
-    if run.game_over {
-        return;
-    }
     if run.boss_spawned {
         return;
     }
@@ -584,130 +601,11 @@ fn boss_spawn_system(
     );
 }
 
-// Day 15-16: full-run restart. On R while game over, despawn every
-// transient entity (enemies, projectiles, death puffs), reset the
-// player's position/HP/weapon/dash-state, reset the spawner timer,
-// reset the camera, zero out the screen shake, and clear the
-// RunState counters. The intent is "the same world state as the
-// moment the game booted" — no leftover chasers, no half-decayed
-// puffs, no residual camera kick.
-//
-// `Without<MainCamera>` is implicit in the camera query below
-// (camera already filters on MainCamera); the per-entity filters
-// on the despawn queries are exclusive by component type, so the
-// player, camera, HUD elements, and spawner are untouched.
-fn restart_system(
-    keys: Res<ButtonInput<KeyCode>>,
-    settings: Res<GameSettings>,
-    mut run: ResMut<RunState>,
-    mut player_query: Query<(Entity, &mut Transform, &mut Health, &mut Weapon), With<Player>>,
-    mut spawner_query: Query<&mut Spawner>,
-    mut camera_query: Query<&mut Transform, (With<MainCamera>, Without<Player>)>,
-    mut shake: ResMut<ScreenShake>,
-    mut cascade: ResMut<CascadeState>,
-    mut commands: Commands,
-    enemies: Query<Entity, With<Enemy>>,
-    projectiles: Query<Entity, With<Projectile>>,
-    puffs: Query<Entity, With<DeathPuff>>,
-    pickups: Query<Entity, With<Pickup>>,
-) {
-    if !run.game_over {
-        return;
-    }
-    if !keys.just_pressed(KeyCode::KeyR) {
-        return;
-    }
-
-    for e in &enemies {
-        commands.entity(e).despawn();
-    }
-    for e in &projectiles {
-        commands.entity(e).despawn();
-    }
-    for e in &puffs {
-        commands.entity(e).despawn();
-    }
-    for e in &pickups {
-        commands.entity(e).despawn();
-    }
-
-    if let Ok((entity, mut tf, mut h, mut weapon)) = player_query.single_mut() {
-        tf.translation = Vec3::ZERO;
-        h.current = h.max;
-        // Reset fire timer to a zero-duration finished timer so the
-        // first click on the fresh run fires immediately (same as
-        // the initial spawn in setup.rs).
-        weapon.fire_timer = Timer::from_seconds(0.0, TimerMode::Once);
-        // Phase 1 (burst): also reset the in-flight burst counter.
-        // If the player died mid-burst (e.g. on round 2 of a 3-round
-        // burst), the next run shouldn't inherit a half-spent
-        // burst — the new run should boot with a fresh weapon
-        // ready to fire on click.
-        weapon.burst_rounds_remaining = 0;
-        // Drop any leftover dash / hit / knockback state from the
-        // previous run. The player boots clean, no i-frames, no
-        // knockback direction, no cooldown.
-        commands
-            .entity(entity)
-            .remove::<(Invulnerable, Knockback, DashCooldown, Collider)>();
-        // Collider is re-added immediately so the fresh player is
-        // collidable the instant gameplay resumes — removing and
-        // re-adding in the same frame is a no-op visually but
-        // ensures we get a fresh, default-sized collider.
-        commands.entity(entity).insert(Collider {
-            half_extents: Vec2::splat(20.0),
-        });
-    }
-
-    for mut spawner in &mut spawner_query {
-        spawner.interval = Timer::from_seconds(settings.spawner_interval_s, TimerMode::Repeating);
-    }
-
-    if let Ok(mut cam_tf) = camera_query.single_mut() {
-        cam_tf.translation = Vec3::ZERO;
-    }
-
-    shake.intensity = 0.0;
-    shake.duration = 0.0;
-    shake.remaining = 0.0;
-
-    // Phase 1 cascade: reset the cycle on restart so a fresh run
-    // gets the standard warmup before the first Cascade window.
-    // Without this, a Cascade that opened just before death would
-    // persist (still active, but with no enemies to slow) into
-    // the new run, and the player would see the HUD bar empty
-    // immediately.
-    cascade.active = false;
-    cascade.time_remaining = 0.0;
-    cascade.kills_during = 0;
-    cascade.chain_extends = 0;
-    cascade.interval_timer = Timer::from_seconds(30.0, TimerMode::Once);
-    cascade.duration_timer = Timer::from_seconds(0.0, TimerMode::Once);
-
-    // Phase 1 mini-boss: reset the boss spawn gate. The boss
-    // itself is despawned via the `enemies` loop above
-    // (carries the `Enemy` marker), but the gate flag
-    // needs to flip back to false so the next run gets a
-    // fresh boss spawn at the new `time_elapsed == 0 +
-    // boss_spawn_time_s` crossing. Also reset the cascade
-    // beacon to false — the flag flips to true on boss
-    // death (the Phase 1 cascade hook) and the new run
-    // starts without a beacon pending.
-    run.boss_spawned = false;
-    run.cascade_beacon_alive = false;
-
-    run.game_over = false;
-    run.time_elapsed = 0.0;
-    run.enemies_killed = 0;
-    run.score = 0;
-    // Phase 1 pickups: reset the run-long stat stacks so the
-    // fresh run boots at baseline. The pickups themselves
-    // are despawned by the `enemies` / `projectiles` /
-    // `puffs` loops above (pickups have no `Projectile`
-    // marker, so a separate `pickups` loop is needed —
-    // handled below).
-    run.damage_stacks = 0;
-    run.fire_rate_stacks = 0;
-    run.speed_stacks = 0;
-    run.regen_per_sec = 0.0;
-}
+// Phase 2: the Phase 1 `restart_system` (Day 15-16) has been
+// replaced by `enter_in_run_system` in setup.rs. The new system
+// fires on every `OnEnter(AppState::InRun)` — both the first run
+// (after MainMenu) and every subsequent restart (after GameOver).
+// The body is identical to the old `restart_system` minus the
+// key check + the `run.game_over` gate, and it lives in
+// setup.rs because the lifecycle is "start of a run", not
+// "player input".

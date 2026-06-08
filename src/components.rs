@@ -573,4 +573,55 @@ pub enum HudElementKind {
     // `Health.current / Health.max`. Lives alongside the
     // other bars in the HUD; doesn't break their layout.
     BossHpBar,
+    // Phase 2: title-screen overlay. A dim full-screen background
+    // + "PRESS ENTER TO START" text. Hidden by default; the
+    // state_visibility_system flips it to `Visibility::Inherited`
+    // only while `AppState == MainMenu`. Spawned once at startup
+    // (alongside the camera) so the entity is always present and
+    // we just toggle its visibility per state.
+    MainMenu,
+}
+
+// ─── AppState (Phase 2) ───────────────────────────────────────────────────
+
+/// Top-level game state. Lifts the Phase 1 `RunState.game_over: bool`
+/// into a proper Bevy `States` enum so each major UI/mode gets its
+/// own system schedule.
+///
+/// Why a state machine (not a bool): Phase 1 used a single `game_over`
+/// flag because there were only two modes (alive / dead). Phase 2
+/// needs three more: a `MainMenu` title screen, a `Paused` state
+/// (scaffolded for the future pause feature), and a clean separation
+/// between the in-run gameplay systems and the death-screen systems.
+/// `in_state(AppState::InRun).run_if(...)` is the canonical way to
+/// gate the gameplay chain in Bevy 0.16; the bool pattern doesn't
+/// scale past 2 modes.
+///
+/// `#[derive(Default)]` + `#[default]` on `MainMenu` makes the app
+/// boot into the title screen — the player presses ENTER to start
+/// the first run, not straight into combat.
+#[derive(States, Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum AppState {
+    /// Title screen. Player + spawners exist but are hidden / not
+    /// ticking; gameplay systems are gated off. ENTER transitions
+    /// to InRun (which fires the per-run reset in
+    /// `enter_in_run_system`).
+    #[default]
+    MainMenu,
+    /// Active run. All gameplay systems tick, the HUD shows run
+    /// progress, and `player_death_check_system` watches for HP <= 0
+    /// to transition to GameOver.
+    InRun,
+    /// Player died. Gameplay systems are gated off (the world is
+    /// frozen on a still frame), the game-over overlay is visible,
+    /// and R restarts (→ InRun) or ESC returns to the title (→
+    /// MainMenu). The transition InRun → GameOver fires
+    /// `enter_game_over_system`, which can hook fade-in effects
+    /// in a later patch.
+    GameOver,
+    /// Paused. Scaffolded for a future pause feature (ESC during
+    /// InRun, ESC again to resume). No systems gate on it yet —
+    /// it's here so the enum is a complete top-level state model
+    /// and we can add the plumbing without another refactor.
+    Paused,
 }

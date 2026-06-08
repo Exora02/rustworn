@@ -12,7 +12,7 @@
 
 use bevy::prelude::*;
 
-use crate::components::{DamageNumber, HitSpark};
+use crate::components::{AppState, DamageNumber, HitSpark};
 use crate::resources::GameSettings;
 
 pub struct FxPlugin;
@@ -22,7 +22,15 @@ impl Plugin for FxPlugin {
         app.add_systems(
             Update,
             (damage_number_update, hit_spark_update, spawn_damage_numbers)
-                .chain(),
+                .chain()
+                // Phase 2: damage numbers and hit sparks freeze
+                // during MainMenu and GameOver. They were already
+                // event-driven (only spawn on a damage event, and
+                // damage events only fire during InRun), so this
+                // is mostly defensive — the lifetime ticks for
+                // already-spawned numbers / sparks shouldn't
+                // advance while the world is frozen.
+                .run_if(in_state(AppState::InRun)),
         );
     }
 }
@@ -48,10 +56,7 @@ fn spawn_damage_numbers(
         commands.spawn((
             DamageNumber {
                 value: ev.amount.round() as i32,
-                lifetime: Timer::from_seconds(
-                    settings.damage_number_lifetime_s,
-                    TimerMode::Once,
-                ),
+                lifetime: Timer::from_seconds(settings.damage_number_lifetime_s, TimerMode::Once),
                 drift_speed: settings.damage_number_drift_speed,
             },
             Text2d::new(format!("{}", ev.amount.round() as i32)),
@@ -77,8 +82,7 @@ fn damage_number_update(
     for (entity, mut dmg, mut tf, mut color) in &mut q {
         dmg.lifetime.tick(time.delta());
         let t = if dmg.lifetime.duration().as_secs_f32() > 0.0 {
-            (dmg.lifetime.elapsed_secs() / dmg.lifetime.duration().as_secs_f32())
-                .clamp(0.0, 1.0)
+            (dmg.lifetime.elapsed_secs() / dmg.lifetime.duration().as_secs_f32()).clamp(0.0, 1.0)
         } else {
             1.0
         };

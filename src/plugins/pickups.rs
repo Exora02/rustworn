@@ -10,7 +10,7 @@
 
 use bevy::prelude::*;
 
-use crate::components::{AiBehavior, Health, Pickup, PickupKind, Player, Velocity};
+use crate::components::{AiBehavior, AppState, Health, Pickup, PickupKind, Player, Velocity};
 use crate::resources::{GameSettings, RunState};
 
 const PICKUP_SIZE: f32 = 14.0;
@@ -21,8 +21,18 @@ impl Plugin for PickupsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (pickup_drift_system, pickup_collect_system, pickup_lifetime_system, regen_tick_system)
-                .chain(),
+            (
+                pickup_drift_system,
+                pickup_collect_system,
+                pickup_lifetime_system,
+                regen_tick_system,
+            )
+                .chain()
+                // Phase 2: pickups freeze during MainMenu
+                // (no run to lose them in) and GameOver (world
+                // is frozen, pickups shouldn't drift off-screen
+                // while the player reads the death screen).
+                .run_if(in_state(AppState::InRun)),
         );
     }
 }
@@ -37,10 +47,7 @@ fn pickup_drift_system(
     time: Res<Time>,
     settings: Res<GameSettings>,
     player_q: Query<&Transform, With<Player>>,
-    mut pickup_q: Query<
-        (Entity, &mut Pickup, &mut Transform, &mut Velocity),
-        Without<Player>,
-    >,
+    mut pickup_q: Query<(Entity, &mut Pickup, &mut Transform, &mut Velocity), Without<Player>>,
 ) {
     let Ok(player_tf) = player_q.single() else {
         return;

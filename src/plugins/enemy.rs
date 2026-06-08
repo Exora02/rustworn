@@ -9,10 +9,10 @@ use bevy::prelude::*;
 use log::warn;
 
 use crate::components::{
-    AiBehavior, BaseColor, BaseVelocity, Boss, BossPhase, BossState, CascadeAffected, Collider,
-    DasherPhase, DasherState, DeathPuff, Enemy, EnemyAI, EnemyArchetype, Health, HitFlash,
-    Invulnerable, Knockback, Player, Projectile, ShooterState, SniperState, Spawner, Team,
-    Velocity,
+    AiBehavior, AppState, BaseColor, BaseVelocity, Boss, BossPhase, BossState, CascadeAffected,
+    Collider, DasherPhase, DasherState, DeathPuff, Enemy, EnemyAI, EnemyArchetype, Health,
+    HitFlash, Invulnerable, Knockback, Player, Projectile, ShooterState, SniperState, Spawner,
+    Team, Velocity,
 };
 use crate::events::DamageEvent;
 use crate::plugins::fx::spawn_hit_spark;
@@ -144,7 +144,15 @@ impl Plugin for EnemyPlugin {
                 death_puff_tick_system,
                 hit_flash_tick_system,
             )
-                .chain(),
+                .chain()
+                // Phase 2: gates the whole enemy chain on
+                // `in_state(AppState::InRun)`. Spawners don't tick,
+                // AI doesn't move, contact damage doesn't resolve,
+                // puffs don't fade, and hit flashes don't tick
+                // during MainMenu or GameOver. This replaces the
+                // Phase 1 `if hitstop.is_some() || run.game_over`
+                // check at the top of every enemy system.
+                .run_if(in_state(AppState::InRun)),
         );
     }
 }
@@ -166,7 +174,7 @@ fn spawner_tick_system(
     mut spawners: Query<&mut Spawner>,
     player_query: Query<&Transform, With<Player>>,
 ) {
-    if hitstop.is_some() || run.game_over {
+    if hitstop.is_some() {
         return;
     }
     let Ok(player_transform) = player_query.single() else {
@@ -647,7 +655,7 @@ fn enemy_ai_system(
         With<Enemy>,
     >,
 ) {
-    if hitstop.is_some() || run.game_over {
+    if hitstop.is_some() {
         return;
     }
     let Ok(player_transform) = player_query.single() else {
@@ -1005,7 +1013,7 @@ fn enemy_contact_damage_system(
     mut shake: ResMut<ScreenShake>,
     mut damage_events: EventWriter<DamageEvent>,
 ) {
-    if hitstop.is_some() || run.game_over {
+    if hitstop.is_some() {
         return;
     }
     let Ok((player_entity, player_tf, player_col, mut health, invulnerable)) =

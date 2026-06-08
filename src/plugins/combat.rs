@@ -8,8 +8,8 @@ use bevy::sprite::Anchor;
 use log::warn;
 
 use crate::components::{
-    AimDirection, BeamVisual, Collider, Enemy, EnemyAI, Health, HitFlash, Invulnerable, Knockback,
-    Player, Projectile, Team, Velocity, Weapon, WeaponArchetype,
+    AimDirection, AppState, BeamVisual, Collider, Enemy, EnemyAI, Health, HitFlash, Invulnerable,
+    Knockback, Player, Projectile, Team, Velocity, Weapon, WeaponArchetype,
 };
 use crate::events::{DamageEvent, EnemyKilledEvent};
 use crate::plugins::enemy::spawn_death_puff;
@@ -92,7 +92,15 @@ impl Plugin for CombatPlugin {
                 // so the lifetime logic isn't duplicated.
                 enemy_projectile_damage_system,
             )
-                .chain(),
+                .chain()
+                // Phase 2: gates the whole combat chain on the
+                // active-run state. Weapons don't fire, projectiles
+                // don't tick lifetimes, no damage resolves during
+                // MainMenu or GameOver. The hitstop check stays
+                // per-system (in `if in_hitstop(&hitstop) { return; }`)
+                // because hitstop is a per-frame concern, not a
+                // per-state one.
+                .run_if(in_state(AppState::InRun)),
         );
     }
 }
@@ -174,13 +182,11 @@ fn in_hitstop(hitstop: &Option<Res<Hitstop>>) -> bool {
     hitstop.is_some()
 }
 
-// Day 15-16: same idea, but for the run-over flag. Combat systems
-// freeze when the player is dead so the on-screen overlay sits on
-// a still frame and a stray fire+despawn chain can't wipe a fresh
-// run that's about to start.
-fn in_game_over(run: &RunState) -> bool {
-    run.game_over
-}
+// Day 15-16 (removed in Phase 2): the previous `in_game_over` helper
+// gated combat systems on `RunState.game_over: bool`. Phase 2 lifts
+// the bool into a Bevy `AppState` and gates the whole combat chain
+// on `in_state(AppState::InRun)` at the chain level. Per-system
+// `|| in_game_over(&run)` checks are now just hitstop checks.
 
 // Each frame, advance every weapon's fire_timer. A freshly fired weapon
 // has its timer set to `1.0 / fire_rate`; once it ticks down to zero the
@@ -192,7 +198,7 @@ fn weapon_cooldown_tick_system(
     run: Res<RunState>,
     mut query: Query<&mut Weapon>,
 ) {
-    if in_hitstop(&hitstop) || in_game_over(&run) {
+    if in_hitstop(&hitstop) {
         return;
     }
     for mut weapon in &mut query {
@@ -216,7 +222,7 @@ fn weapon_switch_system(
     run: Res<RunState>,
     mut player_query: Query<&mut Weapon, With<Player>>,
 ) {
-    if in_hitstop(&hitstop) || in_game_over(&run) {
+    if in_hitstop(&hitstop) {
         return;
     }
     let Ok(mut weapon) = player_query.single_mut() else {
@@ -324,9 +330,11 @@ fn weapon_fire_system(
     mut weapons: Query<(&mut Weapon, &mut Transform), With<Player>>,
     projectiles: Query<&Projectile>,
 ) {
-    if in_game_over(&run) {
-        return;
-    }
+    // Phase 2: no per-system game-over early-return needed — the
+    // whole combat chain is gated on `in_state(AppState::InRun)` in
+    // `CombatPlugin::build()`. The `run` resource is still in scope
+    // because weapon_fire uses it for the `run.enemies_killed += 1`
+    // bookkeeping on a kill.
     let Ok((mut weapon, player_transform)) = weapons.single_mut() else {
         return;
     };
@@ -552,7 +560,7 @@ fn beam_damage_system(
     mut damage_events: EventWriter<DamageEvent>,
     mut kill_events: EventWriter<EnemyKilledEvent>,
 ) {
-    if in_hitstop(&hitstop) || in_game_over(&run_state) {
+    if in_hitstop(&hitstop) {
         // Hide the beam during freeze/death so the visual
         // doesn't keep painting a dead frame.
         if let Ok((_t, mut vis)) = beam_visual.single_mut() {
@@ -659,7 +667,7 @@ fn projectile_lifetime_system(
     mut commands: Commands,
     mut query: Query<(Entity, &mut Projectile)>,
 ) {
-    if in_hitstop(&hitstop) || in_game_over(&run) {
+    if in_hitstop(&hitstop) {
         return;
     }
     for (entity, mut proj) in &mut query {
@@ -703,7 +711,7 @@ fn projectile_damage_system(
     // Frozen during game over so the on-screen overlay sits on a
     // still frame and a stray fire+despawn chain can't wipe a fresh
     // run that's about to start.
-    if in_hitstop(&hitstop) || in_game_over(&run) {
+    if in_hitstop(&hitstop) {
         return;
     }
     for (proj_entity, proj_tf, proj_col, proj) in &projectiles {
@@ -765,9 +773,7 @@ fn projectile_damage_system(
                     run.enemies_killed.hash(&mut h);
                     h.finish() as f32 / u64::MAX as f32
                 };
-                if let Some(kind) =
-                    roll_pickup_drop(enemy_ai.behavior, &settings, &mut rng)
-                {
+                if let Some(kind) = roll_pickup_drop(enemy_ai.behavior, &settings, &mut rng) {
                     spawn_pickup(&mut commands, &settings, enemy_pos, kind);
                 }
                 kill_events.send(EnemyKilledEvent {
@@ -829,7 +835,7 @@ fn enemy_projectile_damage_system(
     mut shake: ResMut<ScreenShake>,
     mut damage_events: EventWriter<DamageEvent>,
 ) {
-    if in_hitstop(&hitstop) || in_game_over(&run) {
+    if in_hitstop(&hitstop) {
         return;
     }
     let Ok((player_entity, player_tf, player_col, mut health, invulnerable)) =

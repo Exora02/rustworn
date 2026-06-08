@@ -72,15 +72,9 @@ pub struct RunState {
     // Phase 1 mini-boss: set to `true` the frame the boss
     // spawns (via `boss_spawn_system` in player.rs). Used as
     // a one-shot gate so the boss spawns exactly once per run;
-    // `restart_system` resets it back to `false` on death.
+    // `enter_in_run_system` resets it back to `false` on each
+    // new run (death → restart, or MainMenu → start).
     pub boss_spawned: bool,
-    // Day 15-16: when the player dies, gameplay systems freeze and a
-    // restart prompt appears. The bool lives on RunState (rather than
-    // a separate resource) because it's reset on the same lifecycle —
-    // a proper Bevy State lands in Phase 2 alongside the main-menu /
-    // game-over / pause split, and we'll lift this flag into that
-    // state machine at the same time.
-    pub game_over: bool,
     // Phase 1 (Vampire Survivors fusion) pickup stacks. Each
     // DamageUp / FireRateUp / SpeedUp pickup adds 1 to the
     // corresponding stack (capped at 8 per kind to prevent
@@ -104,7 +98,6 @@ impl Default for RunState {
             enemies_killed: 0,
             cascade_beacon_alive: false,
             boss_spawned: false,
-            game_over: false,
             damage_stacks: 0,
             fire_rate_stacks: 0,
             speed_stacks: 0,

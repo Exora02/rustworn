@@ -67,14 +67,14 @@ pub fn run() {
         .add_plugins(FxPlugin)
         .add_plugins(PickupsPlugin)
         .add_plugins(HudPlugin)
-        .add_systems(Update, exit_on_esc)
+        // Phase 2: ESC handling moved into the per-state input
+        // systems in `setup.rs`:
+        //   - MainMenu: ESC quits the binary
+        //   - InRun:    ESC → MainMenu (abandon run)
+        //   - GameOver: ESC → MainMenu (skip restart)
+        // The previous `exit_on_esc` here was a global ESC-to-quit
+        // that fired from any state; that's now wrong (quitting
+        // mid-run is jarring, and the title screen has a clean
+        // "press ESC to quit" affordance instead).
         .run();
-}
-
-/// Dev convenience: tap Escape to quit. Will be replaced by a real pause
-/// menu once we have one.
-fn exit_on_esc(keys: Res<ButtonInput<KeyCode>>) {
-    if keys.just_pressed(KeyCode::Escape) {
-        std::process::exit(0);
-    }
 }
