@@ -226,9 +226,14 @@ Phase 3+ (post-shift) acceptance:
 1. **Difficulty curve tuning**: settled at ×1.08 HP / ×1.05 damage per
    room (gentle, runs have a long tail — see §2.5). Can be tuned
    later via `GameSettings` once we have playtest data.
-2. **Per-floor vs. per-room scaling**: should difficulty reset between
-   floors (like Gungeon does) or accumulate across the whole run
-   (like Vampire Survivors)?
+2. **Per-floor vs. per-room scaling**: ✅ settled at per-room
+   (every room cleared adds to the difficulty multiplier; no reset
+   between floors). User feedback: "there should be per room
+   scaling but it should not scale too fast". The gentle ×1.08 /
+   ×1.05 slope in Q1 is the implementation. (TBD: when procgen
+   lands, do "rooms" in the multiplier count as all rooms in
+   the run, or as rooms since the last floor transition? Current
+   intent: all rooms, no reset, like Vampire Survivors.)
 3. **Reward-room "free heal"**: should cleared rooms be a place to heal
    to full HP, or should healing be limited to pickups and Cascade
    bonuses only?
@@ -236,9 +241,12 @@ Phase 3+ (post-shift) acceptance:
    rare+, regular combat rooms can also drop common-rarity rewards".
    See §2.5 reward curve and §3 table. (User feedback: don't ramp up
    too fast either — runs should last a while.)
-5. **Floor transition**: when the player clears a boss room, do they
-   auto-advance to the next floor, or do they have a choice
-   ("continue" / "teleport back to a previous boss")?
+5. **Floor transition**: 🤔 **STILL UNDECIDED**. When the player
+   clears a boss room, do they auto-advance to the next floor, or
+   do they have a choice ("continue" / "teleport back to a previous
+   boss")? The user's instinct is "let's try with what we have now"
+   (Q2 answer) — apply the same spirit here and figure it out
+   when we have something to test. No decision yet.
 
 These are answered in the implementation phase, not now. The doc captures
 the design intent; the code answers these questions with defaults that
