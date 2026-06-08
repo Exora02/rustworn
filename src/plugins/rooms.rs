@@ -114,10 +114,21 @@ const DOOR_SIZE: Vec2 = Vec2::new(60.0, 30.0);
 const DOOR_INSET: f32 = 30.0;
 
 /// Offset from the new room's wall to the entry position.
-/// 50 units puts the player 1.25× their AABB half-extent
-/// inside the new room, so the wall_collision_system
-/// doesn't immediately push them out.
-const ENTRY_INSET: f32 = 50.0;
+///
+/// Math:
+///   - door trigger half-extent on the wall axis: 30 (DOOR_SIZE.x / 2)
+///   - player AABB half-extent on the wall axis: 20
+///   - safety gap so a frame of physics-step doesn't nudge the
+///     player back into the trigger: 50
+///
+/// Sum = 100. With 50 (the Phase 2.0 value), the player AABB
+/// at the entry position overlapped the destination's return
+/// door trigger — a teleport-loop bug where the player
+/// arrived in R1 at (50, -400) and was immediately picked up
+/// by the R1→R0 door back to R0. Bumping to 100 puts the
+/// player's far edge 20u past the door's far edge with 20u
+/// to spare.
+const ENTRY_INSET: f32 = 100.0;
 
 /// z-order for walls and doors. Slightly above the world
 /// (z=0) so they sit on top of any background gradient.
@@ -713,7 +724,19 @@ fn door_transition_system(
         (With<Player>, Without<AimIndicator>, Without<MainCamera>),
     >,
     doors: Query<(&Transform, &Collider, &Door), Without<Player>>,
+    // Per-system-instance state. The previous `bool` is
+    // read at the top of the system: if it's true, we
+    // skip the door check entirely this frame (the player
+    // just teleported last frame, give them one frame of
+    // grace so a marginal AABB overlap doesn't immediately
+    // re-fire). The flag is set inside the transition block
+    // and read+cleared at the top of the next call.
+    mut just_teleported: Local<bool>,
 ) {
+    if *just_teleported {
+        *just_teleported = false;
+        return;
+    }
     let Ok((mut player_tf, player_col)) = player_query.single_mut() else {
         return;
     };
@@ -773,6 +796,15 @@ fn door_transition_system(
 
             // 4. Update current room.
             biome.current_room = door.to_room;
+
+            // Mark the next frame as "just teleported" so
+            // a marginal AABB overlap on the new room's
+            // return door doesn't immediately re-fire.
+            // Belt + suspenders with the ENTRY_INSET=100
+            // math above: even if a future patch moves
+            // the entry position closer to the wall,
+            // this guard prevents the loop.
+            *just_teleported = true;
 
             info!(
                 "RUSTWORN — room transition → {:?} (entry at ({:.0}, {:.0}))",
@@ -894,6 +926,106 @@ mod tests {
             (c.x == 0.0) ^ (c.y == 0.0),
             "MTD should pick exactly one axis, got {:?}",
             c
+        );
+    }
+
+    // Phase 2.3 regression: the entry position of a door
+    // A→B must NOT cause the player's AABB to overlap with
+    // the door B→A's trigger zone. Otherwise, on the frame
+    // after the player teleports into B, the door_transition
+    // system immediately picks them up on B's return door
+    // and teleports them back to A — an infinite loop the
+    // player can't escape.
+    //
+    // We test by computing the same geometry the runtime
+    // uses (the constants from the top of the file: DOOR_SIZE
+    // for trigger size, ENTRY_INSET for entry distance from
+    // the wall, 20.0 for player AABB half-extent) and
+    // asserting no AABB overlap on any of the 4 door pairs.
+    #[test]
+    fn entry_position_does_not_overlap_return_door_trigger() {
+        // The 3 rooms, mirrors of setup_rooms_system.
+        let rooms = vec![
+            Room {
+                id: RoomId(0),
+                kind: RoomKind::Spawn,
+                bounds_min: Vec2::new(-ROOM_SIZE, -ROOM_SIZE),
+                bounds_max: Vec2::new(0.0, 0.0),
+            },
+            Room {
+                id: RoomId(1),
+                kind: RoomKind::Fight,
+                bounds_min: Vec2::new(0.0, -ROOM_SIZE),
+                bounds_max: Vec2::new(ROOM_SIZE, 0.0),
+            },
+            Room {
+                id: RoomId(2),
+                kind: RoomKind::Extract,
+                bounds_min: Vec2::new(0.0, 0.0),
+                bounds_max: Vec2::new(ROOM_SIZE, ROOM_SIZE),
+            },
+        ];
+        let r0 = &rooms[0];
+        let r1 = &rooms[1];
+        let r2 = &rooms[2];
+
+        // Player AABB half-extents (mirror of Collider in
+        // setup.rs:spawn_world).
+        let player_half = Vec2::splat(20.0);
+        // Door trigger half-extents.
+        let door_half = DOOR_SIZE * 0.5;
+
+        // 4 door pairs to check:
+        //   R0→R1 entry (in R1) vs R1→R0 trigger (in R1)
+        //   R1→R0 entry (in R0) vs R0→R1 trigger (in R0)
+        //   R1→R2 entry (in R2) vs R2→R1 trigger (in R2)
+        //   R2→R1 entry (in R1) vs R1→R2 trigger (in R1)
+        //
+        // We check each pair independently so a failure
+        // message can name the offending door.
+
+        // R0→R1: entry in R1 at (r1.min.x + ENTRY_INSET, r1.center().y)
+        //         trigger of R1→R0 in R1 at (r1.min.x + DOOR_INSET, r1.center().y)
+        let entry_r0_to_r1 = Vec2::new(r1.bounds_min.x + ENTRY_INSET, r1.center().y);
+        let trigger_r1_to_r0 = Vec2::new(r1.bounds_min.x + DOOR_INSET, r1.center().y);
+        assert!(
+            aabb_resolve(entry_r0_to_r1, player_half, trigger_r1_to_r0, door_half).is_none(),
+            "R0→R1 entry {:?} overlaps R1→R0 trigger {:?}",
+            entry_r0_to_r1,
+            trigger_r1_to_r0
+        );
+
+        // R1→R0: entry in R0 at (r0.max.x - ENTRY_INSET, r0.center().y)
+        //         trigger of R0→R1 in R0 at (r0.max.x - DOOR_INSET, r0.center().y)
+        let entry_r1_to_r0 = Vec2::new(r0.bounds_max.x - ENTRY_INSET, r0.center().y);
+        let trigger_r0_to_r1 = Vec2::new(r0.bounds_max.x - DOOR_INSET, r0.center().y);
+        assert!(
+            aabb_resolve(entry_r1_to_r0, player_half, trigger_r0_to_r1, door_half).is_none(),
+            "R1→R0 entry {:?} overlaps R0→R1 trigger {:?}",
+            entry_r1_to_r0,
+            trigger_r0_to_r1
+        );
+
+        // R1→R2: entry in R2 at (r2.center().x, r2.min.y + ENTRY_INSET)
+        //         trigger of R2→R1 in R2 at (r2.center().x, r2.min.y + DOOR_INSET)
+        let entry_r1_to_r2 = Vec2::new(r2.center().x, r2.bounds_min.y + ENTRY_INSET);
+        let trigger_r2_to_r1 = Vec2::new(r2.center().x, r2.bounds_min.y + DOOR_INSET);
+        assert!(
+            aabb_resolve(entry_r1_to_r2, player_half, trigger_r2_to_r1, door_half).is_none(),
+            "R1→R2 entry {:?} overlaps R2→R1 trigger {:?}",
+            entry_r1_to_r2,
+            trigger_r2_to_r1
+        );
+
+        // R2→R1: entry in R1 at (r1.center().x, r1.max.y - ENTRY_INSET)
+        //         trigger of R1→R2 in R1 at (r1.center().x, r1.max.y - DOOR_INSET)
+        let entry_r2_to_r1 = Vec2::new(r1.center().x, r1.bounds_max.y - ENTRY_INSET);
+        let trigger_r1_to_r2 = Vec2::new(r1.center().x, r1.bounds_max.y - DOOR_INSET);
+        assert!(
+            aabb_resolve(entry_r2_to_r1, player_half, trigger_r1_to_r2, door_half).is_none(),
+            "R2→R1 entry {:?} overlaps R1→R2 trigger {:?}",
+            entry_r2_to_r1,
+            trigger_r1_to_r2
         );
     }
 
