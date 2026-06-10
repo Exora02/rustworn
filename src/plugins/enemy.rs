@@ -11,7 +11,7 @@ use log::warn;
 use crate::components::{
     AiBehavior, AppState, BaseColor, BaseVelocity, Beacon, Boss, BossPhase, BossState,
     CascadeAffected, Collider, DasherPhase, DasherState, DeathPuff, Enemy, EnemyAI, EnemyArchetype,
-    Health, HitFlash, Invulnerable, Knockback, Player, Projectile, Room, ShooterState, SniperState,
+    Health, HitFlash, Invulnerable, Knockback, MotionTrail, Player, Projectile, Room, ShooterState, SniperState,
     Team, Velocity, WaveDefinition, WaveSpawner,
 };
 use crate::events::{DamageEvent, RoomClearedEvent};
@@ -765,13 +765,19 @@ pub fn spawn_beacon(commands: &mut Commands, settings: &GameSettings, position: 
             half_extents: Vec2::splat(settings.beacon_size * 0.5),
         },
         Health::new(settings.beacon_hp),
-        // Static: no BaseVelocity, no Velocity. The AI
-        // system matches on `AiBehavior::Beacon` and writes
-        // nothing, so the beacon stays at its spawn position
-        // for its whole lifetime.
+        // Phase 2 P5.1: the beacon has BaseVelocity + Velocity
+        // and flees from the player via the AI system below.
+        // It does NOT get CascadeAffected, so during Cascade
+        // it moves at full speed while every other enemy is
+        // slowed to 0.25× — the beacon visibly "runs fast"
+        // in the slowed world.
         Velocity::default(),
         BaseVelocity::default(),
         BaseColor(BEACON_COLOR),
+        // Motion trail: Sandevistan-style afterimages while
+        // Cascade is active. The trail system checks for both
+        // the marker AND cascade.active before spawning ghosts.
+        MotionTrail,
     ));
 }
 
@@ -1170,15 +1176,30 @@ fn enemy_ai_system(
                     }
                 }
             }
-            // Phase 2 P5: the beacon is static. No movement,
-            // no attack — the AI tick is a no-op and the
-            // BaseVelocity stays at zero. The kill handler
-            // in `combat.rs` reads `Has<Beacon>` to fire
-            // the cascade-chain-extend hook; the contact-
-            // damage handler skips the beacon via the same
-            // marker (see the early-continue in
-            // `enemy_contact_damage_system`).
-            AiBehavior::Beacon => {}
+            // Phase 2 P5: Beacon is a static enemy (no movement)
+                        // that extends the Cascade window on kill. The
+                        // `Beacon` marker on the entity is what the kill
+                        // handler in `combat.rs` reads via `Has<Beacon>` to fire
+                        // the cascade-chain-extend hook; the contact-damage
+                        // handler skips the beacon via the same marker (see the
+                        // early-continue in `enemy_contact_damage_system`).
+                        //
+                        // Phase 2 P5.1: the beacon now FLEES from the player
+                        // instead of sitting still. It runs at
+                        // `beacon_flee_speed` directly away from the player's
+                        // position. During Cascade, the beacon is NOT
+                        // CascadeAffected, so it moves at full speed while
+                        // other enemies are slowed to 0.25× — the player
+                        // has to chase it down to get the chain extend.
+                        AiBehavior::Beacon => {
+                            let to_player = player_pos - enemy_transform.translation.truncate();
+                            let dir = if to_player.length_squared() > 0.0 {
+                                -to_player.normalize()
+                            } else {
+                                Vec2::ZERO
+                            };
+                            base.0 = dir * settings.beacon_flee_speed;
+                        }
         }
     }
 }

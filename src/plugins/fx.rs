@@ -12,8 +12,8 @@
 
 use bevy::prelude::*;
 
-use crate::components::{AppState, DamageNumber, HitSpark};
-use crate::resources::GameSettings;
+use crate::components::{AppState, DamageNumber, HitSpark, MotionTrail, TrailGhost};
+use crate::resources::{CascadeState, GameSettings};
 
 pub struct FxPlugin;
 
@@ -30,6 +30,19 @@ impl Plugin for FxPlugin {
                 // is mostly defensive — the lifetime ticks for
                 // already-spawned numbers / sparks shouldn't
                 // advance while the world is frozen.
+                .run_if(in_state(AppState::InRun)),
+        );
+        // Phase 2 P5.1: Sandevistan-style motion trail ghosts.
+        // Runs during InRun only (no ghosts on menu/game-over).
+        // The spawn system reads CascadeState to only produce
+        // ghosts while the window is active. The fade system
+        // runs every frame regardless of Cascade state so
+        // ghosts that were spawned right as the window closed
+        // still fade out properly.
+        app.add_systems(
+            Update,
+            (trail_spawn_system, trail_fade_system)
+                .chain()
                 .run_if(in_state(AppState::InRun)),
         );
     }
@@ -143,4 +156,83 @@ pub fn spawn_hit_spark(commands: &mut Commands, settings: &GameSettings, pos: Ve
         Transform::from_xyz(pos.x, pos.y, 0.6),
         Visibility::Inherited,
     ));
+}
+
+/// Ghost trail lifetime: how long each afterimage persists
+/// before fading to transparent. 0.2s gives ~12 visible
+/// ghosts at 60fps — a readable trail without overwhelming
+/// the screen.
+const TRAIL_GHOST_LIFETIME_S: f32 = 0.2;
+
+/// Sandevistan-style afterimage system. Every frame during
+/// Cascade, spawns a semi-transparent ghost sprite at each
+/// entity tagged with `MotionTrail`. The ghost copies the
+/// entity's current sprite color and fades to transparent
+/// over `TRAIL_GHOST_LIFETIME_S` seconds.
+///
+/// The ghost sprite is 90% of the entity's size and has a
+/// slight blue bias (Sandevistan aesthetic) via an 0.15
+/// lerp toward blue. Visible at z=0.3 (above walls/floor,
+/// below player/z=0).
+fn trail_spawn_system(
+    cascade: Res<CascadeState>,
+    mut commands: Commands,
+    entities: Query<(&Transform, &Sprite), With<MotionTrail>>,
+) {
+    if !cascade.active {
+        return;
+    }
+    for (tf, sprite) in &entities {
+        let pos = tf.translation;
+        let color = sprite.color;
+        // Blue-shift the entity's color by lerping 15%
+        // toward a pale cyan — gives the Sandevistan
+        // aesthetic while keeping the entity's identity
+        // (orange player → orange-blue trail, gold
+        // beacon → gold-blue trail).
+        let trail_color = Color::srgb(
+            color.to_srgba().red * 0.85 + 0.15 * 0.4,
+            color.to_srgba().green * 0.85 + 0.15 * 0.8,
+            color.to_srgba().blue * 0.85 + 0.15 * 1.0,
+        )
+        .with_alpha(0.35);
+        let size = sprite
+            .custom_size
+            .unwrap_or(Vec2::splat(30.0));
+        commands.spawn((
+            TrailGhost {
+                lifetime: Timer::from_seconds(TRAIL_GHOST_LIFETIME_S, TimerMode::Once),
+                initial_color: trail_color,
+            },
+            Sprite {
+                color: trail_color.with_alpha(0.35),
+                custom_size: Some(size * 0.9),
+                ..default()
+            },
+            Transform::from_xyz(pos.x, pos.y, 0.3),
+            Visibility::Inherited,
+        ));
+    }
+}
+
+/// Per-frame update for live trail ghosts: tick lifetime,
+/// fade alpha toward 0, despawn on finish.
+fn trail_fade_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut q: Query<(Entity, &mut TrailGhost, &mut Sprite)>,
+) {
+    for (entity, mut ghost, mut sprite) in &mut q {
+        ghost.lifetime.tick(time.delta());
+        let t = if ghost.lifetime.duration().as_secs_f32() > 0.0 {
+            (ghost.lifetime.elapsed_secs() / ghost.lifetime.duration().as_secs_f32()).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        let alpha = ghost.initial_color.alpha() * (1.0 - t);
+        sprite.color = ghost.initial_color.with_alpha(alpha);
+        if ghost.lifetime.finished() {
+            commands.entity(entity).despawn();
+        }
+    }
 }

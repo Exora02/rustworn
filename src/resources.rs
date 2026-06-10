@@ -457,6 +457,18 @@ pub struct GameSettings {
     pub beacon_chain_max_extensions: u32,
     pub beacon_spawn_distance_min: f32,
     pub beacon_spawn_distance_max: f32,
+    /// Phase 2 P5.1: beacon flee speed in units/s. The beacon
+    /// moves away from the player at this speed during its
+    /// lifetime. During Cascade, the beacon is NOT
+    /// CascadeAffected, so its speed is the full value while
+    /// every other enemy is at 0.25× — the beacon visibly
+    /// moves fast compared to the slowed world.
+    ///
+    /// 100 matches the chaser's normal move speed. During
+    /// Cascade the chaser moves at 25, so the beacon at 100
+    /// is a clear "run from me" target. The player at 220
+    /// can catch it.
+    pub beacon_flee_speed: f32,
 }
 
 impl Default for GameSettings {
@@ -695,6 +707,11 @@ impl Default for GameSettings {
             // visible, far enough to require a dash.
             beacon_spawn_distance_min: 350.0,
             beacon_spawn_distance_max: 550.0,
+            // Phase 2 P5.1: beacon flee speed. 100 units/s
+            // matches the chaser's normal speed; during Cascade
+            // the slowed enemies move at 25, so the beacon at
+            // 100 is clearly the "fast one".
+            beacon_flee_speed: 100.0,
         }
     }
 }

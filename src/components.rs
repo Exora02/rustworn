@@ -476,6 +476,23 @@ pub struct HitFlash {
     pub timer: Timer,
 }
 
+/// Phase 2 P5.1: marker for entities that should leave motion
+/// trails (Sandevistan-style afterimages) during Cascade Mode.
+/// Applied to the player and the Beacon. The
+/// `trail_spawn_system` in fx.rs reads this marker and spawns
+/// `TrailGhost` entities at the entity's current position.
+#[derive(Component)]
+pub struct MotionTrail;
+
+/// Phase 2 P5.1: a ghost afterimage spawned by
+/// `trail_spawn_system`. Fades from its spawn alpha to 0 over
+/// `lifetime`, then is despawned by `trail_fade_system`.
+#[derive(Component)]
+pub struct TrailGhost {
+    pub lifetime: Timer,
+    pub initial_color: Color,
+}
+
 /// Phase 1 (Vampire Survivors fusion): floating damage number. Spawned
 /// at the hit point on every `DamageEvent`, floats up + fades alpha
 /// over `lifetime`, then despawns. The `value` is the integer-rounded

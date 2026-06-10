@@ -20,7 +20,7 @@ use log::info;
 
 use crate::components::{
     AimIndicator, AppState, BaseVelocity, Collider, DashCooldown, DeathPuff, Enemy, Health,
-    HudElement, HudElementKind, Invulnerable, Knockback, LastMoveDirection, MainCamera, Pickup,
+    HudElement, HudElementKind, Invulnerable, Knockback, LastMoveDirection, MainCamera, MotionTrail, Pickup,
     Player, Projectile, Velocity, Weapon, WeaponArchetype, WeaponInventory, PLAYER_COLOR,
 };
 use crate::resources::{BiomeState, CascadeState, GameSettings, RunRng, RunState, ScreenShake};
@@ -154,6 +154,11 @@ fn spawn_world(mut commands: Commands, settings: Res<GameSettings>) {
                     TimerMode::Repeating,
                 ),
             },
+            // Phase 2 P5.1: Sandevistan-style motion trail during
+            // Cascade Mode. The trail system spawns ghost afterimages
+            // at this entity's position each frame while Cascade is
+            // active, fading from full alpha to transparent.
+            MotionTrail,
         ))
         .with_children(|parent| {
             // White line sticking out the top of the player; rotated each
