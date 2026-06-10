@@ -185,17 +185,16 @@ fn trail_spawn_system(
     for (tf, sprite) in &entities {
         let pos = tf.translation;
         let color = sprite.color;
-        // Blue-shift the entity's color by lerping 15%
-        // toward a pale cyan — gives the Sandevistan
-        // aesthetic while keeping the entity's identity
-        // (orange player → orange-blue trail, gold
-        // beacon → gold-blue trail).
-        let trail_color = Color::srgb(
-            color.to_srgba().red * 0.85 + 0.15 * 0.4,
-            color.to_srgba().green * 0.85 + 0.15 * 0.8,
-            color.to_srgba().blue * 0.85 + 0.15 * 1.0,
-        )
-        .with_alpha(0.35);
+        // Entity's own color with a slight blue boost for the
+        // Sandevistan aesthetic. Alpha at 0.35 so the ghost is
+        // clearly translucent — readable trail without
+        // overwhelming the source entity.
+        let trail_color = Color::srgba(
+            color.to_srgba().red,
+            color.to_srgba().green,
+            (color.to_srgba().blue + 0.15).min(1.0),
+            0.35,
+        );
         let size = sprite
             .custom_size
             .unwrap_or(Vec2::splat(30.0));
