@@ -213,6 +213,7 @@ fn wave_spawner_tick_system(
     player_query: Query<&Transform, With<Player>>,
     mut room_cleared_events: EventWriter<RoomClearedEvent>,
     boss_ramp: Option<Res<BossRampTimer>>,
+    run: Res<RunState>,
 ) {
     if hitstop.is_some() {
         return;
@@ -299,7 +300,11 @@ fn wave_spawner_tick_system(
             })
             .unwrap_or(1.0);
         let ramp = (universal_factor * boss_factor).max(0.08);
-        let interval = (spawner.farming_interval * ramp).max(0.08);
+        // Curse factor: each curse point is ~10% faster spawns.
+        // Multiplicative with the time-based ramp so curse
+        // stacks on top of the natural difficulty increase.
+        let curse_factor = 1.0 / (1.0 + run.curse as f32 * 0.10);
+        let interval = (spawner.farming_interval * ramp * curse_factor).max(0.08);
 
         // Pick the next archetype based on room flavor.
         let room_kind = biome

@@ -659,7 +659,7 @@ fn beam_damage_system(
             // the enemy's archetype. RNG is `RunRng` for
             // per-run determinism.
             let mut rng = || rng.next_unit();
-            if let Some(kind) = roll_pickup_drop(enemy_ai.behavior, &settings, cascade.active, &mut rng) {
+            if let Some(kind) = roll_pickup_drop(enemy_ai.behavior, &settings, cascade.active, run_state.curse, &mut rng) {
                 spawn_pickup(&mut commands, &settings, enemy_pos, kind);
             }
             // Phase 2.4 (P4): independent weapon-drop roll.
@@ -668,7 +668,7 @@ fn beam_damage_system(
             // the two rolls are independent (a single kill
             // can drop a stat-stick AND a weapon).
             if let Some(weapon_kind) =
-                roll_weapon_drop(enemy_ai.behavior, &settings, cascade.active, &mut rng)
+                roll_weapon_drop(enemy_ai.behavior, &settings, cascade.active, run_state.curse, &mut rng)
             {
                 spawn_pickup(
                     &mut commands,
@@ -679,7 +679,7 @@ fn beam_damage_system(
             }
             // Health drop: flat 15% roll on every kill,
             // independent of stat-stick and weapon drops.
-            if roll_health_drop(&settings, &mut rng) {
+            if roll_health_drop(&settings, run_state.curse, &mut rng) {
                 spawn_pickup(
                     &mut commands,
                     &settings,
@@ -814,14 +814,12 @@ fn projectile_damage_system(
                 // Phase 1 pickup drop. Deterministic via
                 // `RunRng`.
                 let mut rng = || rng.next_unit();
-                if let Some(kind) = roll_pickup_drop(enemy_ai.behavior, &settings, cascade.active, &mut rng) {
+                if let Some(kind) = roll_pickup_drop(enemy_ai.behavior, &settings, cascade.active, run.curse, &mut rng) {
                     spawn_pickup(&mut commands, &settings, enemy_pos, kind);
                 }
                 // Phase 2.4 (P4): independent weapon-drop roll.
-                // See the matching block in the beam/contact
-                // kill handler above for the rationale.
                 if let Some(weapon_kind) =
-                    roll_weapon_drop(enemy_ai.behavior, &settings, cascade.active, &mut rng)
+                    roll_weapon_drop(enemy_ai.behavior, &settings, cascade.active, run.curse, &mut rng)
                 {
                     spawn_pickup(
                         &mut commands,
@@ -832,7 +830,7 @@ fn projectile_damage_system(
                 }
                 // Health drop: flat 15% roll on every kill,
                 // independent of stat-stick and weapon drops.
-                if roll_health_drop(&settings, &mut rng) {
+                if roll_health_drop(&settings, run.curse, &mut rng) {
                     spawn_pickup(
                         &mut commands,
                         &settings,
@@ -1071,13 +1069,13 @@ fn breakable_damage_system(
                 // as a stand-in for breakable drop rates).
                 let mut rng = || rng.next_unit();
                 if let Some(kind) =
-                    roll_pickup_drop(AiBehavior::Chaser, &settings, cascade.active, &mut rng)
-                {
+                    roll_pickup_drop(AiBehavior::Chaser, &settings, cascade.active, run.curse, &mut rng)
+                                {
                     spawn_pickup(&mut commands, &settings, breakable_pos, kind);
                 }
                 // Roll weapon drop (same stand-in).
                 if let Some(weapon_kind) =
-                    roll_weapon_drop(AiBehavior::Chaser, &settings, cascade.active, &mut rng)
+                    roll_weapon_drop(AiBehavior::Chaser, &settings, cascade.active, run.curse, &mut rng)
                 {
                     spawn_pickup(
                         &mut commands,
@@ -1087,7 +1085,7 @@ fn breakable_damage_system(
                     );
                 }
                 // Roll health drop (flat 15%).
-                if roll_health_drop(&settings, &mut rng) {
+                if roll_health_drop(&settings, run.curse, &mut rng) {
                     spawn_pickup(
                         &mut commands,
                         &settings,

@@ -222,6 +222,7 @@ pub fn roll_pickup_drop(
     behavior: AiBehavior,
     settings: &GameSettings,
     cascade_active: bool,
+    curse: u32,
     rng: &mut impl FnMut() -> f32,
 ) -> Option<PickupKind> {
     let chance = match behavior {
@@ -230,9 +231,6 @@ pub fn roll_pickup_drop(
         AiBehavior::Shooter => settings.pickup_drop_chance_shooter,
         AiBehavior::Sniper => settings.pickup_drop_chance_sniper,
         AiBehavior::Boss => settings.pickup_drop_chance_boss,
-        // The beacon doesn't drop stat-sticks — its
-        // reward IS being killed (the +5s cascade
-        // extension). Listed for match exhaustiveness.
         AiBehavior::Beacon => 0.0,
     };
     let cascade_mult = if cascade_active {
@@ -240,7 +238,9 @@ pub fn roll_pickup_drop(
     } else {
         1.0
     };
-    if rng() >= (chance * cascade_mult).min(1.0) {
+    // Curse scales loot: each curse point adds ~15% drop chance.
+    let curse_mult = 1.0 + curse as f32 * 0.15;
+    if rng() >= (chance * cascade_mult * curse_mult).min(1.0) {
         return None;
     }
     // Equal-weight roll for the kind. Phase 1 has 4 kinds;
@@ -287,6 +287,7 @@ pub fn roll_weapon_drop(
     behavior: AiBehavior,
     settings: &GameSettings,
     cascade_active: bool,
+    curse: u32,
     rng: &mut impl FnMut() -> f32,
 ) -> Option<WeaponArchetype> {
     let chance = match behavior {
@@ -304,7 +305,9 @@ pub fn roll_weapon_drop(
     } else {
         1.0
     };
-    if rng() >= (chance * cascade_mult).min(1.0) {
+    // Curse scales loot: each curse point adds ~15% drop chance.
+    let curse_mult = 1.0 + curse as f32 * 0.15;
+    if rng() >= (chance * cascade_mult * curse_mult).min(1.0) {
         return None;
     }
     // Roll uniformly across the 4 player weapon
@@ -329,8 +332,9 @@ pub fn roll_weapon_drop(
 /// AND a health orb.
 ///
 /// Returns `true` if the roll succeeded.
-pub fn roll_health_drop(settings: &GameSettings, rng: &mut impl FnMut() -> f32) -> bool {
-    rng() < settings.health_drop_chance
+pub fn roll_health_drop(settings: &GameSettings, curse: u32, rng: &mut impl FnMut() -> f32) -> bool {
+    let curse_mult = 1.0 + curse as f32 * 0.15;
+    rng() < (settings.health_drop_chance * curse_mult).min(1.0)
 }
 
 /// Lifetime: separate from the per-frame drift + tick, so the
@@ -430,7 +434,7 @@ mod tests {
     fn roll_weapon_drop_returns_some_when_chance_is_one() {
         let s = settings();
         let mut rng = || 0.0_f32; // first rng() < 1.0 → drop
-        let result = roll_weapon_drop(AiBehavior::Chaser, &s, false, &mut rng);
+        let result = roll_weapon_drop(AiBehavior::Chaser, &s, false, 0, &mut rng);
         assert!(result.is_some(), "chance=1.0 must always drop");
         assert!(matches!(
             result.unwrap(),
@@ -447,7 +451,7 @@ mod tests {
             ..Default::default()
         };
         let mut rng = || 0.0_f32;
-        assert!(roll_weapon_drop(AiBehavior::Chaser, &s, false, &mut rng).is_none());
+        assert!(roll_weapon_drop(AiBehavior::Chaser, &s, false, 0, &mut rng).is_none());
     }
 
     // `roll_weapon_drop` returns None when rng() >= chance.
@@ -459,11 +463,11 @@ mod tests {
             ..Default::default()
         };
         let mut rng = || 0.6_f32;
-        assert!(roll_weapon_drop(AiBehavior::Chaser, &s, false, &mut rng).is_none());
+        assert!(roll_weapon_drop(AiBehavior::Chaser, &s, false, 0, &mut rng).is_none());
 
         // And with rng = 0.4 < 0.5, drop.
         let mut rng = || 0.4_f32;
-        assert!(roll_weapon_drop(AiBehavior::Chaser, &s, false, &mut rng).is_some());
+        assert!(roll_weapon_drop(AiBehavior::Chaser, &s, false, 0, &mut rng).is_some());
     }
 
     // `WeaponInventory::default()` has Pistol in slot 0

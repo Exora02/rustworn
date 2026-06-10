@@ -358,6 +358,10 @@ enum ShrineReward {
     FireRateUp,
     SpeedUp,
     XpGain(u32),
+    /// Brotato-style curse: +1 curse. Permanently increases
+    /// spawn rate for the rest of the run, but also scales
+    /// loot quality. High risk, high reward.
+    CurseUp,
 }
 
 /// Pick a random upgrade from the focus's pool.
@@ -373,17 +377,21 @@ fn pick_shrine_reward(focus: ShrineFocus, roll: u64) -> ShrineReward {
             }
         }
         ShrineFocus::Combat => {
-            // Pool: +damage (common), +fire rate (common)
-            match roll % 2 {
+            // Pool: +damage (common), Curse (uncommon), +fire rate (uncommon)
+            match roll % 4 {
                 0 => ShrineReward::DamageUp,
-                _ => ShrineReward::FireRateUp,
+                1 => ShrineReward::CurseUp,
+                2 => ShrineReward::FireRateUp,
+                _ => ShrineReward::DamageUp,
             }
         }
         ShrineFocus::Utility => {
-            // Pool: +speed (common), +XP (common)
-            match roll % 2 {
+            // Pool: +speed (common), +XP (common), Curse (rare)
+            match roll % 4 {
                 0 => ShrineReward::SpeedUp,
-                _ => ShrineReward::XpGain(5),
+                1 => ShrineReward::XpGain(5),
+                2 => ShrineReward::CurseUp,
+                _ => ShrineReward::SpeedUp,
             }
         }
     }
@@ -419,6 +427,10 @@ fn apply_reward(reward: ShrineReward, health: &mut Health, run: &mut RunState) {
         ShrineReward::XpGain(amt) => {
             run.xp = run.xp.saturating_add(amt);
             info!("Shrine: +{amt} XP");
+        }
+        ShrineReward::CurseUp => {
+            run.curse = run.curse.saturating_add(1);
+            info!("Shrine: Curse +1 (total: {})", run.curse);
         }
     }
 }

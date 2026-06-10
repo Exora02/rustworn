@@ -184,6 +184,10 @@ pub struct RunState {
     pub fire_rate_stacks: u32,
     pub speed_stacks: u32,
     pub regen_per_sec: f32,
+    /// Brotato-style curse: increases spawn rate and loot quality
+    /// in exchange for harder rooms. Set by curse shrine rewards.
+    /// Each point is ~10% more spawn rate + scaling loot bonus.
+    pub curse: u32,
 }
 
 impl Default for RunState {
@@ -201,6 +205,7 @@ impl Default for RunState {
             fire_rate_stacks: 0,
             speed_stacks: 0,
             regen_per_sec: 0.0,
+            curse: 0,
         }
     }
 }
