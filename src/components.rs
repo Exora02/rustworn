@@ -828,9 +828,12 @@ pub enum RoomKind {
     Fight,
     /// Boss room. Every N rooms (default 4) the player faces
     /// a boss encounter. Boss death → full heal + floor
-    /// advancement + difficulty ramp. No regular waves —
-    /// just the boss and its adds.
+    /// advancement + difficulty ramp.
     Boss,
+    /// Mini-boss room. Appears between boss rooms (every 2nd
+    /// non-boss room). Tougher waves, more breakables, better
+    /// drops. A mid-cycle spike before the next boss.
+    MiniBoss,
 }
 
 /// Door trigger: a small AABB on the floor in front of a wall.
@@ -892,6 +895,13 @@ pub struct RoomScope {
 /// system can find them.
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct Wall;
+
+/// Floor transition text that appears briefly when the player
+/// advances to a new floor (after clearing a boss room).
+/// The timer starts when the text is spawned; the fade system
+/// ticks it, fades the alpha, and despawns when it finishes.
+#[derive(Component)]
+pub struct FloorTransitionText(pub Timer);
 
 /// Phase 2 P6 (Crab Champions run): teleport pad that appears
 /// in a cleared room. The player walks into it to transition

@@ -14,12 +14,13 @@
 //! - `shrine_collect_system` — player-shrine overlap → one-time effect
 
 use bevy::prelude::*;
+use bevy::sprite::Anchor;
 use log::info;
 
 use crate::components::{
-    AimIndicator, AppState, Breakable, Collider, DeathPuff, Enemy, EnemyArchetype, Health, MainCamera,
-    Pickup, Player, Projectile, Room, RoomId, RoomKind, Shrine, ShrineFocus, TeleportPad, Velocity,
-    Wall, WaveDefinition, WaveSpawner,
+    AimIndicator, AppState, Breakable, Collider, DeathPuff, Enemy, EnemyArchetype, FloorTransitionText,
+    Health, MainCamera, Pickup, Player, Projectile, Room, RoomId, RoomKind, Shrine, ShrineFocus,
+    TeleportPad, Velocity, Wall, WaveDefinition, WaveSpawner,
 };
 use crate::events::RoomClearedEvent;
 use crate::resources::{FloorState, GameSettings, Hitstop, RunRng, RunState};
@@ -62,6 +63,8 @@ const SHRINE_CHANNEL_S: f32 = 1.5;
 const SHRINES_PER_ROOM: usize = 4;
 /// How many breakables per room.
 const BREAKABLES_PER_ROOM: usize = 6;
+const BREAKABLES_ELITE: usize = 12;
+const SHRINES_ELITE: usize = 6;
 
 pub struct RoomsPlugin;
 
@@ -75,6 +78,7 @@ impl Plugin for RoomsPlugin {
                     shrine_collect_system,
                     teleport_transition_system,
                     pad_spawn_on_clear_system,
+                    floor_transition_fade_system,
                 )
                     .chain()
                     .run_if(in_state(AppState::InRun)),
@@ -103,31 +107,56 @@ fn generate_room(
 
     spawn_walls(commands, &room, floor.floor_number);
 
-    if kind == RoomKind::Fight || kind == RoomKind::Boss {
+    if kind == RoomKind::Fight || kind == RoomKind::Boss || kind == RoomKind::MiniBoss {
         let wave_count = 4;
-        let base_interval = 1.5;
-        let waves = vec![
-            WaveDefinition {
-                archetype: EnemyArchetype::Chaser,
-                count: (4 + floor.floor_number).min(10),
-                interval_s: base_interval,
-            },
-            WaveDefinition {
-                archetype: EnemyArchetype::Dasher,
-                count: (2 + floor.floor_number / 2).min(8),
-                interval_s: base_interval * 0.7,
-            },
-            WaveDefinition {
-                archetype: EnemyArchetype::Shooter,
-                count: (2 + floor.floor_number / 2).min(8),
-                interval_s: base_interval * 0.7,
-            },
-            WaveDefinition {
-                archetype: EnemyArchetype::Sniper,
-                count: (1 + floor.floor_number / 3).min(5),
-                interval_s: base_interval * 0.35,
-            },
-        ];
+        let base_interval = if kind == RoomKind::MiniBoss { 1.2 } else { 1.5 };
+        let waves = if kind == RoomKind::MiniBoss {
+            vec![
+                WaveDefinition {
+                    archetype: EnemyArchetype::Chaser,
+                    count: (6 + floor.floor_number).min(14),
+                    interval_s: base_interval * 0.5,
+                },
+                WaveDefinition {
+                    archetype: EnemyArchetype::Dasher,
+                    count: (3 + floor.floor_number / 2).min(10),
+                    interval_s: base_interval * 0.4,
+                },
+                WaveDefinition {
+                    archetype: EnemyArchetype::Shooter,
+                    count: (3 + floor.floor_number / 2).min(10),
+                    interval_s: base_interval * 0.4,
+                },
+                WaveDefinition {
+                    archetype: EnemyArchetype::Sniper,
+                    count: (2 + floor.floor_number / 3).min(7),
+                    interval_s: base_interval * 0.4,
+                },
+            ]
+        } else {
+            vec![
+                WaveDefinition {
+                    archetype: EnemyArchetype::Chaser,
+                    count: (4 + floor.floor_number).min(10),
+                    interval_s: base_interval,
+                },
+                WaveDefinition {
+                    archetype: EnemyArchetype::Dasher,
+                    count: (2 + floor.floor_number / 2).min(8),
+                    interval_s: base_interval * 0.7,
+                },
+                WaveDefinition {
+                    archetype: EnemyArchetype::Shooter,
+                    count: (2 + floor.floor_number / 2).min(8),
+                    interval_s: base_interval * 0.7,
+                },
+                WaveDefinition {
+                    archetype: EnemyArchetype::Sniper,
+                    count: (1 + floor.floor_number / 3).min(5),
+                    interval_s: base_interval * 0.35,
+                },
+            ]
+        };
         commands.spawn((
             WaveSpawner {
                 room_id,
@@ -140,8 +169,10 @@ fn generate_room(
         ));
 
         // Spawn room interactables.
-        spawn_shrines(commands, &room);
-        spawn_breakables(commands, &room);
+        let shrine_count = if kind == RoomKind::MiniBoss { SHRINES_ELITE } else { SHRINES_PER_ROOM };
+        let breakable_count = if kind == RoomKind::MiniBoss { BREAKABLES_ELITE } else { BREAKABLES_PER_ROOM };
+        spawn_shrines(commands, &room, shrine_count);
+        spawn_breakables(commands, &room, breakable_count);
     }
 
     info!(
@@ -154,7 +185,7 @@ fn generate_room(
 
 // ─── Shrines ─────────────────────────────────────────────────────────────
 
-fn spawn_shrines(commands: &mut Commands, room: &Room) {
+fn spawn_shrines(commands: &mut Commands, room: &Room, count: usize) {
     let center = (room.bounds_min + room.bounds_max) * 0.5;
     let focuses = [
         ShrineFocus::HealRegen,
@@ -162,14 +193,19 @@ fn spawn_shrines(commands: &mut Commands, room: &Room) {
         ShrineFocus::Utility,
         ShrineFocus::Combat, // 4th shrine: another combat for variety
     ];
-    for i in 0..SHRINES_PER_ROOM {
+    for i in 0..count {
         let focus = focuses[i.min(focuses.len() - 1)];
         let color = shrine_color(focus);
-        let offset = match i {
-            0 => Vec2::new(-room.size().x * 0.3, room.size().y * 0.2),
-            1 => Vec2::new(room.size().x * 0.25, -room.size().y * 0.25),
-            2 => Vec2::new(-room.size().x * 0.2, -room.size().y * 0.3),
-            _ => Vec2::new(room.size().x * 0.3, room.size().y * 0.25),
+        let offset = if i < 4 {
+            match i {
+                0 => Vec2::new(-room.size().x * 0.3, room.size().y * 0.2),
+                1 => Vec2::new(room.size().x * 0.25, -room.size().y * 0.25),
+                2 => Vec2::new(-room.size().x * 0.2, -room.size().y * 0.3),
+                _ => Vec2::new(room.size().x * 0.3, room.size().y * 0.25),
+            }
+        } else {
+            let angle = (i as f32) * std::f32::consts::TAU / (count as f32);
+            Vec2::new(angle.cos() * room.size().x * 0.28, angle.sin() * room.size().y * 0.28)
         };
         let pos = center + offset;
         let channel = if matches!(focus, ShrineFocus::HealRegen) {
@@ -333,15 +369,19 @@ fn apply_reward(reward: ShrineReward, health: &mut Health, run: &mut RunState) {
 
 // ─── Breakables ──────────────────────────────────────────────────────────
 
-fn spawn_breakables(commands: &mut Commands, room: &Room) {
+fn spawn_breakables(commands: &mut Commands, room: &Room, count: usize) {
     let center = (room.bounds_min + room.bounds_max) * 0.5;
-    for i in 0..BREAKABLES_PER_ROOM {
-        // Scatter breakables around the room at various positions.
-        let offset = match i {
-            0 => Vec2::new(-room.size().x * 0.35, 0.0),
-            1 => Vec2::new(room.size().x * 0.35, -room.size().y * 0.15),
-            2 => Vec2::new(0.0, room.size().y * 0.35),
-            _ => Vec2::new(-room.size().x * 0.15, -room.size().y * 0.35),
+    for i in 0..count {
+        let offset = if i < 4 {
+            match i {
+                0 => Vec2::new(-room.size().x * 0.35, 0.0),
+                1 => Vec2::new(room.size().x * 0.35, -room.size().y * 0.15),
+                2 => Vec2::new(0.0, room.size().y * 0.35),
+                _ => Vec2::new(-room.size().x * 0.15, -room.size().y * 0.35),
+            }
+        } else {
+            let angle = (i as f32) * std::f32::consts::TAU / (count as f32);
+            Vec2::new(angle.cos() * room.size().x * 0.3, angle.sin() * room.size().y * 0.3)
         };
         let pos = center + offset;
         commands.spawn((
@@ -501,32 +541,36 @@ fn aabb_overlap(a_center: Vec2, a_half: Vec2, b_center: Vec2, b_half: Vec2) -> b
     delta.x.abs() < a_half.x + b_half.x && delta.y.abs() < a_half.y + b_half.y
 }
 
-// ─── Teleport pad spawn on clear ───────────────────────────────────────
-
 fn pad_spawn_on_clear_system(
     mut commands: Commands,
     mut events: EventReader<RoomClearedEvent>,
     floor: Res<FloorState>,
 ) {
     for ev in events.read() {
-        let Some(room) = floor.rooms.iter().find(|r| r.id == ev.room_id) else { continue; };
+        let Some(room) = floor.rooms.iter().find(|r| r.id == ev.room_id) else {
+            continue;
+        };
         let center = (room.bounds_min + room.bounds_max) * 0.5;
         let rooms_cleared = floor.rooms.len() as u32;
 
         // Branching: spawn 2-3 pads.
-        // Pad 1: always "Fight" (forward combat room).
+        // Pad 1: always "Fight" or "Elite" (forward combat room).
         // Pad 2: "Treasure" if room qualifies (high-loot combat room).
         //        Simplified: always spawn a treasure option for now.
         // Pad 3: "Boss" if eligible (every ROOMS_PER_BOSS rooms).
 
-        // Pad 1: Fight — always present. Offset to the right.
+        // Every 2nd room (rooms_cleared % 4 == 2) is a MiniBoss.
+        let is_miniboss = rooms_cleared > 0 && rooms_cleared % ROOMS_PER_BOSS == 2;
+        let is_boss = rooms_cleared > 0 && rooms_cleared % ROOMS_PER_BOSS == 0;
+
+        // Pad 1: Fight / Elite — always present. Offset to the right.
+        let fight_label = if is_miniboss { "Elite" } else { "Fight" };
         let fight_pos = center + Vec2::new(0.0, PAD_SIZE * 1.2);
-        commands.spawn(pad_bundle(fight_pos, "Fight"));
+        commands.spawn(pad_bundle(fight_pos, fight_label));
 
         // Pad 2: (reserved for Treasure rooms — not implemented yet)
 
         // Pad 3: Boss — every ROOMS_PER_BOSS rooms. Offset upward.
-        let is_boss = rooms_cleared > 0 && rooms_cleared % ROOMS_PER_BOSS == 0;
         if is_boss {
             let boss_pos = center + Vec2::new(PAD_SIZE * 1.2, 0.0);
             commands.spawn(pad_bundle(boss_pos, "Boss"));
@@ -575,12 +619,34 @@ fn teleport_transition_system(
         ) { continue; }
 
         let next_room_id = RoomId(floor.rooms.len() as u8);
-        let rooms_cleared = floor.rooms.len() as u32;
+
+        // Check if the player is LEAVING a Boss room → floor advance.
+        if let Some(current) = floor.rooms.iter().find(|r| r.id == floor.current_room) {
+            if current.kind == RoomKind::Boss {
+                floor.floor_number += 1;
+
+                // Spawn floor transition text above the player.
+                commands.spawn((
+                    Text2d::new(format!("Floor {}", floor.floor_number)),
+                    TextFont { font_size: 48.0, ..default() },
+                    TextColor(Color::srgb(1.0, 0.8, 0.2)),
+                    TextLayout::new_with_justify(JustifyText::Center),
+                    Anchor::Center,
+                    Transform::from_xyz(
+                        player_tf.translation.x,
+                        player_tf.translation.y + 100.0,
+                        15.0,
+                    ),
+                    FloorTransitionText(Timer::from_seconds(2.0, TimerMode::Once)),
+                ));
+            }
+        }
 
         // Determine next room kind from pad label.
         let next_kind = match teleport.label.as_str() {
             "Treasure" => RoomKind::Fight, // Treasure room = fight room with extra loot chance
             "Boss" => RoomKind::Boss,
+            "Elite" => RoomKind::MiniBoss,
             _ => RoomKind::Fight,
         };
 
@@ -617,6 +683,35 @@ fn teleport_transition_system(
             floor.rooms.len() - 2, next_room_id.0, next_kind
         );
         return;
+    }
+}
+
+// ─── Floor transition fade ────────────────────────────────────────────────
+
+fn floor_transition_fade_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(
+        Entity,
+        &mut FloorTransitionText,
+        &mut TextColor,
+        &mut Transform,
+    )>,
+) {
+    for (entity, mut state, mut color, mut tf) in &mut query {
+        state.0.tick(time.delta());
+        let progress = state.0.fraction();
+
+        // Halfway through: start fading alpha.
+        if progress > 0.5 {
+            let fade = 1.0 - (progress - 0.5) * 2.0;
+            color.0 = color.0.with_alpha(fade);
+        }
+
+        // When timer finishes: despawn.
+        if state.0.just_finished() {
+            commands.entity(entity).despawn();
+        }
     }
 }
 
