@@ -198,9 +198,22 @@ pub fn regen_tick_system(
 /// The `rng` parameter is a closure that returns a `f32` in [0, 1)
 /// for testability — production calls a deterministic hash of
 /// the kill counter (Phase 2 will swap in seeded RNG).
+///
+/// Phase 2 P5: when `cascade_active` is true, the drop
+/// chance is multiplied by `GameSettings::cascade_loot_multiplier`
+/// (default 4.0). This is the "4× loot rarity roll"
+/// promise from `phase_2_run_structure.md` P5 — during a
+/// Cascade window, the same enemy is 4× as likely to
+/// drop a stat-stick. Capped at 1.0 so a chaser's
+/// 0.25 base × 4 = 1.0 (guaranteed drop) — at that point
+/// the cap kicks in and the chance stops growing. The
+/// stat-stick KIND roll (DamageUp / FireRateUp / etc.) is
+/// unchanged; "rarity" in the design sense is "more
+/// drops per kill", not "better tier drops".
 pub fn roll_pickup_drop(
     behavior: AiBehavior,
     settings: &GameSettings,
+    cascade_active: bool,
     rng: &mut impl FnMut() -> f32,
 ) -> Option<PickupKind> {
     let chance = match behavior {
@@ -209,8 +222,17 @@ pub fn roll_pickup_drop(
         AiBehavior::Shooter => settings.pickup_drop_chance_shooter,
         AiBehavior::Sniper => settings.pickup_drop_chance_sniper,
         AiBehavior::Boss => settings.pickup_drop_chance_boss,
+        // The beacon doesn't drop stat-sticks — its
+        // reward IS being killed (the +5s cascade
+        // extension). Listed for match exhaustiveness.
+        AiBehavior::Beacon => 0.0,
     };
-    if rng() >= chance {
+    let cascade_mult = if cascade_active {
+        settings.cascade_loot_multiplier
+    } else {
+        1.0
+    };
+    if rng() >= (chance * cascade_mult).min(1.0) {
         return None;
     }
     // Equal-weight roll for the kind. Phase 1 has 4 kinds;
@@ -244,9 +266,19 @@ pub fn roll_pickup_drop(
 ///
 /// Like `roll_pickup_drop`, the `rng` is a closure
 /// returning a `f32` in [0, 1) for testability.
+///
+/// Phase 2 P5: `cascade_active` multiplies the chance
+/// by `cascade_loot_multiplier` (default 4.0). The 4× loot
+/// applies to BOTH the stat-stick roll (above) and the
+/// weapon roll (here) so a Cascade window is a meaningful
+/// "burst of progress" for both kinds of drop. Capped at
+/// 1.0 so the boss's 1.0 base × 4 = 1.0 (no change) and
+/// the snipers' 0.25 × 4 = 1.0 (guaranteed drop in
+/// cascade).
 pub fn roll_weapon_drop(
     behavior: AiBehavior,
     settings: &GameSettings,
+    cascade_active: bool,
     rng: &mut impl FnMut() -> f32,
 ) -> Option<WeaponArchetype> {
     let chance = match behavior {
@@ -255,8 +287,16 @@ pub fn roll_weapon_drop(
         AiBehavior::Shooter => settings.pickup_drop_chance_weapon_shooter,
         AiBehavior::Sniper => settings.pickup_drop_chance_weapon_sniper,
         AiBehavior::Boss => settings.pickup_drop_chance_weapon_boss,
+        // Beacon: no weapon drop (its reward is the
+        // cascade chain extension). Listed for exhaustiveness.
+        AiBehavior::Beacon => 0.0,
     };
-    if rng() >= chance {
+    let cascade_mult = if cascade_active {
+        settings.cascade_loot_multiplier
+    } else {
+        1.0
+    };
+    if rng() >= (chance * cascade_mult).min(1.0) {
         return None;
     }
     // Roll uniformly across the 4 player weapon
@@ -363,7 +403,7 @@ mod tests {
     fn roll_weapon_drop_returns_some_when_chance_is_one() {
         let s = settings();
         let mut rng = || 0.0_f32; // first rng() < 1.0 → drop
-        let result = roll_weapon_drop(AiBehavior::Chaser, &s, &mut rng);
+        let result = roll_weapon_drop(AiBehavior::Chaser, &s, false, &mut rng);
         assert!(result.is_some(), "chance=1.0 must always drop");
         assert!(matches!(
             result.unwrap(),
@@ -380,7 +420,7 @@ mod tests {
             ..Default::default()
         };
         let mut rng = || 0.0_f32;
-        assert!(roll_weapon_drop(AiBehavior::Chaser, &s, &mut rng).is_none());
+        assert!(roll_weapon_drop(AiBehavior::Chaser, &s, false, &mut rng).is_none());
     }
 
     // `roll_weapon_drop` returns None when rng() >= chance.
@@ -392,11 +432,11 @@ mod tests {
             ..Default::default()
         };
         let mut rng = || 0.6_f32;
-        assert!(roll_weapon_drop(AiBehavior::Chaser, &s, &mut rng).is_none());
+        assert!(roll_weapon_drop(AiBehavior::Chaser, &s, false, &mut rng).is_none());
 
         // And with rng = 0.4 < 0.5, drop.
         let mut rng = || 0.4_f32;
-        assert!(roll_weapon_drop(AiBehavior::Chaser, &s, &mut rng).is_some());
+        assert!(roll_weapon_drop(AiBehavior::Chaser, &s, false, &mut rng).is_some());
     }
 
     // `WeaponInventory::default()` has Pistol in slot 0

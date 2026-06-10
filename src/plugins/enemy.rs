@@ -9,10 +9,10 @@ use bevy::prelude::*;
 use log::warn;
 
 use crate::components::{
-    AiBehavior, AppState, BaseColor, BaseVelocity, Boss, BossPhase, BossState, CascadeAffected,
-    Collider, DasherPhase, DasherState, DeathPuff, Enemy, EnemyAI, EnemyArchetype, Health,
-    HitFlash, Invulnerable, Knockback, Player, Projectile, Room, ShooterState,
-    SniperState, Team, Velocity, WaveDefinition, WaveSpawner,
+    AiBehavior, AppState, BaseColor, BaseVelocity, Beacon, Boss, BossPhase, BossState,
+    CascadeAffected, Collider, DasherPhase, DasherState, DeathPuff, Enemy, EnemyAI, EnemyArchetype,
+    Health, HitFlash, Invulnerable, Knockback, Player, Projectile, Room, ShooterState, SniperState,
+    Team, Velocity, WaveDefinition, WaveSpawner,
 };
 use crate::events::{DamageEvent, RoomClearedEvent};
 use crate::plugins::fx::spawn_hit_spark;
@@ -123,6 +123,18 @@ const BOSS_PROJECTILE_COLOR: Color = Color::srgb(0.95, 0.20, 0.15);
 /// cover a 90° arc, the bullets are fat enough that any
 /// attempt to step between them catches at least one.
 const BOSS_PROJECTILE_SIZE: Vec2 = Vec2::new(12.0, 12.0);
+
+// ─── Cascade beacon constants (Phase 2 P5) ──────────────────────────────
+
+/// Beacon color. Bright gold/yellow — distinct from every
+/// other enemy on screen (chaser red, dasher orange, shooter
+/// teal, sniper yellow, boss deep red). The beacon needs to
+/// be visually obvious the moment the Cascade window opens
+/// so the player can choose to push for the +5s extension
+/// vs. focus on the slowed-down regular enemies. Gold also
+/// reads as "objective" / "valuable" in arcade color
+/// shorthand (coins, treasure, power-ups).
+const BEACON_COLOR: Color = Color::srgb(1.0, 0.85, 0.20);
 
 pub struct EnemyPlugin;
 
@@ -312,7 +324,11 @@ fn spawn_wave_enemy(
         // path (boss_spawn_system at run midpoint), not
         // a wave. Future patch will fold it into the
         // wave system.
-        EnemyArchetype::Boss => {}
+        // Phase 2 P5: Beacon is spawned by the cascade-
+        // start handler in `player.rs`, not via the wave
+        // system (cascade windows don't align with wave
+        // starts). No-op here, like Boss.
+        EnemyArchetype::Boss | EnemyArchetype::Beacon => {}
     }
 }
 
@@ -342,8 +358,9 @@ fn spawn_enemy(
         // Note: `Boss` is not spawned via the random spawner —
         // it spawns at the run-midpoint (60s) at a fixed
         // distance from the player. See `boss_spawn_system`
-        // in the player plugin.
-        EnemyArchetype::Boss => {}
+        // in the player plugin. Same for `Beacon` — see
+        // `cascade_start_handler` in the player plugin.
+        EnemyArchetype::Boss | EnemyArchetype::Beacon => {}
     }
 }
 
@@ -712,6 +729,49 @@ pub fn spawn_boss(commands: &mut Commands, settings: &GameSettings, position: Ve
             ),
             current_hp: settings.boss_max_hp,
         },
+    ));
+}
+
+// Phase 2 P5: spawn a Cascade beacon at `position`. Called
+// by the cascade-start handler in `player.rs` the frame a
+// Cascade window opens. The beacon is a static, hittable
+// target — no AI movement, no contact damage, no
+// CascadeAffected (velocity is always zero so scaling is
+// irrelevant). Killing it during Cascade extends the
+// window by `beacon_chain_extension_s` (5s, capped at
+// +15s total) — see `combat.rs::projectile_damage_system`
+// for the kill-side hook.
+//
+// The beacon's `Beacon` marker component is the
+// discriminator the kill handler reads via `Has<Beacon>`
+// to fire the chain-extend. The marker is intentionally
+// separate from `AiBehavior::Beacon` so future "spawn a
+// moving beacon" patches don't accidentally fire the
+// chain hook on the wrong archetype.
+pub fn spawn_beacon(commands: &mut Commands, settings: &GameSettings, position: Vec2) {
+    commands.spawn((
+        Sprite {
+            color: BEACON_COLOR,
+            custom_size: Some(Vec2::splat(settings.beacon_size)),
+            ..default()
+        },
+        Transform::from_xyz(position.x, position.y, 0.0),
+        Beacon,
+        Enemy,
+        EnemyAI {
+            behavior: AiBehavior::Beacon,
+        },
+        Collider {
+            half_extents: Vec2::splat(settings.beacon_size * 0.5),
+        },
+        Health::new(settings.beacon_hp),
+        // Static: no BaseVelocity, no Velocity. The AI
+        // system matches on `AiBehavior::Beacon` and writes
+        // nothing, so the beacon stays at its spawn position
+        // for its whole lifetime.
+        Velocity::default(),
+        BaseVelocity::default(),
+        BaseColor(BEACON_COLOR),
     ));
 }
 
@@ -1110,6 +1170,15 @@ fn enemy_ai_system(
                     }
                 }
             }
+            // Phase 2 P5: the beacon is static. No movement,
+            // no attack — the AI tick is a no-op and the
+            // BaseVelocity stays at zero. The kill handler
+            // in `combat.rs` reads `Has<Beacon>` to fire
+            // the cascade-chain-extend hook; the contact-
+            // damage handler skips the beacon via the same
+            // marker (see the early-continue in
+            // `enemy_contact_damage_system`).
+            AiBehavior::Beacon => {}
         }
     }
 }
@@ -1175,6 +1244,18 @@ fn enemy_contact_damage_system(
     let player_pos = player_tf.translation.truncate();
 
     for (enemy_tf, enemy_col, enemy_ai) in &enemies {
+        // Phase 2 P5: the beacon is a "hit me" target, not
+        // a "touch me" one. Skip contact damage entirely
+        // (no damage, no log, no shake) so the player can
+        // walk up to the beacon during Cascade without
+        // losing HP for it. The beacon is still hittable
+        // by projectiles / the beam (those paths use
+        // `With<Enemy>` filtering that includes the
+        // beacon, and the kill handler applies the
+        // chain-extend hook on a beacon kill).
+        if matches!(enemy_ai.behavior, AiBehavior::Beacon) {
+            continue;
+        }
         let enemy_pos = enemy_tf.translation.truncate();
         if !aabb_overlap(
             player_pos,
@@ -1194,6 +1275,9 @@ fn enemy_contact_damage_system(
             AiBehavior::Shooter => settings.shooter_contact_damage,
             AiBehavior::Sniper => settings.sniper_contact_damage,
             AiBehavior::Boss => settings.boss_contact_damage,
+            // Unreachable: filtered by the early-continue
+            // above. Listed to keep the match exhaustive.
+            AiBehavior::Beacon => 0.0,
         };
         health.current = (health.current - damage).max(0.0);
         damage_events.send(DamageEvent {

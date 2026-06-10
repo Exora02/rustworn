@@ -150,14 +150,24 @@ pub struct RunState {
     pub biome_index: u32,
     pub time_elapsed: f32,
     pub time_cap: f32, // 300s for a 5-minute run
-    pub score: u32,
+    /// Phase 2 P5: XP counter, bumped on every kill. Acts as
+    /// the run's "score" for the player — the HUD shows the
+    /// number directly. During Cascade, each kill gives
+    /// `xp_per_kill * cascade_xp_multiplier` so the same
+    /// combat generates 4× XP, matching the design-doc
+    /// promise of "kills during Cascade: 4× XP".
+    pub xp: u32,
     pub enemies_killed: u32,
-    // The cascade beacon is gated on the boss's death — the
-    // flag flips to `true` when the mini-boss's HP hits zero
-    // (see `projectile_damage_system` in combat.rs). Reserved
-    // for the Phase 1 cascade hook; no system reads it today,
-    // but the slot is here so Phase 1 can land the spawn
-    // without another resource migration.
+    /// Phase 2 P5 (Cascade beacon): flipped to `true` by the
+    /// cascade-start handler the frame it spawns a beacon,
+    /// flipped to `false` when the beacon dies. Defensive
+    /// guard against double-spawn if `CascadeStartEvent`
+    /// ever fires twice in the same window.
+    ///
+    /// Replaces the Phase 1 "boss-death → cascade hook"
+    /// comment: the boss's death no longer gates the
+    /// cascade (cascade is a tempo event on its own
+    /// interval, per `phase_2_3_2_design_shift.md` §2.1).
     pub cascade_beacon_alive: bool,
     // Phase 1 mini-boss: set to `true` the frame the boss
     // spawns (via `boss_spawn_system` in player.rs). Used as
@@ -184,7 +194,7 @@ impl Default for RunState {
             biome_index: 0,
             time_elapsed: 0.0,
             time_cap: 300.0,
-            score: 0,
+            xp: 0,
             enemies_killed: 0,
             cascade_beacon_alive: false,
             boss_spawned: false,
@@ -435,6 +445,18 @@ pub struct GameSettings {
     // Phase 1 — hit spark visual tunables.
     pub hit_spark_lifetime_s: f32,
     pub hit_spark_size: f32,
+    // Phase 2 P5: Cascade bonuses. See the Default impl
+    // for the design rationale.
+    pub cascade_xp_multiplier: f32,
+    pub cascade_loot_multiplier: f32,
+    pub xp_per_kill: u32,
+    // Phase 2 P5: Cascade beacon.
+    pub beacon_hp: f32,
+    pub beacon_size: f32,
+    pub beacon_chain_extension_s: f32,
+    pub beacon_chain_max_extensions: u32,
+    pub beacon_spawn_distance_min: f32,
+    pub beacon_spawn_distance_max: f32,
 }
 
 impl Default for GameSettings {
@@ -632,6 +654,47 @@ impl Default for GameSettings {
             // Phase 1 — hit spark visual tunables.
             hit_spark_lifetime_s: 0.12,
             hit_spark_size: 8.0,
+            // Phase 2 P5: Cascade bonuses. The "4×" numbers
+            // from `phase_2_run_structure.md` P5 — XP per kill
+            // and pickup/weapon drop chances are both
+            // multiplied by these during a Cascade window.
+            // 4× XP makes the 30s window feel like a "burst
+            // of progress"; 4× loot means a Cascade kills a
+            // room's worth of chasers will drop ~4× as many
+            // pickups as the same kills outside Cascade, so
+            // the player is visibly rewarded for the slow-mo
+            // push.
+            cascade_xp_multiplier: 4.0,
+            cascade_loot_multiplier: 4.0,
+            // Phase 2 P5: XP baseline. One XP per kill outside
+            // Cascade; × cascade_xp_multiplier inside. Kept
+            // small (1) so the HUD readout moves at a
+            // human-readable rate; the cascade multiplier
+            // does the heavy lifting.
+            xp_per_kill: 1,
+            // Phase 2 P5: Cascade beacon. Static (no movement,
+            // no contact damage) enemy that spawns the frame
+            // a Cascade window opens. Killing it during
+            // Cascade extends the window by
+            // `beacon_chain_extension_s` (5s); the cap is
+            // `beacon_chain_max_extensions` (3 → +15s total
+            // per window). HP 8 means it takes ~8 pistol
+            // hits — meaningful but not a chase. Size 30
+            // matches the chaser's 30×30 silhouette so it
+            // reads as a "regular" enemy in scale.
+            beacon_hp: 8.0,
+            beacon_size: 30.0,
+            beacon_chain_extension_s: 5.0,
+            beacon_chain_max_extensions: 3,
+            // Distance band for the beacon spawn: outside the
+            // chaser's spawn ring (400-600) so the beacon
+            // doesn't overlap the wave spawns, but inside
+            // the player's view (1280×720) so the player can
+            // see it the moment the Cascade opens. 350-550
+            // is a "go seek it" range — close enough to be
+            // visible, far enough to require a dash.
+            beacon_spawn_distance_min: 350.0,
+            beacon_spawn_distance_max: 550.0,
         }
     }
 }

@@ -480,7 +480,7 @@ fn enter_in_run_system(
 
     run.time_elapsed = 0.0;
     run.enemies_killed = 0;
-    run.score = 0;
+    run.xp = 0;
     // Phase 1 pickups: reset the run-long stat stacks so the
     // fresh run boots at baseline. The pickups themselves
     // are despawned by the `enemies` / `projectiles` /

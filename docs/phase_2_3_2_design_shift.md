@@ -28,20 +28,36 @@ what new systems need to be designed.
 
 ## 2. What changes (the shift)
 
-### 2.1 Drop the 5-minute cap and the "extraction portal" mechanic
+### 2.1 No hard cap. Timer stays as a display. Run ends on death.
 
 The original PLAN.md §1 called for a "5-minute sprint" with a hard 300s cap and
-an `ExtractionPortal` at the end of each biome. **This is removed.** A run is
-now an open-ended session that ends when the player dies.
+an `ExtractionPortal` at the end of each biome. **The hard cap is removed.** A
+run is an open-ended session that ends when the player dies.
+
+The **timer itself stays** — `RunState.time_elapsed` (already wired in
+`time_tick_system`, player.rs:537) is kept and surfaced in the HUD. It serves
+as a run-stat for the player ("how long did I survive?") and as a timing
+reference for systems that need to know run age (mini-boss spawn at
+`boss_spawn_time_s`, future Cascade windows, future difficulty display).
+**It is never used as a run-ending condition.**
+
+The run-end feedback loop is the P5b scaling (per-room ×1.08 HP / ×1.05 dmg):
+the player CAN keep going indefinitely, but only as long as their build
+scales faster than the enemies. Eventually the curves cross, the player
+gets overwhelmed, and dies — that's the run ending. The timer is the
+visible measure of "how long did I hold the line?", not a deadline.
 
 Concretely, this means:
-- `RunState.time_cap: f32` is removed (or set to `f32::INFINITY`).
+- **No** `RunState.time_cap`. Don't add one, don't reintroduce one. If
+  scaling ever feels like it needs a cap, that's a tuning problem on
+  P5b's multipliers, not a reason to add a timer-cap.
 - `ExtractionPortal` from Phase 2 Patch 6 is scrapped.
 - `AppState::RunSummary` from Phase 2 Patch 6 is scrapped (the run ends at
   `AppState::GameOver` like a normal death).
-- The "did I extract at the right time?" meta-decision (PLAN.md §7) is replaced
-  by "can I survive one more room?" — a moment-to-moment decision rather than
-  a per-biome extraction choice.
+- The "did I extract at the right time?" meta-decision (PLAN.md §7) is
+  gone. Replaced by "can I survive one more room?" — a moment-to-moment
+  decision rather than a per-biome extraction choice. The timer running
+  longer is a reward, not a problem.
 
 ### 2.2 Bigger rooms, fewer of them per floor
 
@@ -188,7 +204,7 @@ shift, the plan needs updating:
 | P4: Loot drops + weapon pickups | pending | extend: regular enemies also drop rewards (Isaac-style) |
 | P5: Cascade beacon | pending | unchanged in scope, but `RunState.time_cap` is no longer the cascade cap |
 | **P5b: Exponential difficulty scaling** | NEW | per-room-cleared HP/damage/count scaling |
-| P6: ~~5-min cap + extraction portal~~ → **Infinite run support** | SCOPED DOWN | remove the portal + summary screen; runs end on death |
+| P6: ~~5-min cap + extraction portal~~ → **Infinite run support** | SCOPED DOWN | remove the portal + summary screen; timer stays as a display, runs end on death |
 | P7: Determinism cleanup | pending | unchanged |
 
 The new patches to add (Phase 3+):

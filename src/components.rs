@@ -266,6 +266,19 @@ pub enum AiBehavior {
     /// `RunState::cascade_beacon_alive` flips to true to
     /// reserve the hook for the Phase 1 cascade.
     Boss,
+    /// Phase 2 P5: Cascade beacon. Static (no AI movement, no
+    /// contact damage) target that spawns the moment a
+    /// Cascade window opens. Killing it during Cascade
+    /// extends the window by
+    /// `GameSettings::beacon_chain_extension_s` (5s) — see
+    /// `combat.rs::projectile_damage_system` for the
+    /// chain-extend hook. Outside Cascade the beacon is
+    /// still hittable (the spawner doesn't check, the kill
+    /// handler does) so a Cascade window that ends before
+    /// the player kills the beacon leaves a "free" target
+    /// on the field — that's fine, the player can mop up
+    /// for a few XP and a stat-stick drop.
+    Beacon,
 }
 
 /// Phase 1 dasher state. Tracks which phase of the
@@ -331,6 +344,21 @@ pub enum DasherPhase {
 /// bar is visible only while the boss is alive.
 #[derive(Component)]
 pub struct Boss;
+
+/// Phase 2 P5: marker for the Cascade beacon. The kill
+/// handler in `combat.rs::projectile_damage_system` reads
+/// this via `Has<Beacon>` to fire the cascade-chain-extend
+/// hook; the contact-damage handler reads it to skip
+/// applying player damage (beacon is a "hit me" target, not
+/// a "touch me" one). A simple unit struct — the beacon
+/// has no per-entity state, the cascade window's `BeaconKilled`
+/// logic only needs to know the entity WAS a beacon.
+///
+/// Only one beacon should exist at a time (per Cascade
+/// window); `RunState::cascade_beacon_alive` is the
+/// defensive guard, the marker is the discriminator.
+#[derive(Component)]
+pub struct Beacon;
 
 /// Boss AI state. Carries the per-instance state that the shared
 /// `enemy_ai_system` can't get from a component lookup:
@@ -400,6 +428,11 @@ pub enum EnemyArchetype {
     /// possible enemy types — the spawner dispatch (in
     /// `enemy.rs::spawn_enemy`) is a no-op for Boss.
     Boss,
+    /// Phase 2 P5: see `AiBehavior::Beacon` for the full
+    /// design. Same no-op dispatch as Boss — the beacon is
+    /// spawned by the Cascade-start handler, not by the
+    /// wave system.
+    Beacon,
 }
 
 /// Axis-aligned bounding box for contact-damage detection. `half_extents`
@@ -617,6 +650,11 @@ pub enum HudElementKind {
     // (alongside the camera) so the entity is always present and
     // we just toggle its visibility per state.
     MainMenu,
+    // Phase 2 P5: XP counter bar, positioned above the kill bar.
+    // Shows the player's XP-to-10 progress as a thin bar. Color
+    // is a warm gold so it reads as "Cascade progress" rather
+    // than "kill counter" (which is a dim white).
+    XpBar,
 }
 
 // ─── AppState (Phase 2) ───────────────────────────────────────────────────

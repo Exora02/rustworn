@@ -9,13 +9,13 @@ use log::warn;
 
 use crate::components::{
     AimDirection, AppState, BeamVisual, Collider, Enemy, EnemyAI, Health, HitFlash, Invulnerable,
-    Knockback, PickupKind, Player, Projectile, Team, Velocity, Weapon, WeaponArchetype,
+    Knockback, PickupKind, Player, Projectile, Team, Velocity, Weapon, WeaponArchetype, Beacon,
 };
 use crate::events::{DamageEvent, EnemyKilledEvent};
 use crate::plugins::enemy::spawn_death_puff;
 use crate::plugins::fx::spawn_hit_spark;
 use crate::plugins::pickups::{roll_pickup_drop, roll_weapon_drop, spawn_pickup};
-use crate::resources::{GameSettings, Hitstop, RunState, ScreenShake};
+use crate::resources::{CascadeState, GameSettings, Hitstop, RunState, ScreenShake};
 
 /// Color of the player projectile — warm white, clearly readable as a
 /// bullet against any background we'll add later.
@@ -549,10 +549,14 @@ fn beam_damage_system(
     // binding for the early-return gate (a read is fine on
     // `ResMut`).
     mut run_state: ResMut<RunState>,
+    mut cascade: ResMut<CascadeState>,
     mut commands: Commands,
     mut weapons: Query<&mut Weapon, With<Player>>,
     player_query: Query<&Transform, With<Player>>,
-    mut enemies: Query<(Entity, &Transform, &Collider, &mut Health, &EnemyAI), With<Enemy>>,
+    mut enemies: Query<
+        (Entity, &Transform, &Collider, &mut Health, &EnemyAI, Has<Beacon>),
+        With<Enemy>,
+    >,
     mut beam_visual: Query<
         (&mut Transform, &mut Visibility),
         (With<BeamVisual>, Without<Player>, Without<Enemy>),
@@ -613,7 +617,7 @@ fn beam_damage_system(
     let half_thickness = settings.beam_thickness * 0.5;
     let damage = settings.beam_damage_per_tick;
 
-    for (enemy_entity, enemy_tf, enemy_col, mut health, enemy_ai) in &mut enemies {
+    for (enemy_entity, enemy_tf, enemy_col, mut health, enemy_ai, is_beacon) in &mut enemies {
         // Same-frame corpse guard: see bevy-0.16-gotchas §9.
         if health.current <= 0.0 {
             continue;
@@ -636,6 +640,13 @@ fn beam_damage_system(
         if health.current <= 0.0 {
             spawn_death_puff(&mut commands, &settings, enemy_pos);
             run_state.enemies_killed += 1;
+            // Phase 2 P5: XP + cascade bookkeeping shared
+            // with the projectile kill branch. The helper
+            // bumps XP (× cascade multiplier), increments
+            // `kills_during` while in Cascade, and — on a
+            // beacon kill during Cascade — extends the
+            // duration_timer by 5s (capped at +15s).
+            on_enemy_killed(&settings, &mut run_state, &mut cascade, is_beacon);
             // Phase 1 pickups: roll the drop chance on kill using
             // the enemy's archetype. RNG is `rand::random` —
             // Phase 2 will replace with seeded RNG for
@@ -647,7 +658,7 @@ fn beam_damage_system(
                 run_state.enemies_killed.hash(&mut h);
                 h.finish() as f32 / u64::MAX as f32
             };
-            if let Some(kind) = roll_pickup_drop(enemy_ai.behavior, &settings, &mut rng) {
+            if let Some(kind) = roll_pickup_drop(enemy_ai.behavior, &settings, cascade.active, &mut rng) {
                 spawn_pickup(&mut commands, &settings, enemy_pos, kind);
             }
             // Phase 2.4 (P4): independent weapon-drop roll.
@@ -656,7 +667,7 @@ fn beam_damage_system(
             // the two rolls are independent (a single kill
             // can drop a stat-stick AND a weapon).
             if let Some(weapon_kind) =
-                roll_weapon_drop(enemy_ai.behavior, &settings, &mut rng)
+                roll_weapon_drop(enemy_ai.behavior, &settings, cascade.active, &mut rng)
             {
                 spawn_pickup(
                     &mut commands,
@@ -715,9 +726,13 @@ fn projectile_damage_system(
     settings: Res<GameSettings>,
     hitstop: Option<Res<Hitstop>>,
     mut run: ResMut<RunState>,
+    mut cascade: ResMut<CascadeState>,
     mut commands: Commands,
     projectiles: Query<(Entity, &Transform, &Collider, &Projectile)>,
-    mut enemies: Query<(Entity, &Transform, &Collider, &mut Health, &EnemyAI), With<Enemy>>,
+    mut enemies: Query<
+        (Entity, &Transform, &Collider, &mut Health, &EnemyAI, Has<Beacon>),
+        With<Enemy>,
+    >,
     mut damage_events: EventWriter<DamageEvent>,
     mut kill_events: EventWriter<EnemyKilledEvent>,
 ) {
@@ -739,7 +754,7 @@ fn projectile_damage_system(
         let proj_pos = proj_tf.translation.truncate();
 
         let mut hit = false;
-        for (enemy_entity, enemy_tf, enemy_col, mut health, enemy_ai) in &mut enemies {
+        for (enemy_entity, enemy_tf, enemy_col, mut health, enemy_ai, is_beacon) in &mut enemies {
             if !aabb_overlap(
                 proj_pos,
                 proj_col.half_extents,
@@ -778,6 +793,12 @@ fn projectile_damage_system(
                 // if we ever expected a "win" state; for now an
                 // overflow at 4 billion kills is acceptable.
                 run.enemies_killed = run.enemies_killed.saturating_add(1);
+                // Phase 2 P5: XP + cascade bookkeeping. See
+                // `on_enemy_killed` for the full semantics
+                // (XP multiplier, beacon chain-extend). The
+                // helper is called from both projectile and
+                // beam kill paths so the two stay in sync.
+                on_enemy_killed(&settings, &mut run, &mut cascade, is_beacon);
                 // Phase 1 pickup drop. Deterministic hash of
                 // the kill counter — Phase 2 will swap in
                 // seeded RNG.
@@ -788,14 +809,14 @@ fn projectile_damage_system(
                     run.enemies_killed.hash(&mut h);
                     h.finish() as f32 / u64::MAX as f32
                 };
-                if let Some(kind) = roll_pickup_drop(enemy_ai.behavior, &settings, &mut rng) {
+                if let Some(kind) = roll_pickup_drop(enemy_ai.behavior, &settings, cascade.active, &mut rng) {
                     spawn_pickup(&mut commands, &settings, enemy_pos, kind);
                 }
                 // Phase 2.4 (P4): independent weapon-drop roll.
                 // See the matching block in the beam/contact
                 // kill handler above for the rationale.
                 if let Some(weapon_kind) =
-                    roll_weapon_drop(enemy_ai.behavior, &settings, &mut rng)
+                    roll_weapon_drop(enemy_ai.behavior, &settings, cascade.active, &mut rng)
                 {
                     spawn_pickup(
                         &mut commands,
@@ -956,5 +977,205 @@ fn enemy_projectile_damage_system(
         // same frame = multiple despawns, but only the first
         // damages (the rest see `invulnerable` true and skip
         // the damage/knockback/iframe insert).
+    }
+}
+
+// Phase 2 P5: shared kill-time bookkeeping, called from
+// BOTH `projectile_damage_system` and `beam_damage_system`
+// on a killing blow. Centralizing the logic keeps the two
+// paths from drifting (e.g. one bumping XP and the other
+// not, or one extending the cascade and the other not).
+//
+// Three side effects:
+//   1. Bumps `run.xp` by `xp_per_kill * cascade_xp_multiplier`
+//      when a Cascade window is active (else 1×). The
+//      multiplier is applied to the per-kill base, not to
+//      the running total, so the per-kill XP is always a
+//      whole number (4 × 1 = 4 XP per kill in Cascade).
+//   2. Bumps `cascade.kills_during` while active so the
+//      `CascadeEndEvent` carries the count (the HUD/UI
+//      subscriber can show "Cascade: 12 kills").
+//   3. If `is_beacon` is true AND a Cascade window is
+//      active, extends `cascade.duration_timer` by
+//      `beacon_chain_extension_s` (5s) and bumps
+//      `cascade.chain_extends` up to
+//      `beacon_chain_max_extensions` (3 → +15s total per
+//      window). The cap prevents infinite-Cascade exploits
+//      (a stream of respawned beacons — not possible today
+//      but cheap insurance for future patches).
+//      The `cascade_beacon_alive` flag flips to false so
+//      the cascade-end cleanup knows there's nothing left
+//      to despawn.
+fn on_enemy_killed(
+    settings: &GameSettings,
+    run: &mut RunState,
+    cascade: &mut CascadeState,
+    is_beacon: bool,
+) {
+    // 1) XP — base × cascade multiplier (or × 1.0 outside Cascade).
+    let xp_mult = if cascade.active {
+        settings.cascade_xp_multiplier
+    } else {
+        1.0
+    };
+    let xp_gain = (settings.xp_per_kill as f32 * xp_mult) as u32;
+    run.xp = run.xp.saturating_add(xp_gain);
+
+    // 2) Cascade kills counter.
+    if cascade.active {
+        cascade.kills_during = cascade.kills_during.saturating_add(1);
+    }
+
+    // 3) Beacon chain-extend (only meaningful during Cascade).
+    if is_beacon && cascade.active {
+        if cascade.chain_extends < settings.beacon_chain_max_extensions {
+            let remaining = cascade.duration_timer.remaining_secs();
+            cascade.duration_timer = Timer::from_seconds(
+                remaining + settings.beacon_chain_extension_s,
+                TimerMode::Once,
+            );
+            cascade.chain_extends += 1;
+            log::info!(
+                "Cascade beacon killed — extended by {:.1}s (chain {}/{})",
+                settings.beacon_chain_extension_s,
+                cascade.chain_extends,
+                settings.beacon_chain_max_extensions,
+            );
+        } else {
+            log::info!(
+                "Cascade beacon killed — chain cap reached ({}/{}), no further extension",
+                cascade.chain_extends,
+                settings.beacon_chain_max_extensions,
+            );
+        }
+        run.cascade_beacon_alive = false;
+    }
+}
+
+// ─── Tests ────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Without cascade active, each kill gives exactly `xp_per_kill`
+    /// XP (default 1). No cascade bonuses, no beacon extension.
+    #[test]
+    fn on_enemy_killed_gives_base_xp_outside_cascade() {
+        let settings = GameSettings::default();
+        let mut run = RunState::default();
+        let mut cascade = CascadeState::default();
+        cascade.active = false;
+
+        on_enemy_killed(&settings, &mut run, &mut cascade, false);
+
+        assert_eq!(run.xp, 1);
+        assert_eq!(cascade.kills_during, 0);
+    }
+
+    /// With cascade active, each kill gives
+    /// `xp_per_kill * cascade_xp_multiplier` XP
+    /// (default 4). kills_during is also bumped.
+    #[test]
+    fn on_enemy_killed_gives_4x_xp_during_cascade() {
+        let settings = GameSettings::default();
+        let mut run = RunState::default();
+        let mut cascade = CascadeState::default();
+        cascade.active = true;
+
+        on_enemy_killed(&settings, &mut run, &mut cascade, false);
+
+        assert_eq!(run.xp, 4);
+        assert_eq!(cascade.kills_during, 1);
+    }
+
+    /// Killing a beacon during Cascade extends the
+    /// duration_timer by beacon_chain_extension_s (5s).
+    /// The original duration is 30s, so after one extend
+    /// the remaining should be ~5s more than it would be
+    /// after the same tick consumption. We verify by
+    /// checking the remaining is close to 30 + 5 = 35s
+    /// (since no time has ticked on the timer yet).
+    #[test]
+    fn beacon_kill_during_cascade_extends_duration() {
+        let settings = GameSettings::default();
+        let mut run = RunState::default();
+        let mut cascade = CascadeState::default();
+        cascade.active = true;
+        cascade.duration_timer =
+            Timer::from_seconds(settings.cascade_duration_s, TimerMode::Once);
+
+        on_enemy_killed(&settings, &mut run, &mut cascade, true);
+
+        let expected = settings.cascade_duration_s + settings.beacon_chain_extension_s;
+        let tolerance = 0.01;
+        assert!(
+            (cascade.duration_timer.remaining_secs() - expected).abs() < tolerance,
+            "expected ~{expected}s remaining, got {}",
+            cascade.duration_timer.remaining_secs()
+        );
+        assert_eq!(cascade.chain_extends, 1);
+    }
+
+    /// Beacon chain-extension is capped at
+    /// beacon_chain_max_extensions (3). After 3 extends,
+    /// further beacon kills don't extend the timer.
+    #[test]
+    fn beacon_chain_extension_capped_at_max() {
+        let settings = GameSettings::default();
+        let mut run = RunState::default();
+        let mut cascade = CascadeState::default();
+        cascade.active = true;
+        cascade.duration_timer =
+            Timer::from_seconds(settings.cascade_duration_s, TimerMode::Once);
+
+        // Extend 3 times (the cap).
+        for _ in 0..3 {
+            on_enemy_killed(&settings, &mut run, &mut cascade, true);
+        }
+
+        let after_cap = cascade.duration_timer.remaining_secs();
+        // Reset timer back to start for the 4th kill — even with
+        // a fresh timer, the cap blocks further extension.
+        cascade.duration_timer =
+            Timer::from_seconds(settings.cascade_duration_s, TimerMode::Once);
+        on_enemy_killed(&settings, &mut run, &mut cascade, true);
+
+        // After the 4th extend, the remaining should still be
+        // just the base duration (30s) — not 30+5.
+        let tolerance = 0.01;
+        assert!(
+            (cascade.duration_timer.remaining_secs() - settings.cascade_duration_s).abs()
+                < tolerance,
+            "expected {:.1}s (no extension past cap), got {:.1}s",
+            settings.cascade_duration_s,
+            cascade.duration_timer.remaining_secs()
+        );
+        assert_eq!(cascade.chain_extends, 3);
+    }
+
+    /// Killing a non-beacon enemy during Cascade should NOT
+    /// extend the duration or bump chain_extends.
+    #[test]
+    fn non_beacon_kill_during_cascade_does_not_extend() {
+        let settings = GameSettings::default();
+        let mut run = RunState::default();
+        let mut cascade = CascadeState::default();
+        cascade.active = true;
+        cascade.duration_timer =
+            Timer::from_seconds(settings.cascade_duration_s, TimerMode::Once);
+
+        let before = cascade.duration_timer.remaining_secs();
+        on_enemy_killed(&settings, &mut run, &mut cascade, false);
+
+        // Duration unchanged (minus the tick consumption is exactly
+        // zero because no time delta has been applied).
+        let tolerance = 0.01;
+        assert!(
+            (cascade.duration_timer.remaining_secs() - before).abs() < tolerance,
+            "duration changed without beacon: {before} → {}",
+            cascade.duration_timer.remaining_secs()
+        );
+        assert_eq!(cascade.chain_extends, 0);
     }
 }

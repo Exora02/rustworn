@@ -67,7 +67,20 @@ fn fire_rate_color(archetype: WeaponArchetype) -> Color {
     }
 }
 
-// ─── Kill counter (top-right) ────────────────────────────────────────────
+// ─── XP bar (above kill bar) ──────────────────────────────────────────────
+
+/// Number of XP points that fills the XP bar. Caps at 10 XP
+/// (same as KILL_BAR_FILL_AT for consistency). The bar uses a
+/// warm gold fill to distinguish it from the dim-white kill bar.
+const XP_BAR_FILL_AT: u32 = 10;
+const XP_BAR_WIDTH: f32 = 120.0;
+const XP_BAR_HEIGHT: f32 = 8.0;
+const XP_BAR_BG: Color = Color::srgb(0.10, 0.10, 0.10);
+const XP_BAR_COLOR: Color = Color::srgb(0.95, 0.75, 0.20);
+/// Vertical offset from the kill bar position (above it).
+const XP_BAR_OFFSET_Y: f32 = -10.0;
+
+// ─── Kill counter bar (top-right) ─────────────────────────────────────────
 
 const KILL_COLOR: Color = Color::srgb(0.95, 0.55, 0.20);
 const KILL_BG: Color = Color::srgb(0.10, 0.10, 0.10);
@@ -235,6 +248,15 @@ fn spawn_hud(mut commands: Commands) {
         FIRE_RATE_BG,
         FIRE_RATE_PISTOL,
         HudElementKind::FireRate,
+    );
+    spawn_bar(
+        &mut commands,
+        HUD_OFFSET_RIGHT + Vec2::new(0.0, XP_BAR_OFFSET_Y),
+        XP_BAR_WIDTH,
+        XP_BAR_HEIGHT,
+        XP_BAR_BG,
+        XP_BAR_COLOR,
+        HudElementKind::XpBar,
     );
     spawn_bar(
         &mut commands,
@@ -630,6 +652,17 @@ fn hud_update_system(
                         // weapon so the player can tell at a glance which
                         // archetype they're holding. Background stays dark.
                         sprite.color = fire_rate_color(weapon.archetype);
+                    }
+                }
+            }
+            HudElementKind::XpBar => {
+                let pos = player_pos + HUD_OFFSET_RIGHT + Vec2::new(0.0, XP_BAR_OFFSET_Y);
+                tf.translation = pos.extend(tf.translation.z);
+                let ratio = (run.xp as f32 / XP_BAR_FILL_AT as f32).clamp(0.0, 1.0);
+                tf.scale.x = ratio;
+                if let Some(mut sprite) = sprite {
+                    if !approx_eq_color(sprite.color, XP_BAR_BG) {
+                        sprite.color = XP_BAR_COLOR;
                     }
                 }
             }

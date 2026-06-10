@@ -6,10 +6,12 @@
 use bevy::prelude::*;
 
 use crate::components::{
-    AimDirection, AimIndicator, AppState, BaseVelocity, CascadeAffected, DashCooldown, Health,
-    Invulnerable, Knockback, LastMoveDirection, MainCamera, Player, Velocity, PLAYER_COLOR,
+    AimDirection, AimIndicator, AppState, BaseVelocity, Beacon, CascadeAffected, DashCooldown,
+    Health, Invulnerable, Knockback, LastMoveDirection, MainCamera, Player, Velocity,
+    PLAYER_COLOR,
 };
-use crate::plugins::enemy::spawn_boss;
+use crate::plugins::enemy::{spawn_beacon, spawn_boss};
+use crate::events::{CascadeEndEvent, CascadeStartEvent};
 use crate::resources::{CascadeState, GameSettings, Hitstop, RunState, ScreenShake};
 use log::info;
 
@@ -120,6 +122,8 @@ fn cascade_state_system(
     time: Res<Time>,
     settings: Res<GameSettings>,
     mut cascade: ResMut<CascadeState>,
+    mut commands: Commands,
+    player_query: Query<&Transform, With<Player>>,
 ) {
     if cascade.active {
         cascade.duration_timer.tick(time.delta());
@@ -127,6 +131,7 @@ fn cascade_state_system(
         if cascade.duration_timer.finished() {
             cascade.active = false;
             cascade.time_remaining = 0.0;
+            let kills = cascade.kills_during;
             cascade.kills_during = 0;
             cascade.chain_extends = 0;
             cascade.interval_timer =
@@ -143,6 +148,32 @@ fn cascade_state_system(
                 Timer::from_seconds(settings.cascade_duration_s, TimerMode::Once);
             cascade.time_remaining = settings.cascade_duration_s;
             log::info!("Cascade Mode OPENED — 0.25× enemy speed for 30s.");
+
+            // Spawn a beacon near the player so they can
+            // chain-extend by killing it during the window.
+            if let Ok(player_tf) = player_query.single() {
+                let player_pos = player_tf.translation.truncate();
+                // Cheap pseudo-random angle from RunRng is
+                // ideal but the RunRng is seeded from system
+                // time at run-entry; the beacon spawns on a
+                // cascade-open, not run-entry, so we use the
+                // same clock-hash heuristic as boss_spawn_system.
+                let mut state = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(0xCAFEBABE);
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                let angle = ((state >> 40) as f32) / ((1u32 << 24) as f32)
+                    * std::f32::consts::TAU;
+                let dist = settings.beacon_spawn_distance_min
+                    + ((state >> 16) as f32) / ((1u32 << 24) as f32)
+                        * (settings.beacon_spawn_distance_max - settings.beacon_spawn_distance_min);
+                let pos = player_pos + Vec2::new(angle.cos(), angle.sin()) * dist;
+                spawn_beacon(&mut commands, &settings, pos);
+                log::info!("Cascade beacon spawned at ({:.1}, {:.1})", pos.x, pos.y);
+            }
         }
     }
 }
