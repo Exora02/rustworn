@@ -372,6 +372,12 @@ fn setup_rooms_system(
     let r1 = generate_room(&mut commands, &floor, &settings, RoomId(1), RoomKind::Fight);
     floor.rooms.push(r1);
 
+    // Spawn a teleport pad in the spawn room so the player can
+    // leave it (no enemies → no RoomClearedEvent → no auto pad).
+    let r0_center = (r0.bounds_min + r0.bounds_max) * 0.5;
+    let pad_pos = r0_center + Vec2::splat(PAD_SIZE * 0.8);
+    commands.spawn(pad_bundle(pad_pos, "Enter"));
+
     let Ok(mut player_tf) = player_query.single_mut() else { return; };
     let r0_center = (r0.bounds_min + r0.bounds_max) * 0.5;
     player_tf.translation = r0_center.extend(0.0);
