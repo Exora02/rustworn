@@ -736,6 +736,10 @@ pub enum ShrineFocus {
     /// Utility shrine. Must stand near for 1.5s to channel.
     /// Rewards: move speed, XP, pickup radius, dash.
     Utility,
+    /// Cursed shrine. Visually distinct (dark purple), optional.
+    /// Gives curse + big guaranteed reward. Player's choice
+    /// to channel or leave it alone.
+    Cursed,
 }
 
 /// A shrine entity in the world. The player can interact with

@@ -60,6 +60,9 @@ const SHRINE_SPD: Color = Color::srgb(0.95, 0.85, 0.30);
 const SHRINE_CURSE: Color = Color::srgb(0.62, 0.20, 0.85);
 const SHRINE_GOLD: Color = Color::srgb(0.95, 0.75, 0.20);
 const SHRINE_SIZE: f32 = 32.0;
+/// Cursed shrine is slightly larger so it visually stands out.
+const CURSED_SHRINE_SIZE: f32 = 40.0;
+const CURSED_SHRINE_COLOR: Color = Color::srgb(0.55, 0.15, 0.75); // dark purple
 const BREAKABLE_COLOR: Color = Color::srgb(0.55, 0.35, 0.20);
 const BREAKABLE_SIZE: f32 = 24.0;
 
@@ -281,6 +284,31 @@ fn spawn_shrines(commands: &mut Commands, room: &Room, count: usize) {
             Collider { half_extents: Vec2::splat(SHRINE_SIZE * 0.5) },
         ));
     }
+
+    // Spawn one cursed shrine in non-spawn rooms.
+    // Cursed shrines are opt-in: distinct purple color, slightly
+    // larger, positioned near the room entrance for visibility.
+    if room.kind != RoomKind::Spawn {
+        let cursed_pos = center + Vec2::new(0.0, room.size().y * 0.1);
+        commands.spawn((
+            Sprite {
+                color: CURSED_SHRINE_COLOR,
+                custom_size: Some(Vec2::splat(CURSED_SHRINE_SIZE)),
+                ..default()
+            },
+            Transform::from_xyz(cursed_pos.x, cursed_pos.y, 0.4),
+            Shrine {
+                focus: ShrineFocus::Cursed,
+                channel_duration_s: SHRINE_CHANNEL_S,
+                channel_progress: 0.0,
+                activated: false,
+            },
+            Collider {
+                half_extents: Vec2::splat(CURSED_SHRINE_SIZE * 0.5),
+            },
+        ));
+        info!("Cursed shrine spawned at room center-bottom");
+    }
 }
 
 fn shrine_color(focus: ShrineFocus) -> Color {
@@ -288,6 +316,7 @@ fn shrine_color(focus: ShrineFocus) -> Color {
         ShrineFocus::HealRegen => SHRINE_HEAL,
         ShrineFocus::Combat => SHRINE_DMG,
         ShrineFocus::Utility => SHRINE_SPD,
+        ShrineFocus::Cursed => CURSED_SHRINE_COLOR,
     }
 }
 
@@ -323,6 +352,23 @@ fn shrine_collect_system(
         if !in_range {
             // Reset progress when player leaves range.
             shrine.channel_progress = 0.0;
+            continue;
+        }
+
+        // Cursed shrines: must channel (1.5s). Reward: curse + big buff.
+        // Placed before HealRegen so cursed shrines are not collected instantly.
+        if matches!(shrine.focus, ShrineFocus::Cursed) {
+            shrine.channel_progress += time.delta_secs();
+            if shrine.channel_progress >= shrine.channel_duration_s {
+                apply_reward(ShrineReward::CurseUp, &mut health, &mut run);
+                apply_reward(ShrineReward::DamageUp, &mut health, &mut run);
+                apply_reward(ShrineReward::FireRateUp, &mut health, &mut run);
+                apply_reward(ShrineReward::SpeedUp, &mut health, &mut run);
+                apply_reward(ShrineReward::Heal(5.0), &mut health, &mut run);
+                shrine.activated = true;
+                commands.entity(entity).despawn();
+                info!("Cursed shrine activated: Curse +1, Damage + FireRate + Speed + Heal 5");
+            }
             continue;
         }
 
@@ -377,22 +423,23 @@ fn pick_shrine_reward(focus: ShrineFocus, roll: u64) -> ShrineReward {
             }
         }
         ShrineFocus::Combat => {
-            // Pool: +damage (common), Curse (uncommon), +fire rate (uncommon)
-            match roll % 4 {
+            // Pool: +damage (common), +fire rate (uncommon)
+            match roll % 2 {
                 0 => ShrineReward::DamageUp,
-                1 => ShrineReward::CurseUp,
-                2 => ShrineReward::FireRateUp,
-                _ => ShrineReward::DamageUp,
+                _ => ShrineReward::FireRateUp,
             }
         }
         ShrineFocus::Utility => {
-            // Pool: +speed (common), +XP (common), Curse (rare)
-            match roll % 4 {
+            // Pool: +speed (common), +XP (common)
+            match roll % 2 {
                 0 => ShrineReward::SpeedUp,
-                1 => ShrineReward::XpGain(5),
-                2 => ShrineReward::CurseUp,
-                _ => ShrineReward::SpeedUp,
+                _ => ShrineReward::XpGain(5),
             }
+        }
+        ShrineFocus::Cursed => {
+            // Cursed shrines should not use random pools.
+            // Handled directly in shrine_collect_system.
+            ShrineReward::CurseUp
         }
     }
 }
