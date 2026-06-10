@@ -109,22 +109,22 @@ fn generate_room(
         let waves = vec![
             WaveDefinition {
                 archetype: EnemyArchetype::Chaser,
-                count: (4 + floor.floor_number).max(10),
+                count: (4 + floor.floor_number).min(10),
                 interval_s: base_interval,
             },
             WaveDefinition {
                 archetype: EnemyArchetype::Dasher,
-                count: (2 + floor.floor_number / 2).max(6),
+                count: (2 + floor.floor_number / 2).min(8),
                 interval_s: base_interval * 0.7,
             },
             WaveDefinition {
                 archetype: EnemyArchetype::Shooter,
-                count: (2 + floor.floor_number / 2).max(6),
+                count: (2 + floor.floor_number / 2).min(8),
                 interval_s: base_interval * 0.7,
             },
             WaveDefinition {
                 archetype: EnemyArchetype::Sniper,
-                count: (1 + floor.floor_number / 3).max(4),
+                count: (1 + floor.floor_number / 3).min(5),
                 interval_s: base_interval * 0.35,
             },
         ];

@@ -251,8 +251,8 @@ fn wave_spawner_tick_system(
                 archetype,
             );
             spawner.spawned_this_wave += 1;
-            // Fast spawn rate: 0.35s between enemies.
-            spawner.wave_timer = Timer::from_seconds(0.35, TimerMode::Once);
+            // Fast spawn rate: 0.4s between enemies.
+            spawner.wave_timer = Timer::from_seconds(0.4, TimerMode::Once);
             continue;
         }
 
