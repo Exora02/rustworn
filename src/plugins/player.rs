@@ -6,7 +6,7 @@
 use bevy::prelude::*;
 
 use crate::components::{
-    AimDirection, AimIndicator, AppState, BaseVelocity, Beacon, CascadeAffected, DashCooldown,
+    AimDirection, AimIndicator, AppState, BaseVelocity, Beacon, Boss, CascadeAffected, DashCooldown,
     Health, Invulnerable, Knockback, LastMoveDirection, MainCamera, Player, RoomKind, Velocity,
     PLAYER_COLOR,
 };
@@ -595,15 +595,42 @@ fn boss_spawn_system(
     mut commands: Commands,
     player_query: Query<&Transform, With<Player>>,
     floor: Res<FloorState>,
+    bosses: Query<(), With<Boss>>,
 ) {
-    if run.boss_spawned {
-        return;
-    }
+    // Per-room boss spawning: each boss room gets its own boss instance.
+    // Check if a Boss entity already exists in the world (for any room).
+    // If we're in a Boss room and no boss is alive, spawn one immediately.
     let in_boss_room = floor
         .rooms
         .iter()
         .any(|r| r.id == floor.current_room && r.kind == RoomKind::Boss);
-    if run.time_elapsed < settings.boss_spawn_time_s && !in_boss_room {
+    let boss_alive = bosses.iter().next().is_some();
+
+    if in_boss_room && !boss_alive {
+        let Ok(player_tf) = player_query.single() else { return; };
+        let player_pos = player_tf.translation.truncate();
+        // Spawn at the room center, offset upward slightly so it's visible.
+        let Some(room) = floor.rooms.iter().find(|r| r.id == floor.current_room) else { return; };
+        let room_center = (room.bounds_min + room.bounds_max) * 0.5;
+        let spawn_pos = room_center + Vec2::new(0.0, 60.0);
+        let clamped = spawn_pos.clamp(
+            room.bounds_min + Vec2::splat(60.0),
+            room.bounds_max - Vec2::splat(60.0),
+        );
+        spawn_boss(&mut commands, &settings, &floor, clamped);
+        info!(
+            "Boss spawned at boss room {}, pos=({:.1}, {:.1})",
+            floor.current_room.0, clamped.x, clamped.y
+        );
+        return;
+    }
+
+    // Timer-based fallback (Phase 1 legacy): spawn at run midpoint if
+    // player hasn't reached a boss room yet.
+    if run.boss_spawned {
+        return;
+    }
+    if run.time_elapsed < settings.boss_spawn_time_s {
         return;
     }
     let Ok(player_tf) = player_query.single() else {

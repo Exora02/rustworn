@@ -18,9 +18,9 @@ use bevy::sprite::Anchor;
 use log::info;
 
 use crate::components::{
-    AimIndicator, AppState, Breakable, Collider, DeathPuff, Enemy, EnemyArchetype, FloorTransitionText,
-    Health, MainCamera, Pickup, Player, Projectile, Room, RoomId, RoomKind, Shrine, ShrineFocus,
-    TeleportPad, Velocity, Wall, WaveDefinition, WaveSpawner,
+    AimIndicator, AppState, Boss, Breakable, Collider, DeathPuff, Enemy, EnemyArchetype,
+    FloorTransitionText, Health, MainCamera, Pickup, Player, Projectile, Room, RoomId, RoomKind,
+    Shrine, ShrineFocus, TeleportPad, Velocity, Wall, WaveDefinition, WaveSpawner,
 };
 use crate::events::RoomClearedEvent;
 use crate::resources::{FloorState, GameSettings, Hitstop, RunRng, RunState};
@@ -78,6 +78,7 @@ impl Plugin for RoomsPlugin {
                     physics_step_system,
                     shrine_collect_system,
                     teleport_transition_system,
+                    boss_death_room_clear_system,
                     pad_spawn_on_clear_system,
                     floor_transition_fade_system,
                 )
@@ -580,6 +581,7 @@ fn pad_spawn_on_clear_system(
     mut commands: Commands,
     mut events: EventReader<RoomClearedEvent>,
     floor: Res<FloorState>,
+    mut rng: ResMut<RunRng>,
 ) {
     for ev in events.read() {
         let Some(room) = floor.rooms.iter().find(|r| r.id == ev.room_id) else {
@@ -611,7 +613,20 @@ fn pad_spawn_on_clear_system(
         let fight_pos = center + Vec2::new(0.0, PAD_SIZE * 1.2);
         commands.spawn(pad_bundle(fight_pos, fight_label));
 
-        // Pad 2: (reserved for Treasure rooms — not implemented yet)
+        // Pad 2: branching choice (50% nothing, 30% Elite, 20% Treasure).
+        // Roll a deterministic random number for variety.
+        let branch_roll = rng.next_unit();
+        let branch_label = if branch_roll < 0.5 {
+            None // 50% — no extra pad, single forward path
+        } else if branch_roll < 0.8 {
+            Some("Elite") // 30% — elite alternative path
+        } else {
+            Some("Treasure") // 20% — treasure room (→ Fight with extra loot)
+        };
+        if let Some(label) = branch_label {
+            let branch_pos = center + Vec2::new(0.0, -PAD_SIZE * 1.2);
+            commands.spawn(pad_bundle(branch_pos, label));
+        }
 
         // Pad 3: Boss — every 6th room. Offset to the right.
         if next_is_boss {
@@ -728,6 +743,54 @@ fn teleport_transition_system(
         );
         return;
     }
+}
+
+// ─── Boss room clear (boss death gates room cleared) ───────────────────
+//
+// In Boss rooms, the RoomClearedEvent fires when ALL conditions are met:
+// 1. Wave spawner waves are done
+// 2. Boss entity is dead (no entity with `Boss` marker exists)
+// 3. No teleport pad already exists for this room (prevent re-fire)
+//
+// Runs after `teleport_transition_system` and before
+// `pad_spawn_on_clear_system` so a RoomClearedEvent emitted here is
+// consumed in the same frame.
+fn boss_death_room_clear_system(
+    floor: Res<FloorState>,
+    bosses: Query<(), With<Boss>>,
+    spawners: Query<&WaveSpawner>,
+    pads: Query<&TeleportPad>,
+    mut events: EventWriter<RoomClearedEvent>,
+) {
+    let Some(current) = floor.rooms.iter().find(|r| r.id == floor.current_room) else {
+        return;
+    };
+    if current.kind != RoomKind::Boss {
+        return;
+    }
+    // Boss still alive → not cleared.
+    if bosses.iter().next().is_some() {
+        return;
+    }
+    // Waves not done → not cleared.
+    let waves_done = spawners
+        .iter()
+        .filter(|s| s.room_id == floor.current_room)
+        .all(|s| s.current_wave >= s.waves.len());
+    if !waves_done {
+        return;
+    }
+    // Already have a pad in this room → already cleared.
+    if pads.iter().any(|p| p.label == "Boss" || p.label == "Fight") {
+        return;
+    }
+    events.send(RoomClearedEvent {
+        room_id: floor.current_room,
+    });
+    info!(
+        "Boss room {} cleared (boss dead + waves done)",
+        floor.current_room.0
+    );
 }
 
 // ─── Floor transition fade ────────────────────────────────────────────────
