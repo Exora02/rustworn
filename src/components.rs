@@ -718,6 +718,48 @@ pub enum AppState {
     Paused,
 }
 
+// ─── Room interactables (Phase 2 P6.1 — Crab Champions × Megabonk) ──────
+
+/// Kind of shrine the player can interact with. Each shrine
+/// gives a one-time effect on touch (heal, buff, curse, or
+/// loot reward).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShrineKind {
+    /// Restore 2 HP. Common shrine.
+    Heal,
+    /// +25% damage for the rest of the run.
+    Damage,
+    /// +30% fire rate for the rest of the run.
+    FireRate,
+    /// +20% move speed for the rest of the run.
+    Speed,
+    /// Spawns extra enemies when touched but gives a buff
+    /// after they're cleared. The buff activates on room
+    /// clear, not on touch (so the player has to survive
+    /// the extra enemies first).
+    Curse,
+    /// Drops a large gold/XP reward instantly.
+    Gold,
+}
+
+/// A shrine entity in the world. The player walks into it
+/// to activate its one-time effect. Once `used` is true,
+/// the shrine despawns or dims.
+#[derive(Component)]
+pub struct Shrine {
+    pub kind: ShrineKind,
+    pub used: bool,
+}
+
+/// A fragile breakable object (pot, crate, barrel). Takes
+/// `hp` hits to destroy. On destruction, rolls a loot drop
+/// (hearts, gold, pickups). Breakables are hit by player
+/// projectiles and beam.
+#[derive(Component)]
+pub struct Breakable {
+    pub hp: u32,
+}
+
 // ─── Room system (Phase 2) ────────────────────────────────────────────────
 
 /// Unique identifier for a room in a biome. `u8` gives 256 rooms
