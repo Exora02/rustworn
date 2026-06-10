@@ -208,6 +208,10 @@ fn generate_room(
             RoomKind::MiniBoss | RoomKind::Boss => 0.30,
             _ => 0.35,
         };
+        // Clear delay: how many seconds before RoomClearedEvent fires
+        // and teleport pads appear. Boss rooms gate on boss death
+        // instead (set delay to 0, boss_death_room_clear_system handles it).
+        let clear_delay = if kind == RoomKind::Boss { 0.0 } else { 60.0 };
         commands.spawn((
             WaveSpawner {
                 room_id,
@@ -216,6 +220,8 @@ fn generate_room(
                 spawned_this_wave: 0,
                 wave_timer: Timer::from_seconds(0.2, TimerMode::Once), // quick first spawn
                 farming_interval,
+                farming_elapsed: 0.0,
+                clear_delay,
             },
             Transform::default(),
         ));
@@ -929,6 +935,8 @@ mod tests {
             spawned_this_wave: 0,
             wave_timer: Timer::from_seconds(1.0, TimerMode::Once),
             farming_interval: 0.35,
+            farming_elapsed: 0.0,
+            clear_delay: 0.0,
         }
     }
 

@@ -973,4 +973,13 @@ pub struct WaveSpawner {
     /// Farming phase spawn interval in seconds. Set per room type
     /// in generate_room. Lower = faster spawns. Default 0.35.
     pub farming_interval: f32,
+    /// Seconds elapsed since the farming phase started. Used for a
+    /// universal speed ramp that applies to ALL rooms — the longer
+    /// you stay in a room, the faster enemies spawn.
+    pub farming_elapsed: f32,
+    /// Seconds before RoomClearedEvent fires for non-boss rooms.
+    /// Counts down each farming tick. When it reaches 0, the room
+    /// is cleared and teleport pads appear. Boss rooms set this to
+    /// 0 (boss death gates clear instead).
+    pub clear_delay: f32,
 }

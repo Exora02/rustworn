@@ -6,7 +6,7 @@
 //! damage, applies knockback, and gives a brief i-frame window.
 
 use bevy::prelude::*;
-use log::warn;
+use log::{info, warn};
 
 use crate::components::{
     AiBehavior, AppState, BaseColor, BaseVelocity, Beacon, Boss, BossPhase, BossState,
@@ -221,6 +221,7 @@ fn wave_spawner_tick_system(
         return;
     };
     let player_pos = player_transform.translation.truncate();
+    let dt = time.delta_secs();
 
     for mut spawner in &mut spawners {
         if spawner.room_id != biome.current_room {
@@ -230,23 +231,8 @@ fn wave_spawner_tick_system(
         // ─── Horde-mode: skip the initial wave phase ──────
         // Jump straight to the continuous farming phase so
         // every room feels like a frantic horde from frame 1.
-        // For non-Boss rooms, emit RoomClearedEvent immediately
-        // so teleport pads appear and the player can leave
-        // whenever. Boss rooms gate room-clear on boss death.
         if spawner.current_wave < spawner.waves.len() {
             spawner.current_wave = spawner.waves.len();
-
-            // Don't clear Boss rooms from the wave system —
-            // boss_death_room_clear_system handles that.
-            let is_boss = biome
-                .rooms
-                .iter()
-                .any(|r| r.id == biome.current_room && r.kind == RoomKind::Boss);
-            if !is_boss {
-                room_cleared_events.write(RoomClearedEvent {
-                    room_id: spawner.room_id,
-                });
-            }
         }
 
         // ─── Farming phase ─────────────────────────────────
@@ -255,11 +241,42 @@ fn wave_spawner_tick_system(
             continue;
         }
 
-        // Compute the effective spawn interval:
-        //   base = spawner.farming_interval (per room type)
-        //   × ramp_factor from BossRampTimer (1.0 = normal,
-        //     drops toward 0.28 over the ramp duration)
-        let ramp_factor = boss_ramp
+        // Accumulate elapsed farming time for universal ramp.
+        spawner.farming_elapsed += dt;
+
+        // Clear delay countdown: when it reaches 0, emit
+        // RoomClearedEvent so teleport pads appear.
+        // Boss rooms set this to 0 (boss death gates clear),
+        // so this only fires for non-boss rooms.
+        if spawner.clear_delay > 0.0 {
+            spawner.clear_delay -= dt;
+            if spawner.clear_delay <= 0.0 {
+                spawner.clear_delay = 0.0;
+                room_cleared_events.write(RoomClearedEvent {
+                    room_id: spawner.room_id,
+                });
+                info!(
+                    "Room {} cleared after {:.0}s — teleport pads open",
+                    spawner.room_id.0, spawner.farming_elapsed
+                );
+            }
+        }
+
+        // ─── Spawn interval computation ───────────────────
+        // Two ramp factors combine multiplicatively:
+        //
+        //   1. Universal ramp (all rooms): spawns get faster
+        //      the longer the player stays. Drops from 1.0×
+        //      toward 0.35× over ~120s of farming.
+        //      Formula: 1.0 / (1.0 + elapsed * 0.015)
+        //      At 60s:  ~0.53×  (interval ~half)
+        //      At 120s: ~0.36×  (interval ~third)
+        //
+        //   2. Boss ramp (boss rooms only): aggressive speed-up
+        //      triggered by boss death. Drops toward 0.08×
+        //      over 15s. Only active while BossRampTimer exists.
+        let universal_factor = 1.0 / (1.0 + spawner.farming_elapsed * 0.015);
+        let boss_factor = boss_ramp
             .as_ref()
             .map(|ramp| {
                 let progress = (ramp.timer.elapsed_secs() / ramp.timer.duration().as_secs_f32())
@@ -267,7 +284,8 @@ fn wave_spawner_tick_system(
                 1.0 - (1.0 - 0.28) * progress
             })
             .unwrap_or(1.0);
-        let interval = (spawner.farming_interval * ramp_factor).max(0.1);
+        let ramp = (universal_factor * boss_factor).max(0.08);
+        let interval = (spawner.farming_interval * ramp).max(0.08);
 
         // Pick the next archetype based on room flavor.
         let room_kind = biome
