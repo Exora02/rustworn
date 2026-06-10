@@ -625,7 +625,23 @@ fn boss_spawn_system(
     let angle = ((state >> 40) as f32) / ((1u32 << 24) as f32) * std::f32::consts::TAU;
     let spawn_pos = player_pos + Vec2::new(angle.cos(), angle.sin()) * settings.boss_spawn_distance;
 
-    spawn_boss(&mut commands, &settings, &floor, spawn_pos);
+    // Clamp the boss spawn position inside the current room.
+    // Otherwise the boss can end up outside walls where the
+    // player can't reach it.
+    let clamped = floor
+        .rooms
+        .iter()
+        .find(|r| r.id == floor.current_room)
+        .map(|room| {
+            let margin = 60.0;
+            spawn_pos.clamp(
+                room.bounds_min + Vec2::splat(margin),
+                room.bounds_max - Vec2::splat(margin),
+            )
+        })
+        .unwrap_or(spawn_pos);
+
+    spawn_boss(&mut commands, &settings, &floor, clamped);
     run.boss_spawned = true;
     info!(
         "mini-boss spawned at t={:.1}s, pos=({:.1}, {:.1})",

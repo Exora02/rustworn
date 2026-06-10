@@ -1016,8 +1016,7 @@ fn breakable_damage_system(
     mut commands: Commands,
     projectiles: Query<(Entity, &Transform, &Collider, &Projectile)>,
     mut breakables: Query<
-        (Entity, &Transform, &Collider, &mut Health),
-        (With<Breakable>, Without<Projectile>),
+        (Entity, &Transform, &Collider, &mut Breakable),
     >,
     mut damage_events: EventWriter<DamageEvent>,
     mut kill_events: EventWriter<EnemyKilledEvent>,
@@ -1033,7 +1032,7 @@ fn breakable_damage_system(
         let proj_pos = proj_tf.translation.truncate();
 
         let mut hit_any = false;
-        for (breakable_entity, breakable_tf, breakable_col, mut health) in &mut breakables {
+        for (breakable_entity, breakable_tf, breakable_col, mut breakable) in &mut breakables {
             if !aabb_overlap(
                 proj_pos,
                 proj_col.half_extents,
@@ -1043,10 +1042,11 @@ fn breakable_damage_system(
                 continue;
             }
             // Skip breakables already at 0 HP (same-frame guard).
-            if health.current <= 0.0 {
+            if breakable.hp == 0 {
                 continue;
             }
-            health.current = (health.current - proj.damage).max(0.0);
+            breakable.hp = breakable.hp.saturating_sub(proj.damage as u32);
+            let destroyed = breakable.hp == 0;
             hit_any = true;
 
             // Visual feedback on every hit.
@@ -1060,7 +1060,7 @@ fn breakable_damage_system(
                 amount: proj.damage,
             });
 
-            if health.current <= 0.0 {
+            if destroyed {
                 // Breakable destroyed — same reward path as enemies.
                 commands.entity(breakable_entity).despawn();
                 spawn_death_puff(&mut commands, &settings, breakable_pos);
