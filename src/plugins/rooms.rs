@@ -510,9 +510,7 @@ fn pad_spawn_on_clear_system(
         let fight_pos = center + Vec2::new(0.0, PAD_SIZE * 1.2);
         commands.spawn(pad_bundle(fight_pos, "Fight"));
 
-        // Pad 2: Treasure — always present for now. Offset to the left.
-        let tres_pos = center - Vec2::new(0.0, PAD_SIZE * 1.2);
-        commands.spawn(pad_bundle(tres_pos, "Treasure"));
+        // Pad 2: (reserved for Treasure rooms — not implemented yet)
 
         // Pad 3: Boss — every ROOMS_PER_BOSS rooms. Offset upward.
         let is_boss = rooms_cleared > 0 && rooms_cleared % ROOMS_PER_BOSS == 0;

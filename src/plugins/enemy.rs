@@ -225,9 +225,34 @@ fn wave_spawner_tick_system(
         if spawner.room_id != biome.current_room {
             continue;
         }
-        // All waves done: do nothing (we already emitted
-        // the event on the frame we transitioned).
+        // All waves done — post-clear farming phase.
+        // Continuous enemy spawns at high density to create
+        // "stay or go" tension (bullet heaven mechanic). The
+        // player can leave via the teleport pad or stay and
+        // farm more drops.
         if spawner.current_wave >= spawner.waves.len() {
+            spawner.wave_timer.tick(time.delta());
+            if !spawner.wave_timer.finished() {
+                continue;
+            }
+            // Cycle through archetypes for variety.
+            let archetype = [
+                EnemyArchetype::Chaser,
+                EnemyArchetype::Dasher,
+                EnemyArchetype::Shooter,
+                EnemyArchetype::Sniper,
+            ][spawner.spawned_this_wave as usize % 4];
+            spawn_wave_enemy(
+                &mut commands,
+                &settings,
+                &biome,
+                &mut rng,
+                player_pos,
+                archetype,
+            );
+            spawner.spawned_this_wave += 1;
+            // Fast spawn rate: 0.35s between enemies.
+            spawner.wave_timer = Timer::from_seconds(0.35, TimerMode::Once);
             continue;
         }
 
