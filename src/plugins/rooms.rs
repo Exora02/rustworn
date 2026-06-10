@@ -42,6 +42,12 @@ const FLOOR_COLORS: &[Color] = &[
     Color::srgb(0.10, 0.10, 0.10), // floor 4+: near-black (infinite)
 ];
 const PAD_COLOR: Color = Color::srgb(0.20, 0.75, 0.95);
+const PAD_COLOR_FIGHT: Color = Color::srgb(0.20, 0.75, 0.95); // blue
+const PAD_COLOR_ELITE: Color = Color::srgb(0.75, 0.25, 0.85); // purple
+const PAD_COLOR_BOSS: Color = Color::srgb(0.85, 0.15, 0.15);  // red
+const PAD_COLOR_TREASURE: Color = Color::srgb(0.95, 0.75, 0.20); // gold
+const PAD_COLOR_HORDE: Color = Color::srgb(0.20, 0.85, 0.60); // teal
+const PAD_COLOR_ENTER: Color = Color::srgb(0.30, 0.85, 0.30); // green
 const PAD_SIZE: f32 = 60.0;
 const ROOMS_PER_BOSS: u32 = 6;
 const ENTRY_INSET: f32 = 50.0;
@@ -639,12 +645,16 @@ fn pad_spawn_on_clear_system(
 }
 
 fn pad_bundle(pos: Vec2, label: &str) -> impl Bundle {
+    let color = match label {
+        "Boss" => PAD_COLOR_BOSS,
+        "Elite" => PAD_COLOR_ELITE,
+        "Treasure" => PAD_COLOR_TREASURE,
+        "Horde" => PAD_COLOR_HORDE,
+        "Enter" => PAD_COLOR_ENTER,
+        _ => PAD_COLOR_FIGHT,
+    };
     (
-        Sprite {
-            color: PAD_COLOR,
-            custom_size: Some(Vec2::splat(PAD_SIZE)),
-            ..default()
-        },
+        Sprite { color, custom_size: Some(Vec2::splat(PAD_SIZE)), ..default() },
         Transform::from_xyz(pos.x, pos.y, 0.5),
         TeleportPad { label: label.to_string() },
         Collider { half_extents: Vec2::splat(PAD_SIZE * 0.5) },
@@ -665,10 +675,10 @@ fn teleport_transition_system(
     shrines: Query<Entity, With<Shrine>>,
     breakables: Query<Entity, With<Breakable>>,
     pads: Query<(Entity, &Transform, &Collider, &TeleportPad), Without<Player>>,
-    mut player_query: Query<&mut Transform, (With<Player>, Without<AimIndicator>)>,
+    mut player_query: Query<(&mut Transform, &mut Health), (With<Player>, Without<AimIndicator>)>,
     walls: Query<Entity, With<Wall>>,
 ) {
-    let Ok(mut player_tf) = player_query.single_mut() else { return; };
+    let Ok((mut player_tf, mut player_health)) = player_query.single_mut() else { return; };
 
     for (pad_entity, pad_tf, pad_col, teleport) in &pads {
         if !aabb_overlap(
@@ -730,6 +740,24 @@ fn teleport_transition_system(
         let new_room = generate_room(&mut commands, &floor, &settings, next_room_id, next_kind);
         floor.rooms.push(new_room);
         floor.current_room = next_room_id;
+
+        // Treasure room bonus: extra breakables + guaranteed shrine.
+        if teleport.label == "Treasure" {
+            let Some(r) = floor.rooms.iter().find(|r| r.id == next_room_id) else {
+                return;
+            };
+            spawn_breakables(&mut commands, r, 8); // +8 extra breakables
+            spawn_shrines(&mut commands, r, 2);     // +2 extra shrines
+            info!("Treasure room {}: bonus breakables + shrines spawned", next_room_id.0);
+        }
+
+        // Boss room heal: leaving a Boss room heals the player fully.
+        if let Some(current) = floor.rooms.iter().find(|r| r.id == floor.current_room) {
+            if current.kind == RoomKind::Boss {
+                player_health.current = player_health.max;
+                info!("Boss room cleared — player fully healed");
+            }
+        }
 
         let entry = Vec2::new(
             new_room.bounds_min.x + ENTRY_INSET,
