@@ -263,19 +263,33 @@ fn wave_spawner_tick_system(
         }
 
         // ─── Spawn interval computation ───────────────────
-        // Two ramp factors combine multiplicatively:
+        // Two ramp phases, controlled by clear_delay:
         //
-        //   1. Universal ramp (all rooms): spawns get faster
-        //      the longer the player stays. Drops from 1.0×
-        //      toward 0.35× over ~120s of farming.
-        //      Formula: 1.0 / (1.0 + elapsed * 0.015)
-        //      At 60s:  ~0.53×  (interval ~half)
-        //      At 120s: ~0.36×  (interval ~third)
+        //   1. Slow phase (first 60s, before portal spawns):
+        //      Gentle ramp from 1.0× → ~0.68× over 60s.
+        //      Formula: 1.0 / (1.0 + time_in_room * 0.008)
+        //      At 60s: ~0.68×
         //
-        //   2. Boss ramp (boss rooms only): aggressive speed-up
-        //      triggered by boss death. Drops toward 0.08×
-        //      over 15s. Only active while BossRampTimer exists.
-        let universal_factor = 1.0 / (1.0 + spawner.farming_elapsed * 0.015);
+        //   2. Fast phase (after portal, clear_delay=0):
+        //      Aggressive ramp that stacks on top of where the
+        //      slow phase left off. Drops toward ~0.20× over
+        //      the next 60s.
+        //      Formula: slow_end_factor / (1.0 + post_clear * 0.04)
+        //
+        // When changing rooms, farming_elapsed resets to 0 and
+        // clear_delay resets to 60, so the ramp starts fresh.
+        // Floor-number difficulty scaling (enemy HP/damage) is
+        // separate — it lives in floor_difficulty_mult() which
+        // persists across rooms.
+        let time_before_clear = (60.0 - spawner.clear_delay).max(0.0);
+        let slow_factor = 1.0 / (1.0 + time_before_clear * 0.008);
+        let fast_factor = if spawner.clear_delay <= 0.0 {
+            let post_clear = spawner.farming_elapsed - 60.0;
+            1.0 / (1.0 + post_clear.max(0.0) * 0.04)
+        } else {
+            1.0
+        };
+        let universal_factor = slow_factor * fast_factor;
         let boss_factor = boss_ramp
             .as_ref()
             .map(|ramp| {
