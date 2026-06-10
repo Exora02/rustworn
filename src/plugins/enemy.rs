@@ -316,10 +316,10 @@ fn spawn_wave_enemy(
         .expect("current room must exist in biome");
     let spawn_pos = random_spawn_position(settings, player_pos, room, rng);
     match archetype {
-        EnemyArchetype::Chaser => spawn_chaser(commands, settings, room, spawn_pos),
-        EnemyArchetype::Dasher => spawn_dasher(commands, settings, room, spawn_pos),
-        EnemyArchetype::Shooter => spawn_shooter(commands, settings, room, spawn_pos),
-        EnemyArchetype::Sniper => spawn_sniper(commands, settings, room, spawn_pos),
+        EnemyArchetype::Chaser => spawn_chaser(commands, settings, room, spawn_pos, biome),
+        EnemyArchetype::Dasher => spawn_dasher(commands, settings, room, spawn_pos, biome),
+        EnemyArchetype::Shooter => spawn_shooter(commands, settings, room, spawn_pos, biome),
+        EnemyArchetype::Sniper => spawn_sniper(commands, settings, room, spawn_pos, biome),
         // Phase 2.3: Boss is still on the timer-driven
         // path (boss_spawn_system at run midpoint), not
         // a wave. Future patch will fold it into the
@@ -351,10 +351,10 @@ fn spawn_enemy(
         .find(|r| r.id == biome.current_room)
         .expect("current room must exist in biome");
     match archetype {
-        EnemyArchetype::Chaser => spawn_chaser(commands, settings, room, player_pos),
-        EnemyArchetype::Dasher => spawn_dasher(commands, settings, room, player_pos),
-        EnemyArchetype::Shooter => spawn_shooter(commands, settings, room, player_pos),
-        EnemyArchetype::Sniper => spawn_sniper(commands, settings, room, player_pos),
+        EnemyArchetype::Chaser => spawn_chaser(commands, settings, room, player_pos, biome),
+        EnemyArchetype::Dasher => spawn_dasher(commands, settings, room, player_pos, biome),
+        EnemyArchetype::Shooter => spawn_shooter(commands, settings, room, player_pos, biome),
+        EnemyArchetype::Sniper => spawn_sniper(commands, settings, room, player_pos, biome),
         // Note: `Boss` is not spawned via the random spawner —
         // it spawns at the run-midpoint (60s) at a fixed
         // distance from the player. See `boss_spawn_system`
@@ -364,7 +364,14 @@ fn spawn_enemy(
     }
 }
 
-fn spawn_chaser(commands: &mut Commands, settings: &GameSettings, room: &Room, spawn_pos: Vec2) {
+fn floor_difficulty_mult(floor: u32) -> (f32, f32) {
+    let hp = 1.0 + floor as f32 * 0.08;
+    let dmg = 1.0 + floor as f32 * 0.05;
+    (hp, dmg)
+}
+
+fn spawn_chaser(commands: &mut Commands, settings: &GameSettings, room: &Room, spawn_pos: Vec2, floor: &FloorState) {
+    let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
 
     commands.spawn((
         Sprite {
@@ -383,7 +390,7 @@ fn spawn_chaser(commands: &mut Commands, settings: &GameSettings, room: &Room, s
         // Day 11-12: enemies carry Health so the projectile-damage
         // system can drop them. `max` is a constant per-archetype
         // (read from settings on spawn) and `current` starts at max.
-        Health::new(settings.enemy_max_hp),
+        Health::new(settings.enemy_max_hp * hp_mult),
         Velocity::default(),
         // Chasers carry BaseVelocity so the future Cascade scaler can
         // slow them to 0.25× during Cascade Mode (per PLAN.md §2).
@@ -402,13 +409,14 @@ fn spawn_chaser(commands: &mut Commands, settings: &GameSettings, room: &Room, s
 // Phase 1 dasher. Same shape as the chaser, plus a `DasherState`
 // component that the AI ticks each frame to advance the
 // approach → dash → recover cycle. The dasher starts in Approach.
-fn spawn_dasher(commands: &mut Commands, settings: &GameSettings, room: &Room, spawn_pos: Vec2) {
+fn spawn_dasher(commands: &mut Commands, settings: &GameSettings, room: &Room, spawn_pos: Vec2, floor: &FloorState) {
     // Spawn position is the same as a chaser — random angle at a
     // random distance in [min, max]. We could spawn dashers
     // further out (so the player has time to read the charge
     // before they arrive) but that conflicts with the unified
     // spawner distance; Phase 2 will let each archetype override
     // its spawn range.
+    let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
 
     commands.spawn((
         Sprite {
@@ -424,7 +432,7 @@ fn spawn_dasher(commands: &mut Commands, settings: &GameSettings, room: &Room, s
         Collider {
             half_extents: Vec2::splat(DASHER_SIZE * 0.5),
         },
-        Health::new(settings.dasher_max_hp),
+        Health::new(settings.dasher_max_hp * hp_mult),
         Velocity::default(),
         BaseVelocity::default(),
         // Phase 1 cascade: dashers are CascadeAffected for the same
@@ -453,7 +461,8 @@ fn spawn_dasher(commands: &mut Commands, settings: &GameSettings, room: &Room, s
 // wave of shooters doesn't all open fire on the same frame —
 // Phase 2 will use seeded RNG to make this deterministic per
 // run.
-fn spawn_shooter(commands: &mut Commands, settings: &GameSettings, room: &Room, spawn_pos: Vec2) {
+fn spawn_shooter(commands: &mut Commands, settings: &GameSettings, room: &Room, spawn_pos: Vec2, floor: &FloorState) {
+    let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
 
     // Spread the first shot over the fire interval. Without
     // this, a fresh wave of 3 shooters all open fire on the
@@ -477,7 +486,7 @@ fn spawn_shooter(commands: &mut Commands, settings: &GameSettings, room: &Room, 
         Collider {
             half_extents: Vec2::splat(SHOOTER_SIZE * 0.5),
         },
-        Health::new(settings.shooter_max_hp),
+        Health::new(settings.shooter_max_hp * hp_mult),
         Velocity::default(),
         BaseVelocity::default(),
         // Phase 1 cascade: shooters are CascadeAffected so the
@@ -502,7 +511,8 @@ fn spawn_shooter(commands: &mut Commands, settings: &GameSettings, room: &Room, 
 // on the same frame — the spawn-time spread is the cooldown
 // duration itself, so the first shot from a fresh sniper
 // lands ~1.0s after spawn.
-fn spawn_sniper(commands: &mut Commands, settings: &GameSettings, room: &Room, spawn_pos: Vec2) {
+fn spawn_sniper(commands: &mut Commands, settings: &GameSettings, room: &Room, spawn_pos: Vec2, floor: &FloorState) {
+    let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
 
     commands.spawn((
         Sprite {
@@ -518,7 +528,7 @@ fn spawn_sniper(commands: &mut Commands, settings: &GameSettings, room: &Room, s
         Collider {
             half_extents: Vec2::splat(SNIPER_SIZE * 0.5),
         },
-        Health::new(settings.sniper_max_hp),
+        Health::new(settings.sniper_max_hp * hp_mult),
         Velocity::default(),
         BaseVelocity::default(),
         // Phase 1 cascade: snipers are CascadeAffected so the
@@ -689,7 +699,8 @@ fn spawn_boss_projectile(
 // (so Cascade Mode slows it AND its projectiles), and
 // BaseColor (so the hit-flash system can reset the sprite
 // tint back to deep red, not the chaser's bright red).
-pub fn spawn_boss(commands: &mut Commands, settings: &GameSettings, position: Vec2) {
+pub fn spawn_boss(commands: &mut Commands, settings: &GameSettings, floor: &FloorState, position: Vec2) {
+    let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
     commands.spawn((
         Sprite {
             color: BOSS_COLOR,
@@ -705,7 +716,7 @@ pub fn spawn_boss(commands: &mut Commands, settings: &GameSettings, position: Ve
         Collider {
             half_extents: Vec2::splat(BOSS_SIZE * 0.5),
         },
-        Health::new(settings.boss_max_hp),
+        Health::new(settings.boss_max_hp * hp_mult),
         Velocity::default(),
         BaseVelocity::default(),
         // Phase 1 cascade: boss is CascadeAffected so
@@ -727,7 +738,7 @@ pub fn spawn_boss(commands: &mut Commands, settings: &GameSettings, position: Ve
                 settings.boss_phase2_attack_interval_s,
                 TimerMode::Once,
             ),
-            current_hp: settings.boss_max_hp,
+            current_hp: settings.boss_max_hp * hp_mult,
         },
     ));
 }

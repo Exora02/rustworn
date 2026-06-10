@@ -15,7 +15,7 @@ use crate::events::{DamageEvent, EnemyKilledEvent};
 use crate::plugins::enemy::spawn_death_puff;
 use crate::plugins::fx::spawn_hit_spark;
 use crate::plugins::pickups::{roll_pickup_drop, roll_weapon_drop, spawn_pickup};
-use crate::resources::{CascadeState, GameSettings, Hitstop, RunState, ScreenShake};
+use crate::resources::{CascadeState, GameSettings, Hitstop, RunRng, RunState, ScreenShake};
 
 /// Color of the player projectile — warm white, clearly readable as a
 /// bullet against any background we'll add later.
@@ -549,6 +549,7 @@ fn beam_damage_system(
     // binding for the early-return gate (a read is fine on
     // `ResMut`).
     mut run_state: ResMut<RunState>,
+    mut rng: ResMut<RunRng>,
     mut cascade: ResMut<CascadeState>,
     mut commands: Commands,
     mut weapons: Query<&mut Weapon, With<Player>>,
@@ -648,16 +649,9 @@ fn beam_damage_system(
             // duration_timer by 5s (capped at +15s).
             on_enemy_killed(&settings, &mut run_state, &mut cascade, is_beacon);
             // Phase 1 pickups: roll the drop chance on kill using
-            // the enemy's archetype. RNG is `rand::random` —
-            // Phase 2 will replace with seeded RNG for
-            // determinism.
-            let mut rng = || -> f32 {
-                use std::collections::hash_map::DefaultHasher;
-                use std::hash::{Hash, Hasher};
-                let mut h = DefaultHasher::new();
-                run_state.enemies_killed.hash(&mut h);
-                h.finish() as f32 / u64::MAX as f32
-            };
+            // the enemy's archetype. RNG is `RunRng` for
+            // per-run determinism.
+            let mut rng = || rng.next_unit();
             if let Some(kind) = roll_pickup_drop(enemy_ai.behavior, &settings, cascade.active, &mut rng) {
                 spawn_pickup(&mut commands, &settings, enemy_pos, kind);
             }
@@ -726,6 +720,7 @@ fn projectile_damage_system(
     settings: Res<GameSettings>,
     hitstop: Option<Res<Hitstop>>,
     mut run: ResMut<RunState>,
+    mut rng: ResMut<RunRng>,
     mut cascade: ResMut<CascadeState>,
     mut commands: Commands,
     projectiles: Query<(Entity, &Transform, &Collider, &Projectile)>,
@@ -799,16 +794,9 @@ fn projectile_damage_system(
                 // helper is called from both projectile and
                 // beam kill paths so the two stay in sync.
                 on_enemy_killed(&settings, &mut run, &mut cascade, is_beacon);
-                // Phase 1 pickup drop. Deterministic hash of
-                // the kill counter — Phase 2 will swap in
-                // seeded RNG.
-                let mut rng = || -> f32 {
-                    use std::collections::hash_map::DefaultHasher;
-                    use std::hash::{Hash, Hasher};
-                    let mut h = DefaultHasher::new();
-                    run.enemies_killed.hash(&mut h);
-                    h.finish() as f32 / u64::MAX as f32
-                };
+                // Phase 1 pickup drop. Deterministic via
+                // `RunRng`.
+                let mut rng = || rng.next_unit();
                 if let Some(kind) = roll_pickup_drop(enemy_ai.behavior, &settings, cascade.active, &mut rng) {
                     spawn_pickup(&mut commands, &settings, enemy_pos, kind);
                 }

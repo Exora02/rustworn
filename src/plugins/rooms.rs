@@ -22,7 +22,7 @@ use crate::components::{
     Wall, WaveDefinition, WaveSpawner,
 };
 use crate::events::RoomClearedEvent;
-use crate::resources::{FloorState, GameSettings, Hitstop, RunState};
+use crate::resources::{FloorState, GameSettings, Hitstop, RunRng, RunState};
 
 // ─── Constants ───────────────────────────────────────────────────────────
 
@@ -197,6 +197,7 @@ fn shrine_collect_system(
     mut player_query: Query<(&Transform, &mut Health), (With<Player>, Without<AimIndicator>)>,
     mut shrines: Query<(Entity, &Transform, &mut Shrine, &mut Sprite)>,
     mut run: ResMut<RunState>,
+    mut rng: ResMut<RunRng>,
 ) {
     let Ok((player_tf, mut health)) = player_query.single_mut() else {
         return;
@@ -224,7 +225,8 @@ fn shrine_collect_system(
 
         // Heal shrines: instant collect.
         if matches!(shrine.focus, ShrineFocus::HealRegen) {
-            let reward = pick_shrine_reward(shrine.focus, &mut run);
+            let roll = (rng.next_unit() * 100.0) as u64;
+            let reward = pick_shrine_reward(shrine.focus, roll);
             apply_reward(reward, &mut health, &mut run);
             shrine.activated = true;
             commands.entity(entity).despawn();
@@ -234,7 +236,8 @@ fn shrine_collect_system(
         // Combat/Utility: channel.
         shrine.channel_progress += time.delta_secs();
         if shrine.channel_progress >= shrine.channel_duration_s {
-            let reward = pick_shrine_reward(shrine.focus, &mut run);
+            let roll = (rng.next_unit() * 100.0) as u64;
+            let reward = pick_shrine_reward(shrine.focus, roll);
             apply_reward(reward, &mut health, &mut run);
             shrine.activated = true;
             commands.entity(entity).despawn();
@@ -255,13 +258,7 @@ enum ShrineReward {
 }
 
 /// Pick a random upgrade from the focus's pool.
-fn pick_shrine_reward(focus: ShrineFocus, run: &RunState) -> ShrineReward {
-    use std::hash::{Hash, Hasher};
-    // Simple hash-based "random" from the XP value.
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    run.xp.hash(&mut hasher);
-    let roll = hasher.finish();
-
+fn pick_shrine_reward(focus: ShrineFocus, roll: u64) -> ShrineReward {
     match focus {
         ShrineFocus::HealRegen => {
             // Pool: +2 HP (common), +regen (uncommon), +max HP (rare), +5 HP (rare)

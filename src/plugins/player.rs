@@ -7,12 +7,12 @@ use bevy::prelude::*;
 
 use crate::components::{
     AimDirection, AimIndicator, AppState, BaseVelocity, Beacon, CascadeAffected, DashCooldown,
-    Health, Invulnerable, Knockback, LastMoveDirection, MainCamera, Player, Velocity,
+    Health, Invulnerable, Knockback, LastMoveDirection, MainCamera, Player, RoomKind, Velocity,
     PLAYER_COLOR,
 };
 use crate::plugins::enemy::{spawn_beacon, spawn_boss};
 use crate::events::{CascadeEndEvent, CascadeStartEvent};
-use crate::resources::{CascadeState, GameSettings, Hitstop, RunState, ScreenShake};
+use crate::resources::{CascadeState, FloorState, GameSettings, Hitstop, RunState, ScreenShake};
 use log::info;
 
 pub struct PlayerPlugin;
@@ -594,11 +594,16 @@ fn boss_spawn_system(
     mut run: ResMut<RunState>,
     mut commands: Commands,
     player_query: Query<&Transform, With<Player>>,
+    floor: Res<FloorState>,
 ) {
     if run.boss_spawned {
         return;
     }
-    if run.time_elapsed < settings.boss_spawn_time_s {
+    let in_boss_room = floor
+        .rooms
+        .iter()
+        .any(|r| r.id == floor.current_room && r.kind == RoomKind::Boss);
+    if run.time_elapsed < settings.boss_spawn_time_s && !in_boss_room {
         return;
     }
     let Ok(player_tf) = player_query.single() else {
@@ -620,7 +625,7 @@ fn boss_spawn_system(
     let angle = ((state >> 40) as f32) / ((1u32 << 24) as f32) * std::f32::consts::TAU;
     let spawn_pos = player_pos + Vec2::new(angle.cos(), angle.sin()) * settings.boss_spawn_distance;
 
-    spawn_boss(&mut commands, &settings, spawn_pos);
+    spawn_boss(&mut commands, &settings, &floor, spawn_pos);
     run.boss_spawned = true;
     info!(
         "mini-boss spawned at t={:.1}s, pos=({:.1}, {:.1})",
