@@ -10,7 +10,7 @@ use log::{info, warn};
 
 use crate::components::{
     AiBehavior, AppState, BaseColor, BaseVelocity, Beacon, Boss, BossPhase, BossState,
-    CascadeAffected, Collider, DasherPhase, DasherState, DeathPuff, Enemy, EnemyAI, EnemyArchetype,
+    CascadeAffected, Collider, DasherPhase, DasherState, DeathPuff, Elite, Enemy, EnemyAI, EnemyArchetype,
     Health, HitFlash, Invulnerable, Knockback, MotionTrail, Player, Projectile, Room, RoomKind,
     ShooterState, SniperState, Team, Velocity, WaveSpawner,
 };
@@ -125,6 +125,30 @@ const BOSS_PROJECTILE_COLOR: Color = Color::srgb(0.95, 0.20, 0.15);
 const BOSS_PROJECTILE_SIZE: Vec2 = Vec2::new(12.0, 12.0);
 
 // ─── Cascade beacon constants (Phase 2 P5) ──────────────────────────────
+
+/// Phase 3b director-cost constants. Each archetype costs a
+/// number of director credits to spawn. Elite variants cost 2×.
+const ENEMY_COST_CHASER: f32 = 5.0;
+const ENEMY_COST_DASHER: f32 = 8.0;
+const ENEMY_COST_SHOOTER: f32 = 7.0;
+const ENEMY_COST_SNIPER: f32 = 12.0;
+const ELITE_COST_MULTIPLIER: f32 = 2.0;
+
+/// Per-room-type director credit rates (credits per second).
+/// Higher rate = more enemies = more intense rooms.
+const CREDIT_RATE_FIGHT: f32 = 8.0;
+const CREDIT_RATE_HORDE: f32 = 10.0;
+const CREDIT_RATE_ELITE: f32 = 6.0;
+const CREDIT_RATE_BOSS: f32 = 5.0;
+/// Max credits cap (prevents budget stacking across long lulls).
+const CREDITS_MAX: f32 = 120.0;
+
+/// Probability of upgrading to an elite variant when budget allows.
+const ELITE_CHANCE: f32 = 0.25;
+
+/// Elite gold tint overlay. Mixed with the enemy's base color
+/// at spawn time so the enemy reads as \"special\" at a glance.
+const ELITE_TINT: Color = Color::srgb(0.95, 0.78, 0.12);
 
 /// Beacon color. Bright gold/yellow — distinct from every
 /// other enemy on screen (chaser red, dasher orange, shooter
@@ -306,14 +330,18 @@ fn wave_spawner_tick_system(
         let curse_factor = 1.0 / (1.0 + run.curse as f32 * 0.10);
         let interval = (spawner.farming_interval * ramp * curse_factor).max(0.08);
 
-        // Pick the next archetype based on room flavor.
+        // Director picks the next enemy archetype using the
+        // budget system. Accumulate credits per room type, spend
+        // them to purchase enemies. Can upgrade to elite variant.
         let room_kind = biome
             .rooms
             .iter()
             .find(|r| r.id == biome.current_room)
             .map(|r| r.kind)
             .unwrap_or(RoomKind::Fight);
-        let archetype = farming_archetype(room_kind, spawner.spawned_this_wave);
+        let credit_rate = director_credit_rate(room_kind);
+        spawner.director_credits = (spawner.director_credits + credit_rate * dt).min(CREDITS_MAX);
+        let (archetype, is_elite) = director_pick(&mut spawner, &mut rng);
 
         spawn_wave_enemy(
             &mut commands,
@@ -322,45 +350,67 @@ fn wave_spawner_tick_system(
             &mut rng,
             player_pos,
             archetype,
+            is_elite,
         );
         spawner.spawned_this_wave += 1;
         spawner.wave_timer = Timer::from_seconds(interval, TimerMode::Once);
     }
 }
 
-/// Pick the enemy archetype for the next farming-spawn based on
-/// the room's kind and the cumulative spawn counter. Each room
-/// type has a different composition bias:
-///   Fight:    balanced mix of all 4 archetypes
-///   Horde:    melee-heavy (chasers + dashers), few ranged
-///   MiniBoss: extra ranged pressure (more shooters + snipers)
-///   Boss:     same as MiniBoss (ranged pressure + boss entity)
-fn farming_archetype(kind: RoomKind, counter: u32) -> EnemyArchetype {
-    match kind {
-        RoomKind::Horde => match counter % 6 {
-            0 | 3 => EnemyArchetype::Chaser,
-            1 | 4 => EnemyArchetype::Dasher,
-            2 => EnemyArchetype::Shooter,
-            _ => EnemyArchetype::Chaser,
-        },
-        RoomKind::MiniBoss | RoomKind::Boss => match counter % 5 {
-            0 => EnemyArchetype::Chaser,
-            1 => EnemyArchetype::Dasher,
-            2 => EnemyArchetype::Shooter,
-            3 => EnemyArchetype::Sniper,
-            _ => EnemyArchetype::Shooter,
-        },
-        _ => {
-            // Fight rooms: balanced cycle
-            const ALL: [EnemyArchetype; 4] = [
-                EnemyArchetype::Chaser,
-                EnemyArchetype::Dasher,
-                EnemyArchetype::Shooter,
-                EnemyArchetype::Sniper,
-            ];
-            ALL[counter as usize % 4]
-        }
+/// Director budget pick: spend accumulated credits to buy an
+/// enemy archetype. Returns (archetype, is_elite). If credits
+/// are too low for any enemy, falls back to a free chaser.
+fn director_pick(spawner: &mut WaveSpawner, rng: &mut RunRng) -> (EnemyArchetype, bool) {
+    let candidates = [
+        (EnemyArchetype::Chaser, ENEMY_COST_CHASER),
+        (EnemyArchetype::Dasher, ENEMY_COST_DASHER),
+        (EnemyArchetype::Shooter, ENEMY_COST_SHOOTER),
+        (EnemyArchetype::Sniper, ENEMY_COST_SNIPER),
+    ];
+
+    // Filter to affordable archetypes.
+    let affordable: Vec<&(EnemyArchetype, f32)> =
+        candidates.iter().filter(|(_, c)| *c <= spawner.director_credits).collect();
+    if affordable.is_empty() {
+        return (EnemyArchetype::Chaser, false);
     }
+
+    // Weighted pick: spend up to budget, prefer variety.
+    let idx = (rng.next_unit() * affordable.len() as f32) as usize;
+    let (archetype, base_cost) = *affordable[idx.min(affordable.len() - 1)];
+
+    // 25% chance to upgrade to elite if budget allows.
+    let is_elite = spawner.director_credits >= base_cost * ELITE_COST_MULTIPLIER
+        && rng.next_unit() < ELITE_CHANCE;
+
+    let cost = if is_elite {
+        base_cost * ELITE_COST_MULTIPLIER
+    } else {
+        base_cost
+    };
+    spawner.director_credits = (spawner.director_credits - cost).max(0.0);
+
+    (archetype, is_elite)
+}
+
+/// Per-room-type director credit accumulation rate (credits/s).
+fn director_credit_rate(kind: RoomKind) -> f32 {
+    match kind {
+        RoomKind::Horde => CREDIT_RATE_HORDE,
+        RoomKind::MiniBoss | RoomKind::Boss => CREDIT_RATE_ELITE,
+        _ => CREDIT_RATE_FIGHT,
+    }
+}
+
+/// Apply gold-tinted elite overlay to a base color.
+fn elite_color_tint(base: Color) -> Color {
+    let srgba = base.to_srgba();
+    let elite = ELITE_TINT.to_srgba();
+    Color::srgb(
+        srgba.red * 0.6 + elite.red * 0.4,
+        srgba.green * 0.6 + elite.green * 0.4,
+        srgba.blue * 0.6 + elite.blue * 0.4,
+    )
 }
 
 // Spawn a single enemy of `archetype` at a random
@@ -374,6 +424,7 @@ fn spawn_wave_enemy(
     rng: &mut RunRng,
     player_pos: Vec2,
     archetype: EnemyArchetype,
+    is_elite: bool,
 ) {
     let room = biome
         .rooms
@@ -382,10 +433,10 @@ fn spawn_wave_enemy(
         .expect("current room must exist in biome");
     let spawn_pos = random_spawn_position(settings, player_pos, room, rng);
     match archetype {
-        EnemyArchetype::Chaser => spawn_chaser(commands, settings, room, spawn_pos, biome),
-        EnemyArchetype::Dasher => spawn_dasher(commands, settings, room, spawn_pos, biome),
-        EnemyArchetype::Shooter => spawn_shooter(commands, settings, room, spawn_pos, biome),
-        EnemyArchetype::Sniper => spawn_sniper(commands, settings, room, spawn_pos, biome),
+        EnemyArchetype::Chaser => spawn_chaser(commands, settings, room, spawn_pos, biome, is_elite),
+        EnemyArchetype::Dasher => spawn_dasher(commands, settings, room, spawn_pos, biome, is_elite),
+        EnemyArchetype::Shooter => spawn_shooter(commands, settings, room, spawn_pos, biome, is_elite),
+        EnemyArchetype::Sniper => spawn_sniper(commands, settings, room, spawn_pos, biome, is_elite),
         // Phase 2.3: Boss is still on the timer-driven
         // path (boss_spawn_system at run midpoint), not
         // a wave. Future patch will fold it into the
@@ -417,10 +468,10 @@ fn spawn_enemy(
         .find(|r| r.id == biome.current_room)
         .expect("current room must exist in biome");
     match archetype {
-        EnemyArchetype::Chaser => spawn_chaser(commands, settings, room, player_pos, biome),
-        EnemyArchetype::Dasher => spawn_dasher(commands, settings, room, player_pos, biome),
-        EnemyArchetype::Shooter => spawn_shooter(commands, settings, room, player_pos, biome),
-        EnemyArchetype::Sniper => spawn_sniper(commands, settings, room, player_pos, biome),
+        EnemyArchetype::Chaser => spawn_chaser(commands, settings, room, player_pos, biome, false),
+        EnemyArchetype::Dasher => spawn_dasher(commands, settings, room, player_pos, biome, false),
+        EnemyArchetype::Shooter => spawn_shooter(commands, settings, room, player_pos, biome, false),
+        EnemyArchetype::Sniper => spawn_sniper(commands, settings, room, player_pos, biome, false),
         // Note: `Boss` is not spawned via the random spawner —
         // it spawns at the run-midpoint (60s) at a fixed
         // distance from the player. See `boss_spawn_system`
@@ -436,12 +487,21 @@ fn floor_difficulty_mult(floor: u32) -> (f32, f32) {
     (hp, dmg)
 }
 
-fn spawn_chaser(commands: &mut Commands, settings: &GameSettings, room: &Room, spawn_pos: Vec2, floor: &FloorState) {
+fn spawn_chaser(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    room: &Room,
+    spawn_pos: Vec2,
+    floor: &FloorState,
+    is_elite: bool,
+) {
     let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
+    let hp = settings.enemy_max_hp * hp_mult * if is_elite { 2.0 } else { 1.0 };
+    let base_color = if is_elite { elite_color_tint(CHASER_COLOR) } else { CHASER_COLOR };
 
-    commands.spawn((
+    let mut spawn = commands.spawn((
         Sprite {
-            color: CHASER_COLOR,
+            color: base_color,
             custom_size: Some(Vec2::splat(CHASER_SIZE)),
             ..default()
         },
@@ -456,7 +516,7 @@ fn spawn_chaser(commands: &mut Commands, settings: &GameSettings, room: &Room, s
         // Day 11-12: enemies carry Health so the projectile-damage
         // system can drop them. `max` is a constant per-archetype
         // (read from settings on spawn) and `current` starts at max.
-        Health::new(settings.enemy_max_hp * hp_mult),
+        Health::new(hp),
         Velocity::default(),
         // Chasers carry BaseVelocity so the future Cascade scaler can
         // slow them to 0.25× during Cascade Mode (per PLAN.md §2).
@@ -468,25 +528,31 @@ fn spawn_chaser(commands: &mut Commands, settings: &GameSettings, room: &Room, s
         // Per-entity base color so the hit-flash system can reset
         // the sprite tint back to chaser red (not the wrong
         // archetype's color) when a flash ends without killing.
-        BaseColor(CHASER_COLOR),
+        BaseColor(base_color),
     ));
+    if is_elite {
+        spawn.insert(Elite);
+    }
 }
 
 // Phase 1 dasher. Same shape as the chaser, plus a `DasherState`
 // component that the AI ticks each frame to advance the
 // approach → dash → recover cycle. The dasher starts in Approach.
-fn spawn_dasher(commands: &mut Commands, settings: &GameSettings, room: &Room, spawn_pos: Vec2, floor: &FloorState) {
-    // Spawn position is the same as a chaser — random angle at a
-    // random distance in [min, max]. We could spawn dashers
-    // further out (so the player has time to read the charge
-    // before they arrive) but that conflicts with the unified
-    // spawner distance; Phase 2 will let each archetype override
-    // its spawn range.
+fn spawn_dasher(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    room: &Room,
+    spawn_pos: Vec2,
+    floor: &FloorState,
+    is_elite: bool,
+) {
     let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
+    let hp = settings.dasher_max_hp * hp_mult * if is_elite { 2.0 } else { 1.0 };
+    let base_color = if is_elite { elite_color_tint(DASHER_COLOR) } else { DASHER_COLOR };
 
-    commands.spawn((
+    let mut spawn = commands.spawn((
         Sprite {
-            color: DASHER_COLOR,
+            color: base_color,
             custom_size: Some(Vec2::splat(DASHER_SIZE)),
             ..default()
         },
@@ -498,7 +564,7 @@ fn spawn_dasher(commands: &mut Commands, settings: &GameSettings, room: &Room, s
         Collider {
             half_extents: Vec2::splat(DASHER_SIZE * 0.5),
         },
-        Health::new(settings.dasher_max_hp * hp_mult),
+        Health::new(hp),
         Velocity::default(),
         BaseVelocity::default(),
         // Phase 1 cascade: dashers are CascadeAffected for the same
@@ -516,8 +582,11 @@ fn spawn_dasher(commands: &mut Commands, settings: &GameSettings, room: &Room, s
         // chaser's red. Without this, the hit-flash system would
         // hard-reset every enemy to chaser red on every non-killing
         // hit (see `hit_flash_tick_system`).
-        BaseColor(DASHER_COLOR),
+        BaseColor(base_color),
     ));
+    if is_elite {
+        spawn.insert(Elite);
+    }
 }
 
 // Phase 1 shooter. Same base bundle as the dasher (sprite +
@@ -527,8 +596,17 @@ fn spawn_dasher(commands: &mut Commands, settings: &GameSettings, room: &Room, s
 // wave of shooters doesn't all open fire on the same frame —
 // Phase 2 will use seeded RNG to make this deterministic per
 // run.
-fn spawn_shooter(commands: &mut Commands, settings: &GameSettings, room: &Room, spawn_pos: Vec2, floor: &FloorState) {
+fn spawn_shooter(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    room: &Room,
+    spawn_pos: Vec2,
+    floor: &FloorState,
+    is_elite: bool,
+) {
     let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
+    let hp = settings.shooter_max_hp * hp_mult * if is_elite { 2.0 } else { 1.0 };
+    let base_color = if is_elite { elite_color_tint(SHOOTER_COLOR) } else { SHOOTER_COLOR };
 
     // Spread the first shot over the fire interval. Without
     // this, a fresh wave of 3 shooters all open fire on the
@@ -538,9 +616,9 @@ fn spawn_shooter(commands: &mut Commands, settings: &GameSettings, room: &Room, 
     let interval = 1.0 / settings.shooter_fire_rate;
     let initial_cooldown = interval * 0.5;
 
-    commands.spawn((
+    let mut spawn = commands.spawn((
         Sprite {
-            color: SHOOTER_COLOR,
+            color: base_color,
             custom_size: Some(Vec2::splat(SHOOTER_SIZE)),
             ..default()
         },
@@ -552,7 +630,7 @@ fn spawn_shooter(commands: &mut Commands, settings: &GameSettings, room: &Room, 
         Collider {
             half_extents: Vec2::splat(SHOOTER_SIZE * 0.5),
         },
-        Health::new(settings.shooter_max_hp * hp_mult),
+        Health::new(hp),
         Velocity::default(),
         BaseVelocity::default(),
         // Phase 1 cascade: shooters are CascadeAffected so the
@@ -562,11 +640,14 @@ fn spawn_shooter(commands: &mut Commands, settings: &GameSettings, room: &Room, 
         // `spawn_shooter_projectile`) so the bullets slow too —
         // the player can sidestep them in slow-mo.
         CascadeAffected,
-        BaseColor(SHOOTER_COLOR),
+        BaseColor(base_color),
         ShooterState {
             fire_timer: Timer::from_seconds(initial_cooldown, TimerMode::Once),
         },
     ));
+    if is_elite {
+        spawn.insert(Elite);
+    }
 }
 
 // Phase 1 sniper. Same base bundle as the dasher (sprite +
@@ -577,12 +658,21 @@ fn spawn_shooter(commands: &mut Commands, settings: &GameSettings, room: &Room, 
 // on the same frame — the spawn-time spread is the cooldown
 // duration itself, so the first shot from a fresh sniper
 // lands ~1.0s after spawn.
-fn spawn_sniper(commands: &mut Commands, settings: &GameSettings, room: &Room, spawn_pos: Vec2, floor: &FloorState) {
+fn spawn_sniper(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    room: &Room,
+    spawn_pos: Vec2,
+    floor: &FloorState,
+    is_elite: bool,
+) {
     let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
+    let hp = settings.sniper_max_hp * hp_mult * if is_elite { 2.0 } else { 1.0 };
+    let base_color = if is_elite { elite_color_tint(SNIPER_COLOR) } else { SNIPER_COLOR };
 
-    commands.spawn((
+    let mut spawn = commands.spawn((
         Sprite {
-            color: SNIPER_COLOR,
+            color: base_color,
             custom_size: Some(Vec2::splat(SNIPER_SIZE)),
             ..default()
         },
@@ -594,7 +684,7 @@ fn spawn_sniper(commands: &mut Commands, settings: &GameSettings, room: &Room, s
         Collider {
             half_extents: Vec2::splat(SNIPER_SIZE * 0.5),
         },
-        Health::new(settings.sniper_max_hp * hp_mult),
+        Health::new(hp),
         Velocity::default(),
         BaseVelocity::default(),
         // Phase 1 cascade: snipers are CascadeAffected so the
@@ -603,7 +693,7 @@ fn spawn_sniper(commands: &mut Commands, settings: &GameSettings, room: &Room, s
         // own projectiles also carry the marker so the
         // bullets slow too.
         CascadeAffected,
-        BaseColor(SNIPER_COLOR),
+        BaseColor(base_color),
         SniperState {
             // Start in cooldown (not charging) so the wave
             // doesn't all open fire on the same frame.
@@ -614,6 +704,9 @@ fn spawn_sniper(commands: &mut Commands, settings: &GameSettings, room: &Room, s
             is_charging: false,
         },
     ));
+    if is_elite {
+        spawn.insert(Elite);
+    }
 }
 
 // Spawn a `Team::Enemy` sniper projectile at `enemy_pos` aimed

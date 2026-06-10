@@ -767,6 +767,17 @@ pub struct Shrine {
     pub activated: bool,
 }
 
+/// Phase 3b: elite enemy variant. When an enemy is spawned as
+/// an elite (via the director budget system), this marker is
+/// attached. Elite enemies have:
+/// - 2× base HP (bonus HP from floor scaling stacks on top)
+/// - 1.5× base damage (from contact + projectile)
+/// - Gold-tinted sprite (visual distinction)
+/// - 2× loot drop chance bonus (stacked with curse)
+/// - Visual aura ring (child sprite entity)
+#[derive(Component)]
+pub struct Elite;
+
 /// A fragile breakable object (pot, crate, barrel). Takes
 /// `hp` hits to destroy. On destruction, rolls a loot drop
 /// (hearts, gold, pickups). Breakables are hit by player
@@ -986,4 +997,9 @@ pub struct WaveSpawner {
     /// is cleared and teleport pads appear. Boss rooms set this to
     /// 0 (boss death gates clear instead).
     pub clear_delay: f32,
+    /// Phase 3b (RoR2 director budget): accumulated director
+    /// credits for buying enemies. Accumulates at a per-room-type
+    /// rate each frame; spent when an enemy is spawned. Starts at
+    /// 8.0 so the first few spawns happen immediately.
+    pub director_credits: f32,
 }

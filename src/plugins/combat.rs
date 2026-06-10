@@ -8,7 +8,7 @@ use bevy::sprite::Anchor;
 use log::warn;
 
 use crate::components::{
-    AimDirection, AppState, AiBehavior, Beacon, BeamVisual, Breakable, Collider, Enemy, EnemyAI,
+    AimDirection, AppState, AiBehavior, Beacon, BeamVisual, Breakable, Collider, Elite, Enemy, EnemyAI,
     Health, HitFlash, Invulnerable, Knockback, PickupKind, Player, Projectile, Team, Velocity,
     Weapon, WeaponArchetype,
 };
@@ -562,7 +562,7 @@ fn beam_damage_system(
     mut weapons: Query<&mut Weapon, With<Player>>,
     player_query: Query<&Transform, With<Player>>,
     mut enemies: Query<
-        (Entity, &Transform, &Collider, &mut Health, &EnemyAI, Has<Beacon>),
+        (Entity, &Transform, &Collider, &mut Health, &EnemyAI, Has<Beacon>, Has<Elite>),
         With<Enemy>,
     >,
     mut beam_visual: Query<
@@ -625,7 +625,7 @@ fn beam_damage_system(
     let half_thickness = settings.beam_thickness * 0.5;
     let damage = settings.beam_damage_per_tick;
 
-    for (enemy_entity, enemy_tf, enemy_col, mut health, enemy_ai, is_beacon) in &mut enemies {
+    for (enemy_entity, enemy_tf, enemy_col, mut health, enemy_ai, is_beacon, is_elite) in &mut enemies {
         // Same-frame corpse guard: see bevy-0.16-gotchas §9.
         if health.current <= 0.0 {
             continue;
@@ -679,13 +679,11 @@ fn beam_damage_system(
             }
             // Health drop: flat 15% roll on every kill,
             // independent of stat-stick and weapon drops.
+            // Elite kills get a second roll for double chance.
             if roll_health_drop(&settings, run_state.curse, &mut rng) {
-                spawn_pickup(
-                    &mut commands,
-                    &settings,
-                    enemy_pos,
-                    PickupKind::Heal,
-                );
+                spawn_pickup(&mut commands, &settings, enemy_pos, PickupKind::Heal);
+            } else if is_elite && rng() < (settings.health_drop_chance).min(1.0) {
+                spawn_pickup(&mut commands, &settings, enemy_pos, PickupKind::Heal);
             }
             kill_events.send(EnemyKilledEvent {
                 victim: enemy_entity,
@@ -742,7 +740,7 @@ fn projectile_damage_system(
     mut commands: Commands,
     projectiles: Query<(Entity, &Transform, &Collider, &Projectile)>,
     mut enemies: Query<
-        (Entity, &Transform, &Collider, &mut Health, &EnemyAI, Has<Beacon>),
+        (Entity, &Transform, &Collider, &mut Health, &EnemyAI, Has<Beacon>, Has<Elite>),
         With<Enemy>,
     >,
     mut damage_events: EventWriter<DamageEvent>,
@@ -766,7 +764,7 @@ fn projectile_damage_system(
         let proj_pos = proj_tf.translation.truncate();
 
         let mut hit = false;
-        for (enemy_entity, enemy_tf, enemy_col, mut health, enemy_ai, is_beacon) in &mut enemies {
+        for (enemy_entity, enemy_tf, enemy_col, mut health, enemy_ai, is_beacon, is_elite) in &mut enemies {
             if !aabb_overlap(
                 proj_pos,
                 proj_col.half_extents,
@@ -830,13 +828,11 @@ fn projectile_damage_system(
                 }
                 // Health drop: flat 15% roll on every kill,
                 // independent of stat-stick and weapon drops.
+                // Elite kills get a second roll for double chance.
                 if roll_health_drop(&settings, run.curse, &mut rng) {
-                    spawn_pickup(
-                        &mut commands,
-                        &settings,
-                        enemy_pos,
-                        PickupKind::Heal,
-                    );
+                    spawn_pickup(&mut commands, &settings, enemy_pos, PickupKind::Heal);
+                } else if is_elite && rng() < (settings.health_drop_chance).min(1.0) {
+                    spawn_pickup(&mut commands, &settings, enemy_pos, PickupKind::Heal);
                 }
                 kill_events.send(EnemyKilledEvent {
                     victim: enemy_entity,

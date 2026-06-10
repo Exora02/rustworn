@@ -225,6 +225,7 @@ fn generate_room(
                 farming_interval,
                 farming_elapsed: 0.0,
                 clear_delay,
+                director_credits: 8.0,
             },
             Transform::default(),
         ));
@@ -996,6 +997,7 @@ mod tests {
             farming_interval: 0.35,
             farming_elapsed: 0.0,
             clear_delay: 0.0,
+            director_credits: 8.0,
         }
     }
 
