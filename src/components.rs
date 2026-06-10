@@ -772,10 +772,11 @@ pub enum RoomKind {
     /// scoped to this room (Phase 2 minimum: all 4 spawners
     /// in the Fight room).
     Fight,
-    /// Where the run ends. Phase 2: just a labeled room
-    /// with no enemies. Phase 6 adds the extraction portal
-    /// here.
-    Extract,
+    /// Boss room. Every N rooms (default 4) the player faces
+    /// a boss encounter. Boss death → full heal + floor
+    /// advancement + difficulty ramp. No regular waves —
+    /// just the boss and its adds.
+    Boss,
 }
 
 /// Door trigger: a small AABB on the floor in front of a wall.
@@ -837,6 +838,16 @@ pub struct RoomScope {
 /// system can find them.
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct Wall;
+
+/// Phase 2 P6 (Crab Champions run): teleport pad that appears
+/// in a cleared room. The player walks into it to transition
+/// to the next room. Label describes the destination kind
+/// (e.g. "Fight", "Boss") for future UI display.
+/// Spawned by `pad_spawn_on_clear_system` in rooms.rs.
+#[derive(Component, Clone, Debug)]
+pub struct TeleportPad {
+    pub label: String,
+}
 
 // ─── Wave spawning (Phase 2.3) ────────────────────────────────────────────
 

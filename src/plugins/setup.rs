@@ -23,7 +23,7 @@ use crate::components::{
     HudElement, HudElementKind, Invulnerable, Knockback, LastMoveDirection, MainCamera, MotionTrail, Pickup,
     Player, Projectile, Velocity, Weapon, WeaponArchetype, WeaponInventory, PLAYER_COLOR,
 };
-use crate::resources::{BiomeState, CascadeState, GameSettings, RunRng, RunState, ScreenShake};
+use crate::resources::{FloorState, CascadeState, GameSettings, RunRng, RunState, ScreenShake};
 
 /// Color of the aim indicator line — high-contrast white so it stays
 /// readable against any background we'll add later.
@@ -53,7 +53,7 @@ impl Plugin for SetupPlugin {
         // come BEFORE any system that uses `in_state(...)` /
         // `Res<State<AppState>>` / `ResMut<NextState<AppState>>`.
         app.init_state::<AppState>()
-            .init_resource::<BiomeState>()
+            .init_resource::<FloorState>()
             .init_resource::<RunRng>()
             .init_resource::<CascadeState>()
             .init_resource::<RunState>()

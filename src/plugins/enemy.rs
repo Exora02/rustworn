@@ -16,7 +16,7 @@ use crate::components::{
 };
 use crate::events::{DamageEvent, RoomClearedEvent};
 use crate::plugins::fx::spawn_hit_spark;
-use crate::resources::{BiomeState, GameSettings, Hitstop, RunRng, RunState, ScreenShake};
+use crate::resources::{FloorState, GameSettings, Hitstop, RunRng, RunState, ScreenShake};
 
 /// Color of the chaser — high-contrast red so it reads as "danger" at
 /// a glance against the orange player and the dark background we'll
@@ -206,7 +206,7 @@ fn wave_spawner_tick_system(
     time: Res<Time>,
     settings: Res<GameSettings>,
     hitstop: Option<Res<Hitstop>>,
-    biome: Res<BiomeState>,
+    biome: Res<FloorState>,
     mut rng: ResMut<RunRng>,
     mut commands: Commands,
     mut spawners: Query<&mut WaveSpawner>,
@@ -304,7 +304,7 @@ fn wave_spawner_tick_system(
 fn spawn_wave_enemy(
     commands: &mut Commands,
     settings: &GameSettings,
-    biome: &BiomeState,
+    biome: &FloorState,
     rng: &mut RunRng,
     player_pos: Vec2,
     archetype: EnemyArchetype,
@@ -341,7 +341,7 @@ fn spawn_wave_enemy(
 fn spawn_enemy(
     commands: &mut Commands,
     settings: &GameSettings,
-    biome: &BiomeState,
+    biome: &FloorState,
     player_pos: Vec2,
     archetype: EnemyArchetype,
 ) {
