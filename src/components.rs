@@ -545,6 +545,9 @@ pub enum PickupKind {
     /// Heal orb: +3 HP on pickup (one-shot). Dropped by
     /// breakables and as a secondary roll on enemy kills.
     Heal,
+    /// Phase 3c gold coin: adds N gold to RunState on pickup.
+    /// Dropped by enemies and breakables; spent in shop rooms.
+    Gold(u32),
 }
 
 /// Phase 1 hit feedback: a small white sprite that flashes briefly
@@ -777,6 +780,28 @@ pub struct Shrine {
 /// - Visual aura ring (child sprite entity)
 #[derive(Component)]
 pub struct Elite;
+
+/// Phase 3c: a shop item in a shop room. The player walks over
+/// it to buy it. If they have enough gold, the cost is deducted
+/// and the reward is applied. The item despawns after purchase.
+#[derive(Component)]
+pub struct ShopItem {
+    pub cost: u32,
+    pub reward: ShopReward,
+}
+
+/// Rewards a player can buy in a shop room.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShopReward {
+    DamageUp,
+    FireRateUp,
+    SpeedUp,
+    MaxHpUp,
+    Regen,
+    HealFull,
+    /// Unlocks a random weapon in an empty inventory slot.
+    Weapon(WeaponArchetype),
+}
 
 /// A fragile breakable object (pot, crate, barrel). Takes
 /// `hp` hits to destroy. On destruction, rolls a loot drop

@@ -188,6 +188,11 @@ pub struct RunState {
     /// in exchange for harder rooms. Set by curse shrine rewards.
     /// Each point is ~10% more spawn rate + scaling loot bonus.
     pub curse: u32,
+    /// Phase 3c (Crab Champions shop): gold currency. Earned by
+    /// killing enemies and breaking breakables; spent in shop
+    /// rooms between combat rooms. Persists across rooms, resets
+    /// on death/restart.
+    pub gold: u32,
 }
 
 impl Default for RunState {
@@ -206,6 +211,7 @@ impl Default for RunState {
             speed_stacks: 0,
             regen_per_sec: 0.0,
             curse: 0,
+            gold: 0,
         }
     }
 }

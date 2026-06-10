@@ -15,7 +15,7 @@ use crate::components::{
 use crate::events::{DamageEvent, EnemyKilledEvent};
 use crate::plugins::enemy::spawn_death_puff;
 use crate::plugins::fx::spawn_hit_spark;
-use crate::plugins::pickups::{roll_health_drop, roll_pickup_drop, roll_weapon_drop, spawn_pickup};
+use crate::plugins::pickups::{roll_gold_drop, roll_health_drop, roll_pickup_drop, roll_weapon_drop, spawn_pickup};
 use crate::resources::{CascadeState, GameSettings, Hitstop, RunRng, RunState, ScreenShake};
 
 /// Color of the player projectile — warm white, clearly readable as a
@@ -685,6 +685,10 @@ fn beam_damage_system(
             } else if is_elite && rng() < (settings.health_drop_chance).min(1.0) {
                 spawn_pickup(&mut commands, &settings, enemy_pos, PickupKind::Heal);
             }
+            // Phase 3c: gold drop.
+            if let Some(amt) = roll_gold_drop(is_elite, &mut rng) {
+                spawn_pickup(&mut commands, &settings, enemy_pos, PickupKind::Gold(amt));
+            }
             kill_events.send(EnemyKilledEvent {
                 victim: enemy_entity,
                 killer: Entity::PLACEHOLDER,
@@ -833,6 +837,10 @@ fn projectile_damage_system(
                     spawn_pickup(&mut commands, &settings, enemy_pos, PickupKind::Heal);
                 } else if is_elite && rng() < (settings.health_drop_chance).min(1.0) {
                     spawn_pickup(&mut commands, &settings, enemy_pos, PickupKind::Heal);
+                }
+                // Phase 3c: gold drop.
+                if let Some(amt) = roll_gold_drop(is_elite, &mut rng) {
+                    spawn_pickup(&mut commands, &settings, enemy_pos, PickupKind::Gold(amt));
                 }
                 kill_events.send(EnemyKilledEvent {
                     victim: enemy_entity,
@@ -1082,12 +1090,13 @@ fn breakable_damage_system(
                 }
                 // Roll health drop (flat 15%).
                 if roll_health_drop(&settings, run.curse, &mut rng) {
-                    spawn_pickup(
-                        &mut commands,
-                        &settings,
-                        breakable_pos,
-                        PickupKind::Heal,
-                    );
+                    spawn_pickup(&mut commands, &settings, breakable_pos, PickupKind::Heal);
+                }
+                // Phase 3c: gold drop from breakables (25% chance, 1-3 gold).
+                let gold_roll: f32 = rng();
+                if gold_roll < 0.25 {
+                    let amt = 1 + (rng() * 3.0) as u32;
+                    spawn_pickup(&mut commands, &settings, breakable_pos, PickupKind::Gold(amt));
                 }
                 kill_events.send(EnemyKilledEvent {
                     victim: breakable_entity,

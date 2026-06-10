@@ -169,12 +169,15 @@ fn apply_pickup(
                 // can add a swap prompt here.
             }
         }
+        PickupKind::Gold(amt) => {
+            run.gold = run.gold.saturating_add(amt);
+        }
     }
     // Heal a small chunk on every pickup so the player can
     // feel the collect even when the stacked effect is small.
-    // Skipped for weapon pickups: the player already has the
-    // weapon as the reward, the +1 HP is redundant.
-    if !matches!(kind, PickupKind::Weapon(_)) {
+    // Skipped for weapon pickups and gold: the player already has the
+    // weapon as the reward, the +1 HP is redundant; gold is currency.
+    if !matches!(kind, PickupKind::Weapon(_) | PickupKind::Gold(_)) {
         if let Ok(mut h) = health_q.single_mut() {
             h.current = (h.current + 1.0).min(h.max);
         }
@@ -337,6 +340,18 @@ pub fn roll_health_drop(settings: &GameSettings, curse: u32, rng: &mut impl FnMu
     rng() < (settings.health_drop_chance * curse_mult).min(1.0)
 }
 
+/// Phase 3c: roll a gold drop on kill. 50% base chance for
+/// regular enemies, 75% for elites. Drops 2-5 gold.
+/// Called from the kill handlers in combat.rs.
+pub fn roll_gold_drop(is_elite: bool, rng: &mut impl FnMut() -> f32) -> Option<u32> {
+    let chance = if is_elite { 0.75 } else { 0.50 };
+    if rng() < chance {
+        Some(2 + (rng() * 4.0) as u32) // 2-5 gold
+    } else {
+        None
+    }
+}
+
 /// Lifetime: separate from the per-frame drift + tick, so the
 /// drift system can focus on motion and the lifetime is a
 /// background tick. (Both are checked each frame in the same
@@ -386,6 +401,10 @@ pub fn spawn_pickup(commands: &mut Commands, settings: &GameSettings, pos: Vec2,
             // "health" in arcade color
             // shorthand, distinct from
             // Regen's green.
+            PICKUP_SIZE,
+        ),
+        PickupKind::Gold(_) => (
+            Color::srgb(0.95, 0.85, 0.10), // bright gold — coin
             PICKUP_SIZE,
         ),
     };

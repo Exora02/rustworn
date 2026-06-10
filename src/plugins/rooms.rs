@@ -20,7 +20,7 @@ use log::info;
 use crate::components::{
     AimIndicator, AppState, Boss, Breakable, Collider, DeathPuff, Enemy, EnemyArchetype,
     FloorTransitionText, Health, MainCamera, Pickup, Player, Projectile, Room, RoomId, RoomKind,
-    Shrine, ShrineFocus, TeleportPad, Velocity, Wall, WaveDefinition, WaveSpawner,
+    Shrine, ShrineFocus, ShopItem, ShopReward, TeleportPad, Velocity, Wall, WaveDefinition, WaveSpawner,
 };
 use crate::events::RoomClearedEvent;
 use crate::resources::{BossRampTimer, FloorState, GameSettings, Hitstop, RunRng, RunState};
@@ -48,6 +48,7 @@ const PAD_COLOR_BOSS: Color = Color::srgb(0.85, 0.15, 0.15);  // red
 const PAD_COLOR_TREASURE: Color = Color::srgb(0.95, 0.75, 0.20); // gold
 const PAD_COLOR_HORDE: Color = Color::srgb(0.20, 0.85, 0.60); // teal
 const PAD_COLOR_ENTER: Color = Color::srgb(0.30, 0.85, 0.30); // green
+const PAD_COLOR_SHOP: Color = Color::srgb(0.95, 0.85, 0.10); // bright gold
 const PAD_SIZE: f32 = 60.0;
 const ROOMS_PER_BOSS: u32 = 6;
 const ENTRY_INSET: f32 = 50.0;
@@ -86,6 +87,7 @@ impl Plugin for RoomsPlugin {
                 (
                     physics_step_system,
                     shrine_collect_system,
+                    shop_collect_system,
                     teleport_transition_system,
                     boss_death_room_clear_system,
                     pad_spawn_on_clear_system,
@@ -725,6 +727,7 @@ fn pad_bundle(pos: Vec2, label: &str) -> impl Bundle {
         "Treasure" => PAD_COLOR_TREASURE,
         "Horde" => PAD_COLOR_HORDE,
         "Enter" => PAD_COLOR_ENTER,
+        "Shop" => PAD_COLOR_SHOP,
         _ => PAD_COLOR_FIGHT,
     };
     (
@@ -928,6 +931,74 @@ fn floor_transition_fade_system(
         if state.0.just_finished() {
             commands.entity(entity).despawn();
         }
+    }
+}
+
+// ─── Shop room (Phase 3c) ──────────────────────────────────────────────────
+
+const SHOP_ITEM_COLOR_BUFF: Color = Color::srgb(0.30, 0.75, 0.95);
+const SHOP_ITEM_COLOR_HEAL: Color = Color::srgb(0.30, 0.85, 0.30);
+const SHOP_ITEM_SIZE: f32 = 36.0;
+
+fn spawn_shop_items(commands: &mut Commands, room: &Room) {
+    let center = room.center();
+    let items = [
+        (ShopReward::DamageUp, 50, SHOP_ITEM_COLOR_BUFF),
+        (ShopReward::FireRateUp, 50, SHOP_ITEM_COLOR_BUFF),
+        (ShopReward::SpeedUp, 40, SHOP_ITEM_COLOR_BUFF),
+        (ShopReward::HealFull, 30, SHOP_ITEM_COLOR_HEAL),
+        (ShopReward::Regen, 60, SHOP_ITEM_COLOR_HEAL),
+    ];
+    for (i, (reward, cost, color)) in items.iter().enumerate() {
+        let angle = i as f32 * std::f32::consts::TAU / items.len() as f32;
+        let offset = Vec2::new(angle.cos(), angle.sin()) * room.size().x * 0.25;
+        let pos = center + offset;
+        commands.spawn((
+            Sprite { color: *color, custom_size: Some(Vec2::splat(SHOP_ITEM_SIZE)), ..default() },
+            Transform::from_xyz(pos.x, pos.y, 0.4),
+            ShopItem { cost: *cost, reward: *reward },
+            Collider { half_extents: Vec2::splat(SHOP_ITEM_SIZE * 0.5) },
+        ));
+    }
+}
+
+fn shop_collect_system(
+    mut commands: Commands,
+    mut player_query: Query<(&Transform, &mut Health), (With<Player>, Without<AimIndicator>)>,
+    mut run: ResMut<RunState>,
+    mut shop_items: Query<(Entity, &Transform, &ShopItem)>,
+) {
+    let Ok((player_tf, mut health)) = player_query.single_mut() else {
+        return;
+    };
+    let player_pos = player_tf.translation.truncate();
+    let player_half = Vec2::splat(20.0);
+
+    for (entity, tf, item) in &mut shop_items {
+        if !aabb_overlap(
+            player_pos, player_half,
+            tf.translation.truncate(), Vec2::splat(SHOP_ITEM_SIZE * 0.5),
+        ) {
+            continue;
+        }
+        if run.gold < item.cost {
+            continue;
+        }
+        run.gold = run.gold.saturating_sub(item.cost);
+        match item.reward {
+            ShopReward::DamageUp => { run.damage_stacks = (run.damage_stacks + 1).min(8); }
+            ShopReward::FireRateUp => { run.fire_rate_stacks = (run.fire_rate_stacks + 1).min(8); }
+            ShopReward::SpeedUp => { run.speed_stacks = (run.speed_stacks + 1).min(8); }
+            ShopReward::MaxHpUp => {
+                health.max += 2.0;
+                health.current = (health.current + 2.0).min(health.max);
+            }
+            ShopReward::Regen => { run.regen_per_sec += 0.5; }
+            ShopReward::HealFull => { health.current = health.max; }
+            ShopReward::Weapon(_) => {}
+        }
+        info!("Shop: bought {:?} for {} gold ({} remaining)", item.reward, item.cost, run.gold);
+        commands.entity(entity).despawn();
     }
 }
 
