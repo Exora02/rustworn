@@ -18,7 +18,7 @@ use log::info;
 
 use crate::components::{
     AimIndicator, AppState, Breakable, Collider, DeathPuff, Enemy, EnemyArchetype, Health, MainCamera,
-    Pickup, Player, Projectile, Room, RoomId, RoomKind, Shrine, ShrineKind, TeleportPad, Velocity,
+    Pickup, Player, Projectile, Room, RoomId, RoomKind, Shrine, ShrineFocus, TeleportPad, Velocity,
     Wall, WaveDefinition, WaveSpawner,
 };
 use crate::events::RoomClearedEvent;
@@ -45,10 +45,12 @@ const SHRINE_SIZE: f32 = 32.0;
 const BREAKABLE_COLOR: Color = Color::srgb(0.55, 0.35, 0.20);
 const BREAKABLE_SIZE: f32 = 24.0;
 
-/// How many breakables to spawn per fight/boss room (randomized).
-const BREAKABLES_PER_ROOM: usize = 3;
-/// How many shrines to spawn per fight/boss room.
-const SHRINES_PER_ROOM: usize = 2;
+/// Channeling duration in seconds for non-heal shrines.
+const SHRINE_CHANNEL_S: f32 = 1.5;
+/// How many shrines per fight/boss room.
+const SHRINES_PER_ROOM: usize = 4;
+/// How many breakables per room.
+const BREAKABLES_PER_ROOM: usize = 6;
 
 pub struct RoomsPlugin;
 
@@ -143,49 +145,46 @@ fn generate_room(
 
 fn spawn_shrines(commands: &mut Commands, room: &Room) {
     let center = (room.bounds_min + room.bounds_max) * 0.5;
-    let kinds = [
-        ShrineKind::Heal,
-        ShrineKind::Damage,
-        ShrineKind::FireRate,
-        ShrineKind::Speed,
-        ShrineKind::Gold,
+    let focuses = [
+        ShrineFocus::HealRegen,
+        ShrineFocus::Combat,
+        ShrineFocus::Utility,
+        ShrineFocus::Combat, // 4th shrine: another combat for variety
     ];
-    // Pick SHRINES_PER_ROOM random-ish kinds, placed around the room.
     for i in 0..SHRINES_PER_ROOM {
-        let kind_idx = (i * 7 + 3) % kinds.len();
-        let kind = kinds[kind_idx];
-        // Place at fixed offsets from center so they're spread around
-        // the room. Shrines don't overlap the player spawn (center).
+        let focus = focuses[i.min(focuses.len() - 1)];
+        let color = shrine_color(focus);
         let offset = match i {
             0 => Vec2::new(-room.size().x * 0.3, room.size().y * 0.2),
             1 => Vec2::new(room.size().x * 0.25, -room.size().y * 0.25),
-            _ => Vec2::new(-room.size().x * 0.2, -room.size().y * 0.3),
+            2 => Vec2::new(-room.size().x * 0.2, -room.size().y * 0.3),
+            _ => Vec2::new(room.size().x * 0.3, room.size().y * 0.25),
         };
         let pos = center + offset;
-        let color = shrine_color(kind);
+        let channel = if matches!(focus, ShrineFocus::HealRegen) {
+            0.0
+        } else {
+            SHRINE_CHANNEL_S
+        };
         commands.spawn((
-            Sprite {
-                color,
-                custom_size: Some(Vec2::splat(SHRINE_SIZE)),
-                ..default()
-            },
+            Sprite { color, custom_size: Some(Vec2::splat(SHRINE_SIZE)), ..default() },
             Transform::from_xyz(pos.x, pos.y, 0.4),
-            Shrine { kind, used: false },
-            Collider {
-                half_extents: Vec2::splat(SHRINE_SIZE * 0.5),
+            Shrine {
+                focus,
+                channel_duration_s: channel,
+                channel_progress: 0.0,
+                activated: false,
             },
+            Collider { half_extents: Vec2::splat(SHRINE_SIZE * 0.5) },
         ));
     }
 }
 
-fn shrine_color(kind: ShrineKind) -> Color {
-    match kind {
-        ShrineKind::Heal => SHRINE_HEAL,
-        ShrineKind::Damage => SHRINE_DMG,
-        ShrineKind::FireRate => SHRINE_FR,
-        ShrineKind::Speed => SHRINE_SPD,
-        ShrineKind::Curse => SHRINE_CURSE,
-        ShrineKind::Gold => SHRINE_GOLD,
+fn shrine_color(focus: ShrineFocus) -> Color {
+    match focus {
+        ShrineFocus::HealRegen => SHRINE_HEAL,
+        ShrineFocus::Combat => SHRINE_DMG,
+        ShrineFocus::Utility => SHRINE_SPD,
     }
 }
 
@@ -194,6 +193,7 @@ fn shrine_color(kind: ShrineKind) -> Color {
 /// re-use it.
 fn shrine_collect_system(
     mut commands: Commands,
+    time: Res<Time>,
     mut player_query: Query<(&Transform, &mut Health), (With<Player>, Without<AimIndicator>)>,
     mut shrines: Query<(Entity, &Transform, &mut Shrine, &mut Sprite)>,
     mut run: ResMut<RunState>,
@@ -205,48 +205,121 @@ fn shrine_collect_system(
     let player_half = Vec2::splat(20.0);
 
     for (entity, tf, mut shrine, mut sprite) in &mut shrines {
-        if shrine.used {
+        if shrine.activated {
             continue;
         }
-        if !aabb_overlap(
+
+        let in_range = aabb_overlap(
             player_pos,
             player_half,
             tf.translation.truncate(),
             Vec2::splat(SHRINE_SIZE * 0.5),
-        ) {
+        );
+
+        if !in_range {
+            // Reset progress when player leaves range.
+            shrine.channel_progress = 0.0;
             continue;
         }
 
-        shrine.used = true;
-
-        match shrine.kind {
-            ShrineKind::Heal => {
-                health.current = (health.current + 2.0).min(health.max);
-                info!("Shrine: Heal (+2 HP)");
-            }
-            ShrineKind::Damage => {
-                run.damage_stacks = run.damage_stacks.saturating_add(1);
-                info!("Shrine: Damage Up");
-            }
-            ShrineKind::FireRate => {
-                run.fire_rate_stacks = run.fire_rate_stacks.saturating_add(1);
-                info!("Shrine: Fire Rate Up");
-            }
-            ShrineKind::Speed => {
-                run.speed_stacks = run.speed_stacks.saturating_add(1);
-                info!("Shrine: Speed Up");
-            }
-            ShrineKind::Curse => {
-                info!("Shrine: Curse (extra enemies — stub)");
-            }
-            ShrineKind::Gold => {
-                run.xp = run.xp.saturating_add(5);
-                info!("Shrine: Gold (+5 XP)");
-            }
+        // Heal shrines: instant collect.
+        if matches!(shrine.focus, ShrineFocus::HealRegen) {
+            let reward = pick_shrine_reward(shrine.focus, &mut run);
+            apply_reward(reward, &mut health, &mut run);
+            shrine.activated = true;
+            commands.entity(entity).despawn();
+            continue;
         }
 
-        sprite.color = sprite.color.with_alpha(0.3);
-        commands.entity(entity).despawn();
+        // Combat/Utility: channel.
+        shrine.channel_progress += time.delta_secs();
+        if shrine.channel_progress >= shrine.channel_duration_s {
+            let reward = pick_shrine_reward(shrine.focus, &mut run);
+            apply_reward(reward, &mut health, &mut run);
+            shrine.activated = true;
+            commands.entity(entity).despawn();
+            info!("Shrine activated: {:?} upgrade", shrine.focus);
+        }
+    }
+}
+
+/// Possible shrine rewards.
+enum ShrineReward {
+    Heal(f32),
+    Regen,
+    MaxHpUp,
+    DamageUp,
+    FireRateUp,
+    SpeedUp,
+    XpGain(u32),
+}
+
+/// Pick a random upgrade from the focus's pool.
+fn pick_shrine_reward(focus: ShrineFocus, run: &RunState) -> ShrineReward {
+    use std::hash::{Hash, Hasher};
+    // Simple hash-based "random" from the XP value.
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    run.xp.hash(&mut hasher);
+    let roll = hasher.finish();
+
+    match focus {
+        ShrineFocus::HealRegen => {
+            // Pool: +2 HP (common), +regen (uncommon), +max HP (rare), +5 HP (rare)
+            match roll % 4 {
+                0 | 3 => ShrineReward::Heal(2.0),
+                1 => ShrineReward::Regen,
+                2 => ShrineReward::MaxHpUp,
+                _ => ShrineReward::Heal(2.0),
+            }
+        }
+        ShrineFocus::Combat => {
+            // Pool: +damage (common), +fire rate (common)
+            match roll % 2 {
+                0 => ShrineReward::DamageUp,
+                _ => ShrineReward::FireRateUp,
+            }
+        }
+        ShrineFocus::Utility => {
+            // Pool: +speed (common), +XP (common)
+            match roll % 2 {
+                0 => ShrineReward::SpeedUp,
+                _ => ShrineReward::XpGain(5),
+            }
+        }
+    }
+}
+
+fn apply_reward(reward: ShrineReward, health: &mut Health, run: &mut RunState) {
+    match reward {
+        ShrineReward::Heal(amt) => {
+            health.current = (health.current + amt).min(health.max);
+            info!("Shrine: +{amt} HP");
+        }
+        ShrineReward::Regen => {
+            run.regen_per_sec += 0.5;
+            info!("Shrine: +0.5 HP/s regen");
+        }
+        ShrineReward::MaxHpUp => {
+            health.max += 2.0;
+            health.current = (health.current + 2.0).min(health.max);
+            info!("Shrine: max HP +2");
+        }
+        ShrineReward::DamageUp => {
+            run.damage_stacks = run.damage_stacks.saturating_add(1);
+            info!("Shrine: Damage Up");
+        }
+        ShrineReward::FireRateUp => {
+            run.fire_rate_stacks = run.fire_rate_stacks.saturating_add(1);
+            info!("Shrine: Fire Rate Up");
+        }
+        ShrineReward::SpeedUp => {
+            run.speed_stacks = run.speed_stacks.saturating_add(1);
+            info!("Shrine: Speed Up");
+        }
+        ShrineReward::XpGain(amt) => {
+            run.xp = run.xp.saturating_add(amt);
+            info!("Shrine: +{amt} XP");
+        }
     }
 }
 

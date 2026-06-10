@@ -718,37 +718,46 @@ pub enum AppState {
     Paused,
 }
 
-// ─── Room interactables (Phase 2 P6.1 — Crab Champions × Megabonk) ──────
+// ─── Room interactables (Phase 2 P6.2 — Megabonk-style shrines) ─────────
 
-/// Kind of shrine the player can interact with. Each shrine
-/// gives a one-time effect on touch (heal, buff, curse, or
-/// loot reward).
+/// Focus category for a shrine. Determines the pool of random
+/// upgrades it can grant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ShrineKind {
-    /// Restore 2 HP. Common shrine.
-    Heal,
-    /// +25% damage for the rest of the run.
-    Damage,
-    /// +30% fire rate for the rest of the run.
-    FireRate,
-    /// +20% move speed for the rest of the run.
-    Speed,
-    /// Spawns extra enemies when touched but gives a buff
-    /// after they're cleared. The buff activates on room
-    /// clear, not on touch (so the player has to survive
-    /// the extra enemies first).
-    Curse,
-    /// Drops a large gold/XP reward instantly.
-    Gold,
+pub enum ShrineFocus {
+    /// Heal/regen shrine. Collected INSTANTLY on touch (no
+    /// channeling). Rewards: HP, regen, max HP.
+    HealRegen,
+    /// Combat shrine. Must stand near it for 1.5s to channel.
+    /// Rewards: damage, fire rate, projectile speed.
+    Combat,
+    /// Utility shrine. Must stand near for 1.5s to channel.
+    /// Rewards: move speed, XP, pickup radius, dash.
+    Utility,
 }
 
-/// A shrine entity in the world. The player walks into it
-/// to activate its one-time effect. Once `used` is true,
-/// the shrine despawns or dims.
+/// A shrine entity in the world. The player can interact with
+/// it for a one-time reward.
+///
+/// Heal/Regen shrines are instant-collect: touching them applies
+/// the reward and despawns the shrine immediately.
+///
+/// Combat/Utility shrines require the player to stand within
+/// range for `channel_duration_s` seconds (1.5). During this
+/// time the player can be attacked (risk/reward). If the player
+/// leaves the range, the channel resets. On successful channel,
+/// a random upgrade from the focus's pool is applied.
 #[derive(Component)]
 pub struct Shrine {
-    pub kind: ShrineKind,
-    pub used: bool,
+    pub focus: ShrineFocus,
+    /// How long the player MUST stand in range for the shrine
+    /// to activate. Heal/Regen shrines set this to 0 (instant).
+    pub channel_duration_s: f32,
+    /// Current channel progress. Resets to 0 when the player
+    /// leaves range.
+    pub channel_progress: f32,
+    /// True once the reward has been given. The shrine despawns
+    /// after activation.
+    pub activated: bool,
 }
 
 /// A fragile breakable object (pot, crate, barrel). Takes
