@@ -473,6 +473,20 @@ pub struct GameSettings {
     pub health_drop_chance: f32,
 }
 
+/// Phase 2 Patch 11: horde-mode boss speed ramp. Inserted by
+/// `boss_death_room_clear_system` when a Boss room is cleared.
+/// While present, `wave_spawner_tick_system` reduces the farming
+/// phase spawn interval from the base `farming_interval` toward
+/// 0.1s over `duration_s`. Removed when the player transitions
+/// to the next room (teleport_transition_system despawns all
+/// spawner entities, which clears the resource naturally).
+#[derive(Resource)]
+pub struct BossRampTimer {
+    pub timer: Timer,
+    /// Starting interval at ramp start (copied from spawner).
+    pub start_interval: f32,
+}
+
 impl Default for GameSettings {
     fn default() -> Self {
         Self {

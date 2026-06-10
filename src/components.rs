@@ -970,4 +970,7 @@ pub struct WaveSpawner {
     pub current_wave: usize,
     pub spawned_this_wave: u32,
     pub wave_timer: Timer,
+    /// Farming phase spawn interval in seconds. Set per room type
+    /// in generate_room. Lower = faster spawns. Default 0.35.
+    pub farming_interval: f32,
 }

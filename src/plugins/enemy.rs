@@ -11,12 +11,12 @@ use log::warn;
 use crate::components::{
     AiBehavior, AppState, BaseColor, BaseVelocity, Beacon, Boss, BossPhase, BossState,
     CascadeAffected, Collider, DasherPhase, DasherState, DeathPuff, Enemy, EnemyAI, EnemyArchetype,
-    Health, HitFlash, Invulnerable, Knockback, MotionTrail, Player, Projectile, Room, ShooterState, SniperState,
-    Team, Velocity, WaveDefinition, WaveSpawner,
+    Health, HitFlash, Invulnerable, Knockback, MotionTrail, Player, Projectile, Room, RoomKind,
+    ShooterState, SniperState, Team, Velocity, WaveSpawner,
 };
 use crate::events::{DamageEvent, RoomClearedEvent};
 use crate::plugins::fx::spawn_hit_spark;
-use crate::resources::{FloorState, GameSettings, Hitstop, RunRng, RunState, ScreenShake};
+use crate::resources::{BossRampTimer, FloorState, GameSettings, Hitstop, RunRng, RunState, ScreenShake};
 
 /// Color of the chaser — high-contrast red so it reads as "danger" at
 /// a glance against the orange player and the dark background we'll
@@ -212,6 +212,7 @@ fn wave_spawner_tick_system(
     mut spawners: Query<&mut WaveSpawner>,
     player_query: Query<&Transform, With<Player>>,
     mut room_cleared_events: EventWriter<RoomClearedEvent>,
+    boss_ramp: Option<Res<BossRampTimer>>,
 ) {
     if hitstop.is_some() {
         return;
@@ -225,99 +226,102 @@ fn wave_spawner_tick_system(
         if spawner.room_id != biome.current_room {
             continue;
         }
-        // All waves done — post-clear farming phase.
-        // Continuous enemy spawns at high density to create
-        // "stay or go" tension (bullet heaven mechanic). The
-        // player can leave via the teleport pad or stay and
-        // farm more drops.
-        if spawner.current_wave >= spawner.waves.len() {
-            spawner.wave_timer.tick(time.delta());
-            if !spawner.wave_timer.finished() {
-                continue;
+
+        // ─── Horde-mode: skip the initial wave phase ──────
+        // Jump straight to the continuous farming phase so
+        // every room feels like a frantic horde from frame 1.
+        // For non-Boss rooms, emit RoomClearedEvent immediately
+        // so teleport pads appear and the player can leave
+        // whenever. Boss rooms gate room-clear on boss death.
+        if spawner.current_wave < spawner.waves.len() {
+            spawner.current_wave = spawner.waves.len();
+
+            // Don't clear Boss rooms from the wave system —
+            // boss_death_room_clear_system handles that.
+            let is_boss = biome
+                .rooms
+                .iter()
+                .any(|r| r.id == biome.current_room && r.kind == RoomKind::Boss);
+            if !is_boss {
+                room_cleared_events.write(RoomClearedEvent {
+                    room_id: spawner.room_id,
+                });
             }
-            // Cycle through archetypes for variety.
-            let archetype = [
-                EnemyArchetype::Chaser,
-                EnemyArchetype::Dasher,
-                EnemyArchetype::Shooter,
-                EnemyArchetype::Sniper,
-            ][spawner.spawned_this_wave as usize % 4];
-            spawn_wave_enemy(
-                &mut commands,
-                &settings,
-                &biome,
-                &mut rng,
-                player_pos,
-                archetype,
-            );
-            spawner.spawned_this_wave += 1;
-            // Fast spawn rate: 0.4s between enemies.
-            spawner.wave_timer = Timer::from_seconds(0.4, TimerMode::Once);
-            continue;
         }
 
-        // Step 2: tick the timer.
+        // ─── Farming phase ─────────────────────────────────
         spawner.wave_timer.tick(time.delta());
         if !spawner.wave_timer.finished() {
             continue;
         }
 
-        let current_wave: &WaveDefinition = &spawner.waves[spawner.current_wave];
+        // Compute the effective spawn interval:
+        //   base = spawner.farming_interval (per room type)
+        //   × ramp_factor from BossRampTimer (1.0 = normal,
+        //     drops toward 0.28 over the ramp duration)
+        let ramp_factor = boss_ramp
+            .as_ref()
+            .map(|ramp| {
+                let progress = (ramp.timer.elapsed_secs() / ramp.timer.duration().as_secs_f32())
+                    .clamp(0.0, 1.0);
+                1.0 - (1.0 - 0.28) * progress
+            })
+            .unwrap_or(1.0);
+        let interval = (spawner.farming_interval * ramp_factor).max(0.1);
 
-        // Snapshot the wave fields up front so the immutable
-        // borrow of `spawner.waves[spawner.current_wave]`
-        // doesn't extend across the mutable `spawner.spawned_this_wave += 1`
-        // / `spawner.wave_timer = ...` below.
-        let current_count = current_wave.count;
-        let current_interval = current_wave.interval_s;
-        let next_wave_interval = spawner
-            .waves
-            .get(spawner.current_wave + 1)
-            .map(|w| w.interval_s);
+        // Pick the next archetype based on room flavor.
+        let room_kind = biome
+            .rooms
+            .iter()
+            .find(|r| r.id == biome.current_room)
+            .map(|r| r.kind)
+            .unwrap_or(RoomKind::Fight);
+        let archetype = farming_archetype(room_kind, spawner.spawned_this_wave);
 
-        // Step 3: timer fired — spawn if we still have
-        // enemies to spawn in this wave.
-        if spawner.spawned_this_wave < current_count {
-            spawn_wave_enemy(
-                &mut commands,
-                &settings,
-                &biome,
-                &mut rng,
-                player_pos,
-                current_wave.archetype,
-            );
-            spawner.spawned_this_wave += 1;
-            // Reset the timer for the next spawn. The
-            // next interval is:
-            //  - the current wave's interval, if we still
-            //    have enemies to spawn in this wave
-            //  - the NEXT wave's interval, if we just
-            //    finished this wave and there's another
-            //    wave coming
-            //  - the current wave's interval, if this
-            //    was the last wave (we just emit the
-            //    RoomClearedEvent on the same frame)
-            let next_interval = if spawner.spawned_this_wave < current_count {
-                current_interval
-            } else {
-                next_wave_interval.unwrap_or(current_interval)
-            };
-            spawner.wave_timer = Timer::from_seconds(next_interval, TimerMode::Once);
-        }
+        spawn_wave_enemy(
+            &mut commands,
+            &settings,
+            &biome,
+            &mut rng,
+            player_pos,
+            archetype,
+        );
+        spawner.spawned_this_wave += 1;
+        spawner.wave_timer = Timer::from_seconds(interval, TimerMode::Once);
+    }
+}
 
-        // Step 4: wave done — advance.
-        if spawner.spawned_this_wave >= current_count {
-            spawner.current_wave += 1;
-            spawner.spawned_this_wave = 0;
-
-            // Step 5: just cleared the last wave. Emit
-            // RoomClearedEvent so door_unlock_system can
-            // unlock the room's forward door.
-            if spawner.current_wave == spawner.waves.len() {
-                room_cleared_events.write(RoomClearedEvent {
-                    room_id: spawner.room_id,
-                });
-            }
+/// Pick the enemy archetype for the next farming-spawn based on
+/// the room's kind and the cumulative spawn counter. Each room
+/// type has a different composition bias:
+///   Fight:    balanced mix of all 4 archetypes
+///   Horde:    melee-heavy (chasers + dashers), few ranged
+///   MiniBoss: extra ranged pressure (more shooters + snipers)
+///   Boss:     same as MiniBoss (ranged pressure + boss entity)
+fn farming_archetype(kind: RoomKind, counter: u32) -> EnemyArchetype {
+    match kind {
+        RoomKind::Horde => match counter % 6 {
+            0 | 3 => EnemyArchetype::Chaser,
+            1 | 4 => EnemyArchetype::Dasher,
+            2 => EnemyArchetype::Shooter,
+            _ => EnemyArchetype::Chaser,
+        },
+        RoomKind::MiniBoss | RoomKind::Boss => match counter % 5 {
+            0 => EnemyArchetype::Chaser,
+            1 => EnemyArchetype::Dasher,
+            2 => EnemyArchetype::Shooter,
+            3 => EnemyArchetype::Sniper,
+            _ => EnemyArchetype::Shooter,
+        },
+        _ => {
+            // Fight rooms: balanced cycle
+            const ALL: [EnemyArchetype; 4] = [
+                EnemyArchetype::Chaser,
+                EnemyArchetype::Dasher,
+                EnemyArchetype::Shooter,
+                EnemyArchetype::Sniper,
+            ];
+            ALL[counter as usize % 4]
         }
     }
 }

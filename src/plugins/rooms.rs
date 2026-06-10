@@ -23,7 +23,7 @@ use crate::components::{
     Shrine, ShrineFocus, TeleportPad, Velocity, Wall, WaveDefinition, WaveSpawner,
 };
 use crate::events::RoomClearedEvent;
-use crate::resources::{FloorState, GameSettings, Hitstop, RunRng, RunState};
+use crate::resources::{BossRampTimer, FloorState, GameSettings, Hitstop, RunRng, RunState};
 
 // ─── Constants ───────────────────────────────────────────────────────────
 
@@ -201,13 +201,21 @@ fn generate_room(
             }
         };
 
+        // Per-room-type farming interval (seconds between enemies).
+        // Lower = faster spawns for a more frantic horde feel.
+        let farming_interval = match kind {
+            RoomKind::Horde => 0.25,
+            RoomKind::MiniBoss | RoomKind::Boss => 0.30,
+            _ => 0.35,
+        };
         commands.spawn((
             WaveSpawner {
                 room_id,
                 waves,
                 current_wave: 0,
                 spawned_this_wave: 0,
-                wave_timer: Timer::from_seconds(1.5, TimerMode::Once),
+                wave_timer: Timer::from_seconds(0.2, TimerMode::Once), // quick first spawn
+                farming_interval,
             },
             Transform::default(),
         ));
@@ -784,6 +792,7 @@ fn teleport_transition_system(
 // `pad_spawn_on_clear_system` so a RoomClearedEvent emitted here is
 // consumed in the same frame.
 fn boss_death_room_clear_system(
+    mut commands: Commands,
     floor: Res<FloorState>,
     bosses: Query<(), With<Boss>>,
     spawners: Query<&WaveSpawner>,
@@ -800,14 +809,6 @@ fn boss_death_room_clear_system(
     if bosses.iter().next().is_some() {
         return;
     }
-    // Waves not done → not cleared.
-    let waves_done = spawners
-        .iter()
-        .filter(|s| s.room_id == floor.current_room)
-        .all(|s| s.current_wave >= s.waves.len());
-    if !waves_done {
-        return;
-    }
     // Already have a pad in this room → already cleared.
     if pads.iter().any(|p| p.label == "Boss" || p.label == "Fight") {
         return;
@@ -815,8 +816,22 @@ fn boss_death_room_clear_system(
     events.send(RoomClearedEvent {
         room_id: floor.current_room,
     });
+
+    // Insert the BossRampTimer to gradually speed up enemy spawns.
+    // Starts at the spawner's farming_interval and ramps toward
+    // near-instant over 15 seconds.
+    let start_interval = spawners
+        .iter()
+        .find(|s| s.room_id == floor.current_room)
+        .map(|s| s.farming_interval)
+        .unwrap_or(0.3);
+    commands.insert_resource(BossRampTimer {
+        timer: Timer::from_seconds(15.0, TimerMode::Once),
+        start_interval,
+    });
+
     info!(
-        "Boss room {} cleared (boss dead + waves done)",
+        "Boss room {} cleared (boss dead) — speed ramp started",
         floor.current_room.0
     );
 }
@@ -909,12 +924,11 @@ mod tests {
     fn test_spawner(room_id: RoomId) -> WaveSpawner {
         WaveSpawner {
             room_id,
-            waves: vec![
-                WaveDefinition { archetype: EnemyArchetype::Chaser, count: 2, interval_s: 1.0 },
-                WaveDefinition { archetype: EnemyArchetype::Dasher, count: 1, interval_s: 1.0 },
-            ],
-            current_wave: 0, spawned_this_wave: 0,
+            waves: vec![],
+            current_wave: 0,
+            spawned_this_wave: 0,
             wave_timer: Timer::from_seconds(1.0, TimerMode::Once),
+            farming_interval: 0.35,
         }
     }
 
