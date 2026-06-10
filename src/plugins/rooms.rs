@@ -423,6 +423,17 @@ fn physics_step_system(
             Without<Wall>,
         ),
     >,
+    mut projectiles: Query<
+        (&mut Transform, &Velocity),
+        (
+            With<Projectile>,
+            Without<Player>,
+            Without<Enemy>,
+            Without<DeathPuff>,
+            Without<Pickup>,
+            Without<Wall>,
+        ),
+    >,
     walls: Query<(&Transform, &Collider), With<Wall>>,
 ) {
     if hitstop.is_some() { return; }
@@ -442,6 +453,13 @@ fn physics_step_system(
                 tf.translation.y += push.y;
             }
         }
+    }
+
+    // Projectiles move (velocity integration) but skip wall collision
+    // so they can fly across room boundaries without getting stuck.
+    for (mut tf, vel) in &mut projectiles {
+        tf.translation.x += vel.0.x * dt;
+        tf.translation.y += vel.0.y * dt;
     }
 }
 
