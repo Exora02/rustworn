@@ -43,7 +43,7 @@ const FLOOR_COLORS: &[Color] = &[
 ];
 const PAD_COLOR: Color = Color::srgb(0.20, 0.75, 0.95);
 const PAD_SIZE: f32 = 60.0;
-const ROOMS_PER_BOSS: u32 = 4;
+const ROOMS_PER_BOSS: u32 = 6;
 const ENTRY_INSET: f32 = 50.0;
 
 // Shrine colors
@@ -64,6 +64,7 @@ const SHRINES_PER_ROOM: usize = 4;
 /// How many breakables per room.
 const BREAKABLES_PER_ROOM: usize = 6;
 const BREAKABLES_ELITE: usize = 12;
+const BREAKABLES_HORDE: usize = 16;
 const SHRINES_ELITE: usize = 6;
 
 pub struct RoomsPlugin;
@@ -107,70 +108,104 @@ fn generate_room(
 
     spawn_walls(commands, &room, floor.floor_number);
 
-    if kind == RoomKind::Fight || kind == RoomKind::Boss || kind == RoomKind::MiniBoss {
-        let wave_count = 4;
-        let base_interval = if kind == RoomKind::MiniBoss { 1.2 } else { 1.5 };
-        let waves = if kind == RoomKind::MiniBoss {
-            vec![
-                WaveDefinition {
-                    archetype: EnemyArchetype::Chaser,
-                    count: (6 + floor.floor_number).min(14),
-                    interval_s: base_interval * 0.5,
-                },
-                WaveDefinition {
-                    archetype: EnemyArchetype::Dasher,
-                    count: (3 + floor.floor_number / 2).min(10),
-                    interval_s: base_interval * 0.4,
-                },
-                WaveDefinition {
-                    archetype: EnemyArchetype::Shooter,
-                    count: (3 + floor.floor_number / 2).min(10),
-                    interval_s: base_interval * 0.4,
-                },
-                WaveDefinition {
-                    archetype: EnemyArchetype::Sniper,
-                    count: (2 + floor.floor_number / 3).min(7),
-                    interval_s: base_interval * 0.4,
-                },
-            ]
-        } else {
-            vec![
-                WaveDefinition {
-                    archetype: EnemyArchetype::Chaser,
-                    count: (4 + floor.floor_number).min(10),
-                    interval_s: base_interval,
-                },
-                WaveDefinition {
-                    archetype: EnemyArchetype::Dasher,
-                    count: (2 + floor.floor_number / 2).min(8),
-                    interval_s: base_interval * 0.7,
-                },
-                WaveDefinition {
-                    archetype: EnemyArchetype::Shooter,
-                    count: (2 + floor.floor_number / 2).min(8),
-                    interval_s: base_interval * 0.7,
-                },
-                WaveDefinition {
-                    archetype: EnemyArchetype::Sniper,
-                    count: (1 + floor.floor_number / 3).min(5),
-                    interval_s: base_interval * 0.35,
-                },
-            ]
+    // Non-spawn rooms get enemies + interactables.
+    if kind != RoomKind::Spawn {
+        let (waves, breakable_count, shrine_count) = match kind {
+            RoomKind::MiniBoss | RoomKind::Boss => {
+                // Tougher / mini-boss waves.
+                let base_interval = 1.2;
+                let waves = vec![
+                    WaveDefinition {
+                        archetype: EnemyArchetype::Chaser,
+                        count: (6 + floor.floor_number).min(14),
+                        interval_s: base_interval * 0.5,
+                    },
+                    WaveDefinition {
+                        archetype: EnemyArchetype::Dasher,
+                        count: (3 + floor.floor_number / 2).min(10),
+                        interval_s: base_interval * 0.4,
+                    },
+                    WaveDefinition {
+                        archetype: EnemyArchetype::Shooter,
+                        count: (3 + floor.floor_number / 2).min(10),
+                        interval_s: base_interval * 0.4,
+                    },
+                    WaveDefinition {
+                        archetype: EnemyArchetype::Sniper,
+                        count: (2 + floor.floor_number / 3).min(7),
+                        interval_s: base_interval * 0.4,
+                    },
+                ];
+                (waves, BREAKABLES_ELITE, SHRINES_ELITE)
+            }
+            RoomKind::Horde => {
+                // Many weak enemies, fast intervals. Chaser/dasher heavy.
+                let base_interval = 0.5;
+                let waves = vec![
+                    WaveDefinition {
+                        archetype: EnemyArchetype::Chaser,
+                        count: (8 + floor.floor_number * 2).min(24),
+                        interval_s: base_interval * 1.2,
+                    },
+                    WaveDefinition {
+                        archetype: EnemyArchetype::Dasher,
+                        count: (4 + floor.floor_number).min(12),
+                        interval_s: base_interval * 1.0,
+                    },
+                    WaveDefinition {
+                        archetype: EnemyArchetype::Chaser,
+                        count: (8 + floor.floor_number * 2).min(24),
+                        interval_s: base_interval * 0.8,
+                    },
+                    WaveDefinition {
+                        archetype: EnemyArchetype::Shooter,
+                        count: (2 + floor.floor_number / 2).min(6),
+                        interval_s: base_interval * 1.0,
+                    },
+                ];
+                (waves, BREAKABLES_HORDE, SHRINES_PER_ROOM)
+            }
+            _ => {
+                // Fight room — standard combat.
+                let base_interval = 1.5;
+                let waves = vec![
+                    WaveDefinition {
+                        archetype: EnemyArchetype::Chaser,
+                        count: (4 + floor.floor_number).min(10),
+                        interval_s: base_interval,
+                    },
+                    WaveDefinition {
+                        archetype: EnemyArchetype::Dasher,
+                        count: (2 + floor.floor_number / 2).min(8),
+                        interval_s: base_interval * 0.7,
+                    },
+                    WaveDefinition {
+                        archetype: EnemyArchetype::Shooter,
+                        count: (2 + floor.floor_number / 2).min(8),
+                        interval_s: base_interval * 0.7,
+                    },
+                    WaveDefinition {
+                        archetype: EnemyArchetype::Sniper,
+                        count: (1 + floor.floor_number / 3).min(5),
+                        interval_s: base_interval * 0.35,
+                    },
+                ];
+                (waves, BREAKABLES_PER_ROOM, SHRINES_PER_ROOM)
+            }
         };
+
         commands.spawn((
             WaveSpawner {
                 room_id,
                 waves,
                 current_wave: 0,
                 spawned_this_wave: 0,
-                wave_timer: Timer::from_seconds(base_interval, TimerMode::Once),
+                wave_timer: Timer::from_seconds(1.5, TimerMode::Once),
             },
             Transform::default(),
         ));
 
         // Spawn room interactables.
-        let shrine_count = if kind == RoomKind::MiniBoss { SHRINES_ELITE } else { SHRINES_PER_ROOM };
-        let breakable_count = if kind == RoomKind::MiniBoss { BREAKABLES_ELITE } else { BREAKABLES_PER_ROOM };
         spawn_shrines(commands, &room, shrine_count);
         spawn_breakables(commands, &room, breakable_count);
     }
@@ -553,25 +588,33 @@ fn pad_spawn_on_clear_system(
         let center = (room.bounds_min + room.bounds_max) * 0.5;
         let rooms_cleared = floor.rooms.len() as u32;
 
-        // Branching: spawn 2-3 pads.
-        // Pad 1: always "Fight" or "Elite" (forward combat room).
-        // Pad 2: "Treasure" if room qualifies (high-loot combat room).
-        //        Simplified: always spawn a treasure option for now.
-        // Pad 3: "Boss" if eligible (every ROOMS_PER_BOSS rooms).
+        // 6-room cycle: positions 1-5 choose room type, position 6 is boss.
+        // After setup (rooms = [R0, R1]), rooms_cleared starts at 2.
+        // cycle_pos = (rooms_cleared - 1) % 6 → 1-indexed (1-5), 0 = boss.
+        let cycle_pos = (rooms_cleared - 1) % ROOMS_PER_BOSS;
 
-        // Every 2nd room (rooms_cleared % 4 == 2) is a MiniBoss.
-        let is_miniboss = rooms_cleared > 0 && rooms_cleared % ROOMS_PER_BOSS == 2;
-        let is_boss = rooms_cleared > 0 && rooms_cleared % ROOMS_PER_BOSS == 0;
+        // Position → label mapping:
+        //   1 → "Fight"
+        //   2 → "Horde"
+        //   3 → "Fight"
+        //   4 → "Elite"
+        //   5 → "Horde"
+        //   0 → "Boss"
+        let fight_label = match cycle_pos {
+            2 | 5 => "Horde",
+            4 => "Elite",
+            _ => "Fight",
+        };
+        let next_is_boss = cycle_pos == 0;
 
-        // Pad 1: Fight / Elite — always present. Offset to the right.
-        let fight_label = if is_miniboss { "Elite" } else { "Fight" };
+        // Pad 1: always spawn a forward combat room. Offset above center.
         let fight_pos = center + Vec2::new(0.0, PAD_SIZE * 1.2);
         commands.spawn(pad_bundle(fight_pos, fight_label));
 
         // Pad 2: (reserved for Treasure rooms — not implemented yet)
 
-        // Pad 3: Boss — every ROOMS_PER_BOSS rooms. Offset upward.
-        if is_boss {
+        // Pad 3: Boss — every 6th room. Offset to the right.
+        if next_is_boss {
             let boss_pos = center + Vec2::new(PAD_SIZE * 1.2, 0.0);
             commands.spawn(pad_bundle(boss_pos, "Boss"));
         }
@@ -647,6 +690,7 @@ fn teleport_transition_system(
             "Treasure" => RoomKind::Fight, // Treasure room = fight room with extra loot chance
             "Boss" => RoomKind::Boss,
             "Elite" => RoomKind::MiniBoss,
+            "Horde" => RoomKind::Horde,
             _ => RoomKind::Fight,
         };
 

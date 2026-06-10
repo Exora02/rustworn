@@ -834,6 +834,10 @@ pub enum RoomKind {
     /// non-boss room). Tougher waves, more breakables, better
     /// drops. A mid-cycle spike before the next boss.
     MiniBoss,
+    /// Horde room. Many weak enemies, fast intervals, bullet-heaven
+    /// style. Tilted toward melee archetypes (chaser, dasher).
+    /// More breakables for extra loot.
+    Horde,
 }
 
 /// Door trigger: a small AABB on the floor in front of a wall.
