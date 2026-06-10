@@ -468,6 +468,9 @@ pub struct GameSettings {
     /// is a clear "run from me" target. The player at 220
     /// can catch it.
     pub beacon_flee_speed: f32,
+    /// Breakable/health drop chance: flat 15% roll on every
+    /// enemy/breakable kill to spawn a Heal orb.
+    pub health_drop_chance: f32,
 }
 
 impl Default for GameSettings {
@@ -711,6 +714,8 @@ impl Default for GameSettings {
             // the slowed enemies move at 25, so the beacon at
             // 100 is clearly the "fast one".
             beacon_flee_speed: 100.0,
+            // Breakable/health drop: 15% flat chance.
+            health_drop_chance: 0.15,
         }
     }
 }

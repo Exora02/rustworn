@@ -149,6 +149,14 @@ fn apply_pickup(
         PickupKind::Regen => {
             run.regen_per_sec += settings.pickup_regen_hp_per_sec;
         }
+        PickupKind::Heal => {
+            // Heal for +3 HP (one-shot heal orb). The universal
+            // +1 heal below also applies for non-weapon pickups,
+            // giving +4 total — intentional.
+            if let Ok(mut h) = health_q.single_mut() {
+                h.current = (h.current + 3.0).min(h.max);
+            }
+        }
         PickupKind::Weapon(archetype) => {
             if let Ok(mut inv) = inventory_q.single_mut() {
                 if let Some(slot) = inv.slots.iter_mut().find(|s| s.is_none()) {
@@ -313,6 +321,18 @@ pub fn roll_weapon_drop(
     })
 }
 
+/// Roll a flat `health_drop_chance` to drop a Heal orb.
+/// Unlike stat-stick / weapon drops, the health drop is
+/// NOT per-archetype — it's a flat 15% roll on every
+/// enemy (and breakable) kill, independent of the other
+/// rolls. A single kill can drop a stat-stick, a weapon,
+/// AND a health orb.
+///
+/// Returns `true` if the roll succeeded.
+pub fn roll_health_drop(settings: &GameSettings, rng: &mut impl FnMut() -> f32) -> bool {
+    rng() < settings.health_drop_chance
+}
+
 /// Lifetime: separate from the per-frame drift + tick, so the
 /// drift system can focus on motion and the lifetime is a
 /// background tick. (Both are checked each frame in the same
@@ -356,6 +376,13 @@ pub fn spawn_pickup(commands: &mut Commands, settings: &GameSettings, pos: Vec2,
             // but don't blend with the
             // player sprite.
             24.0, // bigger than stat-sticks
+        ),
+        PickupKind::Heal => (
+            Color::srgb(0.20, 0.85, 0.60), // teal/green — reads as
+            // "health" in arcade color
+            // shorthand, distinct from
+            // Regen's green.
+            PICKUP_SIZE,
         ),
     };
     commands.spawn((

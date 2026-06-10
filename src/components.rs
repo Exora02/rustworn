@@ -542,6 +542,9 @@ pub enum PickupKind {
     /// drops per-archetype chance on `GameSettings`
     /// (`pickup_drop_chance_weapon_*`).
     Weapon(WeaponArchetype),
+    /// Heal orb: +3 HP on pickup (one-shot). Dropped by
+    /// breakables and as a secondary roll on enemy kills.
+    Heal,
 }
 
 /// Phase 1 hit feedback: a small white sprite that flashes briefly

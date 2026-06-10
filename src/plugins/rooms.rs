@@ -26,9 +26,20 @@ use crate::resources::{FloorState, GameSettings, Hitstop, RunRng, RunState};
 
 // ─── Constants ───────────────────────────────────────────────────────────
 
-const ROOM_SIZE: f32 = 800.0;
+const ROOM_SIZE: f32 = 1000.0;
 const WALL_THICKNESS: f32 = 20.0;
 const WALL_COLOR: Color = Color::srgb(0.30, 0.30, 0.35);
+
+// Floor-to-color mapping for biome progression. Each floor
+// advances to the next tint, giving a visual "I went deeper"
+// cue when a boss room is cleared.
+const FLOOR_COLORS: &[Color] = &[
+    Color::srgb(0.30, 0.30, 0.35), // floor 0: dark gray (baseline)
+    Color::srgb(0.25, 0.18, 0.35), // floor 1: purple shift
+    Color::srgb(0.15, 0.25, 0.40), // floor 2: deep blue
+    Color::srgb(0.35, 0.20, 0.15), // floor 3: rust/red
+    Color::srgb(0.10, 0.10, 0.10), // floor 4+: near-black (infinite)
+];
 const PAD_COLOR: Color = Color::srgb(0.20, 0.75, 0.95);
 const PAD_SIZE: f32 = 60.0;
 const ROOMS_PER_BOSS: u32 = 4;
@@ -90,7 +101,7 @@ fn generate_room(
         bounds_max,
     };
 
-    spawn_walls(commands, &room);
+    spawn_walls(commands, &room, floor.floor_number);
 
     if kind == RoomKind::Fight || kind == RoomKind::Boss {
         let wave_count = 4;
@@ -390,12 +401,14 @@ fn setup_rooms_system(
 
 // ─── Wall spawning ──────────────────────────────────────────────────────
 
-fn spawn_walls(commands: &mut Commands, room: &Room) {
+fn spawn_walls(commands: &mut Commands, room: &Room, floor_number: u32) {
     let cx = (room.bounds_min.x + room.bounds_max.x) * 0.5;
     let cy = (room.bounds_min.y + room.bounds_max.y) * 0.5;
     let w = room.size().x;
     let h = room.size().y;
     let half = WALL_THICKNESS * 0.5;
+    // Pick wall color from the floor palette.
+    let color = FLOOR_COLORS[(floor_number as usize).min(FLOOR_COLORS.len() - 1)];
 
     let walls_data = [
         (Vec3::new(cx, room.bounds_max.y + half, 0.0), Vec2::new(w + WALL_THICKNESS * 2.0, WALL_THICKNESS)),
@@ -406,7 +419,7 @@ fn spawn_walls(commands: &mut Commands, room: &Room) {
 
     for (pos, size) in walls_data {
         commands.spawn((
-            Sprite { color: WALL_COLOR, custom_size: Some(size), ..default() },
+            Sprite { color, custom_size: Some(size), ..default() },
             Transform::from_translation(pos),
             Wall,
             Collider { half_extents: size * 0.5 },

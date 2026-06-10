@@ -8,13 +8,14 @@ use bevy::sprite::Anchor;
 use log::warn;
 
 use crate::components::{
-    AimDirection, AppState, BeamVisual, Collider, Enemy, EnemyAI, Health, HitFlash, Invulnerable,
-    Knockback, PickupKind, Player, Projectile, Team, Velocity, Weapon, WeaponArchetype, Beacon,
+    AimDirection, AppState, AiBehavior, Beacon, BeamVisual, Breakable, Collider, Enemy, EnemyAI,
+    Health, HitFlash, Invulnerable, Knockback, PickupKind, Player, Projectile, Team, Velocity,
+    Weapon, WeaponArchetype,
 };
 use crate::events::{DamageEvent, EnemyKilledEvent};
 use crate::plugins::enemy::spawn_death_puff;
 use crate::plugins::fx::spawn_hit_spark;
-use crate::plugins::pickups::{roll_pickup_drop, roll_weapon_drop, spawn_pickup};
+use crate::plugins::pickups::{roll_health_drop, roll_pickup_drop, roll_weapon_drop, spawn_pickup};
 use crate::resources::{CascadeState, GameSettings, Hitstop, RunRng, RunState, ScreenShake};
 
 /// Color of the player projectile — warm white, clearly readable as a
@@ -91,6 +92,12 @@ impl Plugin for CombatPlugin {
                 // `projectile_lifetime_system` for despawn-on-expire
                 // so the lifetime logic isn't duplicated.
                 enemy_projectile_damage_system,
+                // Phase 2.5+: breakable-damage system.
+                // Runs after enemy-projectile damage so breakable
+                // hits resolve in the same frame as the main
+                // damage pass. One projectile can break multiple
+                // breakables in a single frame.
+                breakable_damage_system,
             )
                 .chain()
                 // Phase 2: gates the whole combat chain on the
@@ -670,6 +677,16 @@ fn beam_damage_system(
                     PickupKind::Weapon(weapon_kind),
                 );
             }
+            // Health drop: flat 15% roll on every kill,
+            // independent of stat-stick and weapon drops.
+            if roll_health_drop(&settings, &mut rng) {
+                spawn_pickup(
+                    &mut commands,
+                    &settings,
+                    enemy_pos,
+                    PickupKind::Heal,
+                );
+            }
             kill_events.send(EnemyKilledEvent {
                 victim: enemy_entity,
                 killer: Entity::PLACEHOLDER,
@@ -811,6 +828,16 @@ fn projectile_damage_system(
                         &settings,
                         enemy_pos,
                         PickupKind::Weapon(weapon_kind),
+                    );
+                }
+                // Health drop: flat 15% roll on every kill,
+                // independent of stat-stick and weapon drops.
+                if roll_health_drop(&settings, &mut rng) {
+                    spawn_pickup(
+                        &mut commands,
+                        &settings,
+                        enemy_pos,
+                        PickupKind::Heal,
                     );
                 }
                 kill_events.send(EnemyKilledEvent {
@@ -965,6 +992,124 @@ fn enemy_projectile_damage_system(
         // same frame = multiple despawns, but only the first
         // damages (the rest see `invulnerable` true and skip
         // the damage/knockback/iframe insert).
+    }
+}
+
+/// Phase 2.5+: damage system for `Breakable` entities (pots,
+/// crates, barrels). Queries breakables with `Health` + `Collider`,
+/// and `Team::Player` projectiles. On AABB overlap: reduces the
+/// breakable's HP by the projectile's damage, applies a `HitFlash`,
+/// and — if HP hits 0 — spawns a death puff, rolls pickup/weapon/
+/// health drops (same as enemy kills), and despawns the breakable.
+/// One projectile can hit multiple breakables before being
+/// despawned (unlike enemies where the projectile stops on first
+/// contact). The projectile is despawned after any hit.
+///
+/// Early-returns on hitstop, same as other damage systems.
+#[allow(clippy::too_many_arguments)]
+fn breakable_damage_system(
+    settings: Res<GameSettings>,
+    hitstop: Option<Res<Hitstop>>,
+    mut run: ResMut<RunState>,
+    mut rng: ResMut<RunRng>,
+    mut cascade: ResMut<CascadeState>,
+    mut commands: Commands,
+    projectiles: Query<(Entity, &Transform, &Collider, &Projectile)>,
+    mut breakables: Query<
+        (Entity, &Transform, &Collider, &mut Health),
+        (With<Breakable>, Without<Projectile>),
+    >,
+    mut damage_events: EventWriter<DamageEvent>,
+    mut kill_events: EventWriter<EnemyKilledEvent>,
+) {
+    if in_hitstop(&hitstop) {
+        return;
+    }
+    for (proj_entity, proj_tf, proj_col, proj) in &projectiles {
+        // Only `Team::Player` projectiles damage breakables.
+        if !matches!(proj.team, Team::Player) {
+            continue;
+        }
+        let proj_pos = proj_tf.translation.truncate();
+
+        let mut hit_any = false;
+        for (breakable_entity, breakable_tf, breakable_col, mut health) in &mut breakables {
+            if !aabb_overlap(
+                proj_pos,
+                proj_col.half_extents,
+                breakable_tf.translation.truncate(),
+                breakable_col.half_extents,
+            ) {
+                continue;
+            }
+            // Skip breakables already at 0 HP (same-frame guard).
+            if health.current <= 0.0 {
+                continue;
+            }
+            health.current = (health.current - proj.damage).max(0.0);
+            hit_any = true;
+
+            // Visual feedback on every hit.
+            commands.entity(breakable_entity).insert(HitFlash {
+                timer: Timer::from_seconds(settings.hit_flash_duration_s, TimerMode::Once),
+            });
+            let breakable_pos = breakable_tf.translation.truncate();
+            spawn_hit_spark(&mut commands, &settings, breakable_pos);
+            damage_events.send(DamageEvent {
+                victim: breakable_entity,
+                amount: proj.damage,
+            });
+
+            if health.current <= 0.0 {
+                // Breakable destroyed — same reward path as enemies.
+                commands.entity(breakable_entity).despawn();
+                spawn_death_puff(&mut commands, &settings, breakable_pos);
+                run.enemies_killed = run.enemies_killed.saturating_add(1);
+                on_enemy_killed(&settings, &mut run, &mut cascade, false);
+
+                // Roll stat-stick pickup drop (use AiBehavior::Chaser
+                // as a stand-in for breakable drop rates).
+                let mut rng = || rng.next_unit();
+                if let Some(kind) =
+                    roll_pickup_drop(AiBehavior::Chaser, &settings, cascade.active, &mut rng)
+                {
+                    spawn_pickup(&mut commands, &settings, breakable_pos, kind);
+                }
+                // Roll weapon drop (same stand-in).
+                if let Some(weapon_kind) =
+                    roll_weapon_drop(AiBehavior::Chaser, &settings, cascade.active, &mut rng)
+                {
+                    spawn_pickup(
+                        &mut commands,
+                        &settings,
+                        breakable_pos,
+                        PickupKind::Weapon(weapon_kind),
+                    );
+                }
+                // Roll health drop (flat 15%).
+                if roll_health_drop(&settings, &mut rng) {
+                    spawn_pickup(
+                        &mut commands,
+                        &settings,
+                        breakable_pos,
+                        PickupKind::Heal,
+                    );
+                }
+                kill_events.send(EnemyKilledEvent {
+                    victim: breakable_entity,
+                    killer: Entity::PLACEHOLDER,
+                    position: breakable_pos,
+                });
+                // Brief hitstop on destruction.
+                commands.insert_resource(Hitstop {
+                    timer: Timer::from_seconds(settings.hitstop_duration_s, TimerMode::Once),
+                });
+            }
+        }
+        // Despawn the projectile if it hit any breakable.
+        if hit_any {
+            commands.entity(proj_entity).despawn();
+        }
     }
 }
 
