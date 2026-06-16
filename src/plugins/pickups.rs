@@ -235,6 +235,12 @@ pub fn roll_pickup_drop(
         AiBehavior::Sniper => settings.pickup_drop_chance_sniper,
         AiBehavior::Boss => settings.pickup_drop_chance_boss,
         AiBehavior::Beacon => 0.0,
+        // Phase 3d: Bomber and Orbiter use the same drop
+        // chance as their closest archetype (Chaser for
+        // Bomber, Sniper for Orbiter) — no unique loot
+        // tables yet. Phase 4 will differentiate.
+        AiBehavior::Bomber => settings.pickup_drop_chance_chaser,
+        AiBehavior::Orbiter => settings.pickup_drop_chance_sniper,
     };
     let cascade_mult = if cascade_active {
         settings.cascade_loot_multiplier
@@ -302,6 +308,10 @@ pub fn roll_weapon_drop(
         // Beacon: no weapon drop (its reward is the
         // cascade chain extension). Listed for exhaustiveness.
         AiBehavior::Beacon => 0.0,
+        // Phase 3d: same treatment as roll_pickup_drop —
+        // Bomber uses chaser rate, Orbiter uses sniper rate.
+        AiBehavior::Bomber => settings.pickup_drop_chance_weapon_chaser,
+        AiBehavior::Orbiter => settings.pickup_drop_chance_weapon_sniper,
     };
     let cascade_mult = if cascade_active {
         settings.cascade_loot_multiplier

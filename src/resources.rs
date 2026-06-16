@@ -193,6 +193,11 @@ pub struct RunState {
     /// rooms between combat rooms. Persists across rooms, resets
     /// on death/restart.
     pub gold: u32,
+    /// Phase 3d armor: flat damage reduction applied before each
+    /// hit. Each ArmorUp pickup adds 0.5; player takes
+    /// max(0, raw_damage - armor) per hit. Caps at 4.0 so the
+    /// player can never become fully immune.
+    pub armor: f32,
 }
 
 impl Default for RunState {
@@ -212,6 +217,7 @@ impl Default for RunState {
             regen_per_sec: 0.0,
             curse: 0,
             gold: 0,
+            armor: 0.0,
         }
     }
 }
@@ -310,6 +316,31 @@ pub struct GameSettings {
     pub sniper_projectile_size_y: f32,
     pub sniper_max_hp: f32,
     pub sniper_contact_damage: f32,
+    // Phase 3d — bomber. Moves toward player at chaser speed.
+    // On death, explodes in a 120-radius AoE for 2 damage.
+    // 3 HP base. The player's decision is: kill at range or
+    // get caught in the blast. Same HP as chaser (3) but the
+    // death trigger punishes close-range clearing.
+    pub bomber_move_speed: f32,
+    pub bomber_max_hp: f32,
+    pub bomber_contact_damage: f32,
+    pub bomber_explosion_radius: f32,
+    pub bomber_explosion_damage: f32,
+    pub bomber_knockback_speed: f32,
+    pub bomber_knockback_duration_s: f32,
+    // Phase 3d — orbiter. Circles the player at a fixed radius,
+    // firing projectiles tangent to the orbit. 2 HP base.
+    // The orbit speed and fire rate create layered bullet
+    // rings. Multiple orbiters at different radii/angles
+    // create the "bullet hell" feel in a roguelite context.
+    pub orbiter_move_speed: f32,
+    pub orbiter_orbit_radius: f32,
+    pub orbiter_fire_rate: f32,
+    pub orbiter_projectile_speed: f32,
+    pub orbiter_projectile_damage: f32,
+    pub orbiter_projectile_lifetime_s: f32,
+    pub orbiter_max_hp: f32,
+    pub orbiter_contact_damage: f32,
     // Phase 1 — mini-boss. Single-instance per run, spawned
     // once at `boss_spawn_time_s` (60s default) at a random
     // angle at `boss_spawn_distance` from the player. 10 HP
@@ -589,6 +620,23 @@ impl Default for GameSettings {
             sniper_projectile_size_y: 14.0,
             sniper_max_hp: 1.0, // one pistol hit kills (1 HP)
             sniper_contact_damage: 1.0,
+            // Phase 3d — bomber defaults
+            bomber_move_speed: 80.0, // slower than chaser's 100
+            bomber_max_hp: 5.0,      // chunky, dies slower so player must kite
+            bomber_contact_damage: 1.0,
+            bomber_explosion_radius: 120.0,
+            bomber_explosion_damage: 2.0,
+            bomber_knockback_speed: 400.0,
+            bomber_knockback_duration_s: 0.4,
+            // Phase 3d — orbiter defaults
+            orbiter_move_speed: 60.0, // slow while orbiting
+            orbiter_orbit_radius: 180.0,
+            orbiter_fire_rate: 1.5, // shots per second
+            orbiter_projectile_speed: 250.0,
+            orbiter_projectile_damage: 1.0,
+            orbiter_projectile_lifetime_s: 2.0,
+            orbiter_max_hp: 2.0,
+            orbiter_contact_damage: 0.0, // no contact damage, only projectiles
             // Phase 1 — mini-boss. See `boss_max_hp` above for
             // the full design notes. Numbers chosen so:
             //   - 10 HP is 5× the chaser's 3 HP, 5× the

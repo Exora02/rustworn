@@ -9,12 +9,12 @@ use bevy::prelude::*;
 use log::{info, warn};
 
 use crate::components::{
-    AiBehavior, AppState, BaseColor, BaseVelocity, Beacon, Boss, BossPhase, BossState,
+    AiBehavior, AppState, BaseColor, BaseVelocity, Beacon, BomberState, Boss, BossPhase, BossState,
     CascadeAffected, Collider, DasherPhase, DasherState, DeathPuff, Elite, Enemy, EnemyAI, EnemyArchetype,
-    Health, HitFlash, Invulnerable, Knockback, MotionTrail, Player, Projectile, Room, RoomKind,
+    Health, HitFlash, Invulnerable, Knockback, MotionTrail, OrbiterState, Player, Projectile, Room, RoomKind,
     ShooterState, SniperState, Team, Velocity, WaveSpawner,
 };
-use crate::events::{DamageEvent, RoomClearedEvent};
+use crate::events::{DamageEvent, EnemyKilledEvent, RoomClearedEvent};
 use crate::plugins::fx::spawn_hit_spark;
 use crate::resources::{BossRampTimer, FloorState, GameSettings, Hitstop, RunRng, RunState, ScreenShake};
 
@@ -56,6 +56,36 @@ const SNIPER_COLOR: Color = Color::srgb(0.95, 0.85, 0.25); // ~#f2d940
 /// signal — the last 10% of the charge is a solid red
 /// sprite, no yellow visible.
 const SNIPER_CHARGED_COLOR: Color = Color::srgb(0.95, 0.20, 0.15); // ~#f22626
+
+/// Phase 3d bomber color. Orange — distinct from red chaser,
+/// purple dasher, teal shooter, and yellow sniper. The orange
+/// also reads as "explosive danger" in arcade color shorthand.
+const BOMBER_COLOR: Color = Color::srgb(0.95, 0.60, 0.15); // ~#f29926
+
+/// Phase 3d orbiter color. Cyan — distinct from every existing
+/// archetype. Cyan reads as "energy/circle" in arcade shorthand,
+/// fitting an enemy that maintains a circular orbit.
+const ORBITER_COLOR: Color = Color::srgb(0.20, 0.80, 0.90); // ~#33cce6
+
+/// Bomber death explosion AoE color. Bright orange-red, more
+/// intense than the bomber body, so it reads clearly as "don't
+/// stand here".
+const BOMBER_EXPLOSION_COLOR: Color = Color::srgb(1.0, 0.40, 0.10); // ~#ff661a
+
+/// Bomber sprite size. Slightly smaller than the chaser (30) so
+/// the player can visually distinguish the two melee archetypes
+/// at a glance — bomber is more compact, meaning "explodes on
+/// death" vs chaser's "just rushes you".
+const BOMBER_SIZE: f32 = 20.0;
+
+/// Orbiter sprite size. Smaller than the bomber (20) so the
+/// orbiter reads as "small / fast / annoying" — a darting
+/// target that fires bullets, not something to facetank.
+const ORBITER_SIZE: f32 = 14.0;
+
+/// Orbiter projectile color. Same cyan as the body but slightly
+/// brighter so the bullet pops against the background.
+const ORBITER_PROJECTILE_COLOR: Color = Color::srgb(0.35, 0.90, 0.95); // ~#59e6f2
 
 /// Sniper projectile color. Bright orange so the bullet is
 /// distinct from the shooter's teal and the player's warm
@@ -132,6 +162,8 @@ const ENEMY_COST_CHASER: f32 = 5.0;
 const ENEMY_COST_DASHER: f32 = 8.0;
 const ENEMY_COST_SHOOTER: f32 = 7.0;
 const ENEMY_COST_SNIPER: f32 = 12.0;
+const ENEMY_COST_BOMBER: f32 = 8.0;
+const ENEMY_COST_ORBITER: f32 = 10.0;
 const ELITE_COST_MULTIPLIER: f32 = 2.0;
 
 /// Per-room-type director credit rates (credits per second).
@@ -179,6 +211,7 @@ impl Plugin for EnemyPlugin {
                 enemy_contact_damage_system,
                 death_puff_tick_system,
                 hit_flash_tick_system,
+                bomber_death_aoe_system,
             )
                 .chain()
                 // Phase 2: gates the whole enemy chain on
@@ -366,6 +399,8 @@ fn director_pick(spawner: &mut WaveSpawner, rng: &mut RunRng) -> (EnemyArchetype
         (EnemyArchetype::Dasher, ENEMY_COST_DASHER),
         (EnemyArchetype::Shooter, ENEMY_COST_SHOOTER),
         (EnemyArchetype::Sniper, ENEMY_COST_SNIPER),
+        (EnemyArchetype::Bomber, ENEMY_COST_BOMBER),
+        (EnemyArchetype::Orbiter, ENEMY_COST_ORBITER),
     ];
 
     // Filter to affordable archetypes.
@@ -437,6 +472,8 @@ fn spawn_wave_enemy(
         EnemyArchetype::Dasher => spawn_dasher(commands, settings, room, spawn_pos, biome, is_elite),
         EnemyArchetype::Shooter => spawn_shooter(commands, settings, room, spawn_pos, biome, is_elite),
         EnemyArchetype::Sniper => spawn_sniper(commands, settings, room, spawn_pos, biome, is_elite),
+        EnemyArchetype::Bomber => spawn_bomber(commands, settings, room, spawn_pos, biome, is_elite),
+        EnemyArchetype::Orbiter => spawn_orbiter(commands, settings, room, spawn_pos, biome, is_elite),
         // Phase 2.3: Boss is still on the timer-driven
         // path (boss_spawn_system at run midpoint), not
         // a wave. Future patch will fold it into the
@@ -472,6 +509,8 @@ fn spawn_enemy(
         EnemyArchetype::Dasher => spawn_dasher(commands, settings, room, player_pos, biome, false),
         EnemyArchetype::Shooter => spawn_shooter(commands, settings, room, player_pos, biome, false),
         EnemyArchetype::Sniper => spawn_sniper(commands, settings, room, player_pos, biome, false),
+        EnemyArchetype::Bomber => spawn_bomber(commands, settings, room, player_pos, biome, false),
+        EnemyArchetype::Orbiter => spawn_orbiter(commands, settings, room, player_pos, biome, false),
         // Note: `Boss` is not spawned via the random spawner —
         // it spawns at the run-midpoint (60s) at a fixed
         // distance from the player. See `boss_spawn_system`
@@ -753,6 +792,114 @@ fn spawn_sniper_projectile(
         },
     ));
 }
+
+// Phase 3d bomber. Same base bundle as the chaser (sprite +
+// BaseColor + CascadeAffected + Collider + Health + Velocity +
+// BaseVelocity) plus a `BomberState` carrying the explosion
+// radius for the death detonation. Uses Chaser AI (walk toward
+// player) — no special AI needed. The death AoE is handled by
+// `bomber_death_aoe_system` listening for EnemyKilledEvent.
+fn spawn_bomber(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    room: &Room,
+    spawn_pos: Vec2,
+    floor: &FloorState,
+    is_elite: bool,
+) {
+    let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
+    let hp = settings.bomber_max_hp * hp_mult * if is_elite { 2.0 } else { 1.0 };
+    let base_color = if is_elite {
+        elite_color_tint(BOMBER_COLOR)
+    } else {
+        BOMBER_COLOR
+    };
+
+    let mut spawn = commands.spawn((
+        Sprite {
+            color: base_color,
+            custom_size: Some(Vec2::splat(BOMBER_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.0),
+        Enemy,
+        EnemyAI {
+            behavior: AiBehavior::Bomber,
+        },
+        Collider {
+            half_extents: Vec2::splat(BOMBER_SIZE * 0.5),
+        },
+        Health::new(hp),
+        Velocity::default(),
+        BaseVelocity::default(),
+        CascadeAffected,
+        BaseColor(base_color),
+        BomberState {
+            explosion_radius: settings.bomber_explosion_radius,
+        },
+    ));
+    if is_elite {
+        spawn.insert(Elite);
+    }
+}
+
+/// Phase 3d orbiter. Same base bundle as the dasher plus an
+/// `OrbiterState` carrying the orbit angle, radius, angular
+/// speed, and fire timer. Starts at a random angle so a wave
+/// of orbiters doesn't all fire on the same frame — each gets
+/// a different position around the player's orbit circle.
+fn spawn_orbiter(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    room: &Room,
+    spawn_pos: Vec2,
+    floor: &FloorState,
+    is_elite: bool,
+) {
+    let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
+    let hp = settings.orbiter_max_hp * hp_mult * if is_elite { 2.0 } else { 1.0 };
+    let base_color = if is_elite {
+        elite_color_tint(ORBITER_COLOR)
+    } else {
+        ORBITER_COLOR
+    };
+
+    // Random starting angle so orbiters don't clump at 0°
+    // Use a simple hash of the spawn position as a deterministic
+    // seed for reproducibility.
+    let starting_angle = (spawn_pos.x * 0.791 + spawn_pos.y * 1.273).fract() * std::f32::consts::TAU;
+
+    let mut spawn = commands.spawn((
+        Sprite {
+            color: base_color,
+            custom_size: Some(Vec2::splat(ORBITER_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.0),
+        Enemy,
+        EnemyAI {
+            behavior: AiBehavior::Orbiter,
+        },
+        Collider {
+            half_extents: Vec2::splat(ORBITER_SIZE * 0.5),
+        },
+        Health::new(hp),
+        Velocity::default(),
+        BaseVelocity::default(),
+        CascadeAffected,
+        BaseColor(base_color),
+        OrbiterState {
+            angle: starting_angle,
+            orbit_radius: settings.orbiter_orbit_radius,
+            angular_speed: settings.orbiter_move_speed / settings.orbiter_orbit_radius,
+            fire_timer: Timer::from_seconds(1.0 / settings.orbiter_fire_rate, TimerMode::Repeating),
+        },
+    ));
+    if is_elite {
+        spawn.insert(Elite);
+    }
+}
+
 fn spawn_shooter_projectile(
     commands: &mut Commands,
     settings: &GameSettings,
@@ -838,6 +985,40 @@ fn spawn_boss_projectile(
         Projectile {
             damage: settings.boss_projectile_damage,
             lifetime: Timer::from_seconds(settings.boss_projectile_lifetime_s, TimerMode::Once),
+            team: Team::Enemy,
+        },
+    ));
+}
+
+/// Spawn a Team::Enemy orbiter projectile at `enemy_pos` moving in
+/// `dir` (tangent to the orbit). Mirrors the sniper/shooter
+/// projectile spawn pattern but with orbiter-tuned values.
+fn spawn_orbiter_projectile(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    enemy_pos: Vec2,
+    dir: Vec2,
+) {
+    let muzzle = ORBITER_SIZE * 0.5 + 3.0 + 2.0;
+    let spawn_pos = enemy_pos + dir * muzzle;
+    let speed = settings.orbiter_projectile_speed;
+
+    commands.spawn((
+        Sprite {
+            color: ORBITER_PROJECTILE_COLOR,
+            custom_size: Some(Vec2::splat(6.0)),
+            ..default()
+        },
+        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.5),
+        BaseVelocity(dir * speed),
+        Velocity(dir * speed),
+        CascadeAffected,
+        Collider {
+            half_extents: Vec2::splat(3.0),
+        },
+        Projectile {
+            damage: settings.orbiter_projectile_damage,
+            lifetime: Timer::from_seconds(settings.orbiter_projectile_lifetime_s, TimerMode::Once),
             team: Team::Enemy,
         },
     ));
@@ -1034,6 +1215,7 @@ fn enemy_ai_system(
             Option<&mut ShooterState>,
             Option<&mut SniperState>,
             Option<&mut BossState>,
+            Option<&mut OrbiterState>,
         ),
         With<Enemy>,
     >,
@@ -1056,6 +1238,7 @@ fn enemy_ai_system(
         shooter_state,
         sniper_state,
         boss_state,
+        orbiter_state,
     ) in &mut enemies
     {
         match ai.behavior {
@@ -1067,6 +1250,18 @@ fn enemy_ai_system(
                     Vec2::ZERO
                 };
                 base.0 = dir * settings.chaser_move_speed;
+            }
+            // Phase 3d bomber: walks toward the player at
+            // bomber_move_speed. Same movement pattern as
+            // Chaser but with its own speed tuning.
+            AiBehavior::Bomber => {
+                let to_player = player_pos - enemy_transform.translation.truncate();
+                let dir = if to_player.length_squared() > 0.0 {
+                    to_player.normalize()
+                } else {
+                    Vec2::ZERO
+                };
+                base.0 = dir * settings.bomber_move_speed;
             }
             AiBehavior::Dasher => {
                 let Some(mut state) = dasher_state else {
@@ -1347,21 +1542,21 @@ fn enemy_ai_system(
                 }
             }
             // Phase 2 P5: Beacon is a static enemy (no movement)
-                        // that extends the Cascade window on kill. The
-                        // `Beacon` marker on the entity is what the kill
-                        // handler in `combat.rs` reads via `Has<Beacon>` to fire
-                        // the cascade-chain-extend hook; the contact-damage
-                        // handler skips the beacon via the same marker (see the
-                        // early-continue in `enemy_contact_damage_system`).
-                        //
-                        // Phase 2 P5.1: the beacon now FLEES from the player
-                        // instead of sitting still. It runs at
-                        // `beacon_flee_speed` directly away from the player's
-                        // position. During Cascade, the beacon is NOT
-                        // CascadeAffected, so it moves at full speed while
-                        // other enemies are slowed to 0.25× — the player
-                        // has to chase it down to get the chain extend.
-                        AiBehavior::Beacon => {
+            // that extends the Cascade window on kill. The
+            // `Beacon` marker on the entity is what the kill
+            // handler in `combat.rs` reads via `Has<Beacon>` to fire
+            // the cascade-chain-extend hook; the contact-damage
+            // handler skips the beacon via the same marker (see the
+            // early-continue in `enemy_contact_damage_system`).
+            //
+            // Phase 2 P5.1: the beacon now FLEES from the player
+            // instead of sitting still. It runs at
+            // `beacon_flee_speed` directly away from the player's
+            // position. During Cascade, the beacon is NOT
+            // CascadeAffected, so it moves at full speed while
+            // other enemies are slowed to 0.25× — the player
+            // has to chase it down to get the chain extend.
+            AiBehavior::Beacon => {
                             let to_player = player_pos - enemy_transform.translation.truncate();
                             let dir = if to_player.length_squared() > 0.0 {
                                 -to_player.normalize()
@@ -1369,10 +1564,57 @@ fn enemy_ai_system(
                                 Vec2::ZERO
                             };
                             base.0 = dir * settings.beacon_flee_speed;
-                        }
-        }
-    }
-}
+                                        }
+                                        AiBehavior::Orbiter => {
+                                            let Some(mut state) = orbiter_state else {
+                                                // Defensive: an orbiter without OrbiterState
+                                                // shouldn't exist (spawn_orbiter always
+                                                // attaches one) but skipping is safer than
+                                                // panicking.
+                                                continue;
+                                            };
+                                            let enemy_pos = enemy_transform.translation.truncate();
+                                            let dt = time.delta().as_secs_f32();
+
+                                            // Compute desired orbit position relative to the
+                                            // player: a point on the orbit circle at the
+                                            // current angle.
+                                            let (sin, cos) = state.angle.sin_cos();
+                                            let orbit_pos = player_pos + Vec2::new(cos, sin) * state.orbit_radius;
+
+                                            // Move toward the orbit position.
+                                            let to_orbit = orbit_pos - enemy_pos;
+                                            let dir = if to_orbit.length_squared() > 0.0 {
+                                                to_orbit.normalize()
+                                            } else {
+                                                Vec2::ZERO
+                                            };
+                                            base.0 = dir * settings.orbiter_move_speed;
+
+                                            // Advance the orbit angle.
+                                            state.angle += state.angular_speed * dt;
+                                            if state.angle > std::f32::consts::TAU {
+                                                state.angle -= std::f32::consts::TAU;
+                                            }
+
+                                            // Tick the fire timer. On finish, fire a projectile
+                                            // tangent to the orbit: the tangent is perpendicular
+                                            // to the angle vector (rotated +90°).
+                                            state.fire_timer.tick(time.delta());
+                                            if state.fire_timer.finished() {
+                                                // Tangent direction: rotate the (cos, sin)
+                                                // direction vector by +90° (counter-clockwise).
+                                                let tangent = Vec2::new(-sin, cos);
+                                                spawn_orbiter_projectile(&mut commands, &settings, enemy_pos, tangent);
+                                                state.fire_timer = Timer::from_seconds(
+                                                    1.0 / settings.orbiter_fire_rate,
+                                                    TimerMode::Repeating,
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
 
 // ─── Contact damage ──────────────────────────────────────────────────────
 
@@ -1466,6 +1708,8 @@ fn enemy_contact_damage_system(
             AiBehavior::Shooter => settings.shooter_contact_damage,
             AiBehavior::Sniper => settings.sniper_contact_damage,
             AiBehavior::Boss => settings.boss_contact_damage,
+            AiBehavior::Bomber => settings.bomber_contact_damage,
+            AiBehavior::Orbiter => settings.orbiter_contact_damage,
             // Unreachable: filtered by the early-continue
             // above. Listed to keep the match exhaustive.
             AiBehavior::Beacon => 0.0,
@@ -1590,6 +1834,44 @@ fn hit_flash_tick_system(
             base.blue + (1.0 - base.blue) * t,
             base.alpha,
         );
+    }
+}
+
+/// Listen for EnemyKilledEvent and spawn a short-lived AoE damage
+/// zone at the bomber's death position. The AoE zone is a Sprite
+/// with a Projectile (Team::Enemy) and Collider, so the existing
+/// projectile_damage_system in combat.rs will detect overlaps with
+/// the player and apply damage.
+///
+/// The zone lasts 0.2 seconds — long enough to catch a player who
+/// was standing on the bomber when it died, short enough that the
+/// player can dodge through it with a dash if they react in time.
+fn bomber_death_aoe_system(
+    mut commands: Commands,
+    mut events: EventReader<EnemyKilledEvent>,
+    bomber_states: Query<&BomberState>,
+    settings: Res<GameSettings>,
+) {
+    for ev in events.read() {
+        if let Ok(state) = bomber_states.get(ev.victim) {
+            // Spawn a brief AoE zone at the death position
+            commands.spawn((
+                Sprite {
+                    color: BOMBER_EXPLOSION_COLOR,
+                    custom_size: Some(Vec2::splat(state.explosion_radius * 2.0)),
+                    ..default()
+                },
+                Transform::from_xyz(ev.position.x, ev.position.y, 1.0),
+                Projectile {
+                    damage: settings.bomber_explosion_damage,
+                    lifetime: Timer::from_seconds(0.2, TimerMode::Once),
+                    team: Team::Enemy,
+                },
+                Collider {
+                    half_extents: Vec2::splat(state.explosion_radius),
+                },
+            ));
+        }
     }
 }
 

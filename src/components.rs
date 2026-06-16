@@ -279,6 +279,18 @@ pub enum AiBehavior {
     /// on the field — that's fine, the player can mop up
     /// for a few XP and a stat-stick drop.
     Beacon,
+    /// Phase 3d Bomber: walks toward the player at moderate
+    /// speed. On death, detonates in an AoE circle that
+    /// damages the player if caught inside. Creates a
+    /// positioning puzzle — kill it at range or kite it
+    /// away from your escape route.
+    Bomber,
+    /// Phase 3d Orbiter: maintains a fixed orbit radius
+    /// around the player, firing projectiles tangent to
+    /// the orbit at regular intervals. Multiple orbiters
+    /// create layered bullet rings the player must
+    /// navigate.
+    Orbiter,
 }
 
 /// Phase 1 dasher state. Tracks which phase of the
@@ -317,6 +329,28 @@ pub struct ShooterState {
 pub struct SniperState {
     pub charge_timer: Timer,
     pub is_charging: bool,
+}
+
+/// Phase 3d Bomber state. Tracks the explosion radius for
+/// the death detonation. The bomber uses Chaser-style AI
+/// (walk toward player); the `explosion_radius` field is
+/// read by the death-AoE handler in combat.rs.
+#[derive(Component)]
+pub struct BomberState {
+    pub explosion_radius: f32,
+}
+
+/// Phase 3d Orbiter state. Maintains a circular orbit
+/// around the player at `orbit_radius` distance. Each
+/// tick the `angle` advances by `angular_speed` delta.
+/// Fires a projectile tangent to the orbit every
+/// `fire_interval_s`.
+#[derive(Component)]
+pub struct OrbiterState {
+    pub angle: f32,
+    pub orbit_radius: f32,
+    pub angular_speed: f32,
+    pub fire_timer: Timer,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -433,6 +467,10 @@ pub enum EnemyArchetype {
     /// spawned by the Cascade-start handler, not by the
     /// wave system.
     Beacon,
+    /// Phase 3d Bomber: walks toward the player, explodes on death.
+    Bomber,
+    /// Phase 3d Orbiter: circles the player, fires tangent projectiles.
+    Orbiter,
 }
 
 /// Axis-aligned bounding box for contact-damage detection. `half_extents`
@@ -878,6 +916,11 @@ pub enum RoomKind {
     /// style. Tilted toward melee archetypes (chaser, dasher).
     /// More breakables for extra loot.
     Horde,
+    /// Shop room. No enemies — the player walks in, buys upgrades
+    /// with gold, then leaves via an exit pad toward the boss or
+    /// next combat room. Always appears one room before the boss
+    /// (cycle position 5 → boss at position 0).
+    Shop,
 }
 
 /// Door trigger: a small AABB on the floor in front of a wall.

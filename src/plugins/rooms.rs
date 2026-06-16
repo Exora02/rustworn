@@ -177,6 +177,12 @@ fn generate_room(
                 ];
                 (waves, BREAKABLES_HORDE, SHRINES_PER_ROOM)
             }
+            RoomKind::Shop => {
+                // Shop rooms have no enemies — player walks in, buys
+                // upgrades with gold, then leaves. Spawn breakables
+                // so the player has a chance to earn a bit more gold.
+                (vec![], BREAKABLES_PER_ROOM, 0)
+            }
             _ => {
                 // Fight room — standard combat.
                 let base_interval = 1.5;
@@ -235,12 +241,22 @@ fn generate_room(
         // Spawn room interactables.
         spawn_shrines(commands, &room, shrine_count);
         spawn_breakables(commands, &room, breakable_count);
+
+        if kind == RoomKind::Shop {
+            // Shop rooms: no enemies, no WaveSpawner. Spawn items
+            // the player can buy with gold, plus a Boss exit pad.
+            spawn_shop_items(commands, &room);
+
+            // Boss exit pad near the top of the room.
+            let exit_pos = Vec2::new(
+                room.center().x,
+                room.bounds_max.y - PAD_SIZE * 1.5,
+            );
+            commands.spawn(pad_bundle(exit_pos, "Boss"));
+        }
     }
 
-    info!(
-        "room {} ({:?}) generated",
-        room_id.0, kind,
-    );
+    info!("room {} ({:?}) generated", room_id.0, kind);
 
     room
 }
@@ -682,11 +698,12 @@ fn pad_spawn_on_clear_system(
         //   2 → "Horde"
         //   3 → "Fight"
         //   4 → "Elite"
-        //   5 → "Horde"
+        //   5 → "Shop" — always one room before boss; guaranteed shop.
         //   0 → "Boss"
         let fight_label = match cycle_pos {
-            2 | 5 => "Horde",
+            2 => "Horde",
             4 => "Elite",
+            5 => "Shop",
             _ => "Fight",
         };
         let next_is_boss = cycle_pos == 0;
@@ -790,6 +807,7 @@ fn teleport_transition_system(
         // Determine next room kind from pad label.
         let next_kind = match teleport.label.as_str() {
             "Treasure" => RoomKind::Fight, // Treasure room = fight room with extra loot chance
+            "Shop" => RoomKind::Shop,
             "Boss" => RoomKind::Boss,
             "Elite" => RoomKind::MiniBoss,
             "Horde" => RoomKind::Horde,
