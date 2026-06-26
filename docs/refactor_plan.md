@@ -1,56 +1,143 @@
-# Proposed Module Split for Rustworn
+# RUSTWORN — Full Refactoring Plan
 
-Current state: 14 source files, 7 plugins (setup.rs, player.rs, combat.rs, enemy.rs, rooms.rs, hud.rs, pickups.rs, fx.rs, + the monolithic components.rs)
+**Goal:** Split every file >500 lines into small modules, clean up 0-byte stubs, and establish a clean module structure.
 
-## Target: ~25 small modules
+**Architecture:** One module per concern — components, plugins, and resources each get their own directory with sub-modules.
 
-### 1. `components.rs` → split by domain
-Current 1073 lines = 118 types. Split into:
-- **components/enemy.rs** — AiBehavior, EnemyArchetype, Enemy state types (DasherState, ShooterState, SniperState, BomberState, OrbiterState, BossState)
-- **components/player.rs** — Player, Weapon, WeaponArchetype, Projectile, Team, Health, Collider
-- **components/world.rs** — Room, RoomKind, RoomId, Door, RoomBounds, Biome, FloorState
-- **components/ui.rs** — HudElement, HudElementKind, all HUD bar types
-- **components/misc.rs** — Shrine, Pickup, PickupKind, RunState fields, etc.
+**Current state:** 22 source files. 7 files >500 lines (monoliths). 4 0-byte stubs from a previous aborted refactor.
 
-### 2. `enemy.rs` → split by archetype
-Current 2011 lines = spawn + AI + contact damage + boss. Split into:
-- **enemy/spawn.rs** — spawn_chaser, spawn_dasher, spawn_shooter, spawn_sniper, spawn_bomber, spawn_orbiter + spawn helper fns
-- **enemy/ai.rs** — enemy_ai_system (the big match on AiBehavior)
-- **enemy/contact.rs** — enemy_contact_damage_system
-- **enemy/boss.rs** — boss-specific: spawn_boss_projectile, boss_ai, boss_phase2 burst
-- **enemy/death_aoe.rs** — bomber_death_aoe_system (new)
-- **enemy/waves.rs** — director_pick, WaveSpawner, director budget logic
+---
 
-### 3. `combat.rs` → split by weapon/combat concern
-- **combat/weapon.rs** — weapon_fire_system, weapon_cooldown_tick_system, weapon_switch_system
-- **combat/projectile.rs** — projectile_lifetime_system, projectile_damage_system
-- **combat/events.rs** — event wiring: DamageEvent, EnemyKilledEvent, RoomClearedEvent
+## Phase 0: Delete the stubs
 
-### 4. `rooms.rs` → split by generation phase
-- **rooms/generate.rs** — generate_room (the big match on RoomKind)
-- **rooms/pads.rs** — pad spawning, teleport transitions, pad_spawn_on_clear
-- **rooms/shop.rs** — shop-specific: spawn_shop_items, shop_collect_system
-- **rooms/transitions.rs** — teleport_transition_system, door_unlock_system
+### Task 1: Remove 0-byte stubs
 
-### 5. `player.rs` → split into movement/input/death
-- Already relatively clean at 686 lines — but could split:
-  - **player/movement.rs** — player_input_system, movement_system, velocity_apply_system
-  - **player/dash.rs** — dash_input_system, dash_state_system
-  - **player/state.rs** — gates, restart_system, player_death_check_system
+These files were created by the previous refactor but never filled. They cause `E0428` (duplicate name) because `mod.rs` already has the code they were *supposed* to hold.
 
-### 6. `resources.rs` → split into resources/game_settings
-- **resources/state.rs** — RunState, RoomState, FloorState
-- **resources/tuning.rs** — GameSettings (the big Default impl)
-- **resources/{rng,etc}.rs** — RunRng, Hitstop, ScreenShake, etc.
+**Files to delete:**
+- `src/plugins/enemy/boss.rs` — 0 bytes
+- `src/plugins/enemy/death_aoe.rs` — 0 bytes
+- `src/plugins/enemy/contact.rs` — 0 bytes
 
-## Effort: ~3-4h of focused split work
-- Each split is a mechanical `cut {region} → {new file}` with `pub use` re-exports
-- No logic changes — just file structure
-- submodule re-export pattern: `pub mod ai; pub mod spawn;` in each new directory
-- `lib.rs` just gets `pub mod plugins;` → `mod plugins` auto-discovers
+These are dead files. `mod.rs` doesn't reference them as `pub mod` — they're just orphans.
 
-## Benefit
-- Each file < 300 lines → easy to `read_file` without pagination
-- `git diff` per PR is 300-500 lines instead of 2000
-- Parallel AI subagents can work on different files simultaneously
-- Tests in `enemy/ai.rs` vs `enemy/waves.rs` vs `enemy/spawn.rs` don't conflict
+### Task 2: Clean `ai.rs` + `ai.rs.new`
+
+`ai.rs` is 108 lines (content), `ai.rs.new` is 622 lines. The `.new` is the actual replacement. Move it.
+
+### Task 3: Move `spawn1.rs` → merge into `spawn.rs`
+
+`spawn1.rs` (40 lines) was split from `spawn.rs` (668 lines). Work out what it is and merge.
+
+---
+
+## Phase 1: Split `components.rs` (1073 → 118 types)
+
+`components.rs` has 118 component/resource types. Split into:
+
+| New file | Source | Line target |
+|---|---|---|
+| `src/components/mod.rs` | `pub mod` re-exports | ~10 |
+| `src/components/player.rs` | `Player`, `Weapon`, `Projectile`, `Team`, `Health`, `Collider` | ~150 |
+| `src/components/enemy.rs` | `Enemy`, `AiBehavior`, `EnemyArchetype`, state types | ~200 |
+| `src/components/world.rs` | `Room`, `RoomKind`, `Door`, `Biome`, `RoomBounds` | ~150 |
+| `src/components/misc.rs` | `Pickup`, `PickupKind`, `Shrine`, `RunState` fields | ~100 |
+| `src/components/ui.rs` | HUD types | ~80 |
+
+## Phase 2: Split `enemy/mod.rs` (2012 lines)
+
+This is the real monolith. Split into:
+
+| New file | Current lines | Content |
+|---|---|---|
+| `src/plugins/enemy/spawn.rs` | 668 (already exists) | Spawn helpers, `spawn_chaser`, `spawn_dasher`, etc. |
+| `src/plugins/enemy/ai.rs` | 108 (needs filling) | `enemy_ai_system` — the big `match AiBehavior` |
+| `src/plugins/enemy/waves.rs` | 229 (already exists) | `WaveSpawner`, `director_pick` |
+| `src/plugins/enemy/mod.rs` | ~30 (was 2012) | Just `pub mod` re-exports + `EnemyPlugin` |
+
+## Phase 3: Split `combat.rs` (1317 lines)
+
+| New file | Source | Content |
+|---|---|---|
+| `src/plugins/combat/mod.rs` | re-exports | ~10 |
+| `src/plugins/combat/weapon.rs` | from ~line 0-400 | `weapon_fire_system`, `weapon_cooldown` |
+| `src/plugins/combat/projectile.rs` | from ~400-800 | `projectile_lifetime`, `projectile_damage` |
+| `src/plugins/combat/damage.rs` | from ~800-1317 | `damage_system`, `enemy_contact` |
+
+## Phase 4: Split `rooms.rs` (1138 lines)
+
+| New file | Content |
+|---|---|
+| `rooms/generate.rs` | `generate_room`, `room_kind` |
+| `rooms/pads.rs` | teleport pads, pad_spawn_on_clear |
+| `rooms/shop.rs` | shop items, collect |
+| `rooms/transitions.rs` | teleport/door transitions |
+
+## Phase 5: Split `hud.rs` (806 lines)
+
+| New file | Content |
+|---|---|
+| `hud/bars.rs` | HP bars, weapon wheels |
+| `hud/timer.rs` | Cascade timer, clear timer |
+| `hud/overlay.rs` | Screen effects, transition overlays |
+
+## Phase 6: Split `resources.rs` (794 lines)
+
+| New file | Content |
+|---|---|
+| `src/resources/mod.rs` | re-exports |
+| `src/resources/state.rs` | `RunState`, `RoomState`, `FloorState` |
+| `src/resources/tuning.rs` | `GameSettings` |
+| `src/resources/rng.rs` | `RunRng` |
+| `src/resources/hitstop.rs` | `Hitstop`, `ScreenShake` |
+
+## Phase 7: Split `player.rs` (686 lines)
+
+| New file | Content |
+|---|---|
+| `player/movement.rs` | input/movement |
+| `player/dash.rs` | dash/slide |
+| `player/state.rs` | game state transitions, spawn |
+
+---
+
+## Module re-export pattern
+
+Each module directory follows:
+
+```rust
+// src/<module>/mod.rs
+pub mod sub_a;
+pub mod sub_b;
+pub mod sub_c;
+
+pub use sub_a::Thing;
+pub use sub_b::Other;
+
+// Plugin struct in mod.rs
+pub struct SomePlugin;
+impl Plugin for SomePlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Update, (...));
+    }
+}
+```
+
+The `plugins/mod.rs` just gets `pub mod` declarations — no change.
+
+---
+
+## Rules
+
+1. **No logic changes** — only move/cut/paste code. Logic stays identical.
+2. **`pub use`** every extracted type, function, and system so `lib.rs` doesn't change.
+3. **Commit after every 3 files** — git keeps history clean.
+4. **`cargo check` after every phase** — never leave broken builds.
+5. **Delete** the 0-byte orphans in Phase 0.
+6. **`ai.rs.new`** → rename to `ai.rs` (it's the actual content).
+
+---
+
+## Effort: ~6-8h of mechanical cut work
+
+Phase 0 (stub cleanup) is 5 minutes. The real work starts at Phase 1.

@@ -3,7 +3,8 @@
 # delegates the actual link to mold. The `ld.mold` symlink in /usr/bin
 # (provided by the apt package) is what makes this resolve.
 [target.x86_64-unknown-linux-gnu]
-rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+# Flatcar (this host) doesn't have mold; use default ld.
+# rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 
 [target.aarch64-unknown-linux-gnu]
-rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+# rustflags = ["-C", "link-arg=-fuse-ld=mold"]
