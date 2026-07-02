@@ -9,8 +9,8 @@ use log::info;
 use crate::components::{
     AiBehavior, BaseColor, BaseVelocity, Beacon, BomberState, Boss, BossPhase, BossState,
     CascadeAffected, Collider, DasherPhase, DasherState, DeathPuff, Elite, Enemy, EnemyAI,
-    EnemyArchetype, Health, Invulnerable, MotionTrail, OrbiterState, Projectile, Room, RoomKind,
-    ShooterState, SniperState, Team, Velocity,
+    EnemyArchetype, Health, HitFlash, Invulnerable, MotionTrail, OrbiterState, Projectile, Room,
+    RoomKind, ShooterState, SniperState, Team, Velocity,
 };
 use crate::resources::{FloorState, GameSettings, RunRng};
 
@@ -120,7 +120,7 @@ pub const ELITE_CHANCE: f32 = 0.25;
 pub const ELITE_TINT: Color = Color::srgb(0.95, 0.78, 0.12);
 
 /// Beacon color. Bright gold/yellow — distinct from every other enemy.
-pub const BEACON_COLOR: Color = Color::srrgb(1.0, 0.85, 0.20);
+pub const BEACON_COLOR: Color = Color::srgb(1.0, 0.85, 0.20);
 
 /// Bright white death-puff color.
 pub const DEATH_PUFF_COLOR: Color = Color::srgb(1.0, 1.0, 1.0);
@@ -146,7 +146,7 @@ pub fn elite_color_tint(base: Color) -> Color {
 }
 
 /// Shared spawn-position math: random angle, random distance.
-fn random_spawn_position(
+pub fn random_spawn_position(
     settings: &GameSettings,
     player_pos: Vec2,
     room: &Room,
@@ -666,4 +666,50 @@ pub fn spawn_death_puff(commands: &mut Commands, settings: &GameSettings, positi
             lifetime: Timer::from_seconds(settings.death_puff_lifetime_s, TimerMode::Once),
         },
     ));
+}
+
+/// Tick every DeathPuff: fade alpha from 1.0 to 0.0 over its lifetime,
+/// then despawn.
+pub fn death_puff_tick_system(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut query: Query<(Entity, &mut DeathPuff, &mut Sprite)>,
+) {
+    for (entity, mut puff, mut sprite) in &mut query {
+        puff.lifetime.tick(time.delta());
+        if puff.lifetime.finished() {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        let progress = puff.lifetime.elapsed_secs() / puff.lifetime.duration().as_secs_f32();
+        let alpha = 1.0 - progress.clamp(0.0, 1.0);
+        sprite.color = sprite.color.with_alpha(alpha);
+    }
+}
+
+/// Brief white pulse on an enemy when hit by a projectile. Inserted by
+/// the projectile-damage system; tick the timer and lerp the enemy color
+/// toward white, fading back to `BaseColor` when the timer elapses.
+pub fn hit_flash_tick_system(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut query: Query<(Entity, &mut HitFlash, &mut Sprite, &BaseColor), With<Enemy>>,
+) {
+    for (entity, mut flash, mut sprite, base_color) in &mut query {
+        flash.timer.tick(time.delta());
+        if flash.timer.finished() {
+            sprite.color = base_color.0;
+            commands.entity(entity).remove::<HitFlash>();
+            continue;
+        }
+        let progress = flash.timer.elapsed_secs() / flash.timer.duration().as_secs_f32();
+        let t = 1.0 - progress;
+        let base = base_color.0.to_srgba();
+        sprite.color = Color::srgba(
+            base.red + (1.0 - base.red) * t,
+            base.green + (1.0 - base.green) * t,
+            base.blue + (1.0 - base.blue) * t,
+            base.alpha,
+        );
+    }
 }

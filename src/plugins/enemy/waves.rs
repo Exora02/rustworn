@@ -10,10 +10,10 @@ use log::info;
 
 use crate::components::{
     AiBehavior, BaseColor, Boss, Enemy, EnemyAI, EnemyArchetype, Player, Room, RoomKind,
-    Transform, WaveSpawner,
+    WaveSpawner,
 };
 use crate::events::RoomClearedEvent;
-use crate::resources::{FloorState, GameSettings, Hitstop, RunRng, RunState};
+use crate::resources::{BossRampTimer, FloorState, GameSettings, Hitstop, RunRng, RunState};
 
 // Re-use constants from spawn module
 use super::spawn;
@@ -136,7 +136,7 @@ pub fn wave_spawner_tick_system(
     mut spawners: Query<&mut WaveSpawner>,
     player_query: Query<&Transform, With<Player>>,
     mut room_cleared_events: EventWriter<RoomClearedEvent>,
-    boss_ramp: Option<Res<RunState>>,
+    boss_ramp: Option<Res<BossRampTimer>>,
     run: Res<RunState>,
 ) {
     if hitstop.is_some() {

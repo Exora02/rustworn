@@ -12,6 +12,7 @@
 //! - `pad_spawn_on_clear_system` — spawn pads on RoomClearedEvent
 //! - `teleport_transition_system` — player-pad overlap → next room
 //! - `shrine_collect_system` — player-shrine overlap → one-time effect
+//! - `shop_collect_system` — player-shop-item overlap → purchase
 
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
@@ -30,17 +31,6 @@ use crate::resources::{BossRampTimer, FloorState, GameSettings, Hitstop, RunRng,
 const ROOM_SIZE: f32 = 1000.0;
 const WALL_THICKNESS: f32 = 20.0;
 const WALL_COLOR: Color = Color::srgb(0.30, 0.30, 0.35);
-
-// Floor-to-color mapping for biome progression. Each floor
-// advances to the next tint, giving a visual "I went deeper"
-// cue when a boss room is cleared.
-const FLOOR_COLORS: &[Color] = &[
-    Color::srgb(0.30, 0.30, 0.35), // floor 0: dark gray (baseline)
-    Color::srgb(0.25, 0.18, 0.35), // floor 1: purple shift
-    Color::srgb(0.15, 0.25, 0.40), // floor 2: deep blue
-    Color::srgb(0.35, 0.20, 0.15), // floor 3: rust/red
-    Color::srgb(0.10, 0.10, 0.10), // floor 4+: near-black (infinite)
-];
 const PAD_COLOR: Color = Color::srgb(0.20, 0.75, 0.95);
 const PAD_COLOR_FIGHT: Color = Color::srgb(0.20, 0.75, 0.95); // blue
 const PAD_COLOR_ELITE: Color = Color::srgb(0.75, 0.25, 0.85); // purple
@@ -52,30 +42,37 @@ const PAD_COLOR_SHOP: Color = Color::srgb(0.95, 0.85, 0.10); // bright gold
 const PAD_SIZE: f32 = 60.0;
 const ROOMS_PER_BOSS: u32 = 6;
 const ENTRY_INSET: f32 = 50.0;
-
-// Shrine colors
-const SHRINE_HEAL: Color = Color::srgb(0.30, 0.85, 0.30);
+const SHRINE_COLOR: Color = Color::srgb(0.30, 0.85, 0.30);
 const SHRINE_DMG: Color = Color::srgb(0.85, 0.20, 0.20);
 const SHRINE_FR: Color = Color::srgb(0.95, 0.55, 0.20);
 const SHRINE_SPD: Color = Color::srgb(0.95, 0.85, 0.30);
 const SHRINE_CURSE: Color = Color::srgb(0.62, 0.20, 0.85);
 const SHRINE_GOLD: Color = Color::srgb(0.95, 0.75, 0.20);
 const SHRINE_SIZE: f32 = 32.0;
-/// Cursed shrine is slightly larger so it visually stands out.
 const CURSED_SHRINE_SIZE: f32 = 40.0;
 const CURSED_SHRINE_COLOR: Color = Color::srgb(0.55, 0.15, 0.75); // dark purple
 const BREAKABLE_COLOR: Color = Color::srgb(0.55, 0.35, 0.20);
 const BREAKABLE_SIZE: f32 = 24.0;
-
-/// Channeling duration in seconds for non-heal shrines.
 const SHRINE_CHANNEL_S: f32 = 1.5;
-/// How many shrines per fight/boss room.
 const SHRINES_PER_ROOM: usize = 4;
-/// How many breakables per room.
 const BREAKABLES_PER_ROOM: usize = 6;
 const BREAKABLES_ELITE: usize = 12;
 const BREAKABLES_HORDE: usize = 16;
 const SHRINES_ELITE: usize = 6;
+
+/// Floor-to-color mapping for biome progression.
+const FLOOR_COLORS: &[Color] = &[
+    Color::srgb(0.30, 0.30, 0.35), // floor 0: dark gray (baseline)
+    Color::srgb(0.25, 0.18, 0.35), // floor 1: purple shift
+    Color::srgb(0.15, 0.25, 0.40), // floor 2: deep blue
+    Color::srgb(0.35, 0.20, 0.15), // floor 3: rust/red
+    Color::srgb(0.10, 0.10, 0.10), // floor 4+: near-black (infinite)
+];
+
+pub mod generate;
+pub mod pads;
+pub mod shop;
+pub mod transitions;
 
 pub struct RoomsPlugin;
 
@@ -87,10 +84,10 @@ impl Plugin for RoomsPlugin {
                 (
                     physics_step_system,
                     shrine_collect_system,
-                    shop_collect_system,
+                    shop::shop_collect_system,
                     teleport_transition_system,
                     boss_death_room_clear_system,
-                    pad_spawn_on_clear_system,
+                    pads::pad_spawn_on_clear_system,
                     floor_transition_fade_system,
                 )
                     .chain()
@@ -101,7 +98,7 @@ impl Plugin for RoomsPlugin {
 
 // ─── Room generation ─────────────────────────────────────────────────────
 
-fn generate_room(
+pub(crate) fn generate_room(
     commands: &mut Commands,
     floor: &FloorState,
     settings: &GameSettings,
@@ -245,14 +242,14 @@ fn generate_room(
         if kind == RoomKind::Shop {
             // Shop rooms: no enemies, no WaveSpawner. Spawn items
             // the player can buy with gold, plus a Boss exit pad.
-            spawn_shop_items(commands, &room);
+            shop::spawn_shop_items(commands, &room);
 
             // Boss exit pad near the top of the room.
             let exit_pos = Vec2::new(
                 room.center().x,
                 room.bounds_max.y - PAD_SIZE * 1.5,
             );
-            commands.spawn(pad_bundle(exit_pos, "Boss"));
+            commands.spawn(pads::pad_bundle(exit_pos, "Boss"));
         }
     }
 
@@ -263,7 +260,7 @@ fn generate_room(
 
 // ─── Shrines ─────────────────────────────────────────────────────────────
 
-fn spawn_shrines(commands: &mut Commands, room: &Room, count: usize) {
+pub(crate) fn spawn_shrines(commands: &mut Commands, room: &Room, count: usize) {
     let center = (room.bounds_min + room.bounds_max) * 0.5;
     let focuses = [
         ShrineFocus::HealRegen,
@@ -332,7 +329,7 @@ fn spawn_shrines(commands: &mut Commands, room: &Room, count: usize) {
 
 fn shrine_color(focus: ShrineFocus) -> Color {
     match focus {
-        ShrineFocus::HealRegen => SHRINE_HEAL,
+        ShrineFocus::HealRegen => SHRINE_COLOR,
         ShrineFocus::Combat => SHRINE_DMG,
         ShrineFocus::Utility => SHRINE_SPD,
         ShrineFocus::Cursed => CURSED_SHRINE_COLOR,
@@ -433,7 +430,6 @@ enum ShrineReward {
 fn pick_shrine_reward(focus: ShrineFocus, roll: u64) -> ShrineReward {
     match focus {
         ShrineFocus::HealRegen => {
-            // Pool: +2 HP (common), +regen (uncommon), +max HP (rare), +5 HP (rare)
             match roll % 4 {
                 0 | 3 => ShrineReward::Heal(2.0),
                 1 => ShrineReward::Regen,
@@ -442,22 +438,18 @@ fn pick_shrine_reward(focus: ShrineFocus, roll: u64) -> ShrineReward {
             }
         }
         ShrineFocus::Combat => {
-            // Pool: +damage (common), +fire rate (uncommon)
             match roll % 2 {
                 0 => ShrineReward::DamageUp,
                 _ => ShrineReward::FireRateUp,
             }
         }
         ShrineFocus::Utility => {
-            // Pool: +speed (common), +XP (common)
             match roll % 2 {
                 0 => ShrineReward::SpeedUp,
                 _ => ShrineReward::XpGain(5),
             }
         }
         ShrineFocus::Cursed => {
-            // Cursed shrines should not use random pools.
-            // Handled directly in shrine_collect_system.
             ShrineReward::CurseUp
         }
     }
@@ -503,7 +495,7 @@ fn apply_reward(reward: ShrineReward, health: &mut Health, run: &mut RunState) {
 
 // ─── Breakables ──────────────────────────────────────────────────────────
 
-fn spawn_breakables(commands: &mut Commands, room: &Room, count: usize) {
+pub(crate) fn spawn_breakables(commands: &mut Commands, room: &Room, count: usize) {
     let center = (room.bounds_min + room.bounds_max) * 0.5;
     for i in 0..count {
         let offset = if i < 4 {
@@ -561,7 +553,7 @@ fn setup_rooms_system(
     // leave it (no enemies → no RoomClearedEvent → no auto pad).
     let r0_center = (r0.bounds_min + r0.bounds_max) * 0.5;
     let pad_pos = r0_center + Vec2::splat(PAD_SIZE * 0.8);
-    commands.spawn(pad_bundle(pad_pos, "Enter"));
+    commands.spawn(pads::pad_bundle(pad_pos, "Enter"));
 
     let Ok(mut player_tf) = player_query.single_mut() else { return; };
     let r0_center = (r0.bounds_min + r0.bounds_max) * 0.5;
@@ -675,86 +667,6 @@ fn aabb_overlap(a_center: Vec2, a_half: Vec2, b_center: Vec2, b_half: Vec2) -> b
     delta.x.abs() < a_half.x + b_half.x && delta.y.abs() < a_half.y + b_half.y
 }
 
-fn pad_spawn_on_clear_system(
-    mut commands: Commands,
-    mut events: EventReader<RoomClearedEvent>,
-    floor: Res<FloorState>,
-    mut rng: ResMut<RunRng>,
-) {
-    for ev in events.read() {
-        let Some(room) = floor.rooms.iter().find(|r| r.id == ev.room_id) else {
-            continue;
-        };
-        let center = (room.bounds_min + room.bounds_max) * 0.5;
-        let rooms_cleared = floor.rooms.len() as u32;
-
-        // 6-room cycle: positions 1-5 choose room type, position 6 is boss.
-        // After setup (rooms = [R0, R1]), rooms_cleared starts at 2.
-        // cycle_pos = (rooms_cleared - 1) % 6 → 1-indexed (1-5), 0 = boss.
-        let cycle_pos = (rooms_cleared - 1) % ROOMS_PER_BOSS;
-
-        // Position → label mapping:
-        //   1 → "Fight"
-        //   2 → "Horde"
-        //   3 → "Fight"
-        //   4 → "Elite"
-        //   5 → "Shop" — always one room before boss; guaranteed shop.
-        //   0 → "Boss"
-        let fight_label = match cycle_pos {
-            2 => "Horde",
-            4 => "Elite",
-            5 => "Shop",
-            _ => "Fight",
-        };
-        let next_is_boss = cycle_pos == 0;
-
-        // Pad 1: always spawn a forward combat room. Offset above center.
-        let fight_pos = center + Vec2::new(0.0, PAD_SIZE * 1.2);
-        commands.spawn(pad_bundle(fight_pos, fight_label));
-
-        // Pad 2: branching choice (50% nothing, 30% Elite, 20% Treasure).
-        // Roll a deterministic random number for variety.
-        let branch_roll = rng.next_unit();
-        let branch_label = if branch_roll < 0.5 {
-            None // 50% — no extra pad, single forward path
-        } else if branch_roll < 0.8 {
-            Some("Elite") // 30% — elite alternative path
-        } else {
-            Some("Treasure") // 20% — treasure room (→ Fight with extra loot)
-        };
-        if let Some(label) = branch_label {
-            let branch_pos = center + Vec2::new(0.0, -PAD_SIZE * 1.2);
-            commands.spawn(pad_bundle(branch_pos, label));
-        }
-
-        // Pad 3: Boss — every 6th room. Offset to the right.
-        if next_is_boss {
-            let boss_pos = center + Vec2::new(PAD_SIZE * 1.2, 0.0);
-            commands.spawn(pad_bundle(boss_pos, "Boss"));
-        }
-
-        info!("Teleport pads spawned at room {} center", ev.room_id.0);
-    }
-}
-
-fn pad_bundle(pos: Vec2, label: &str) -> impl Bundle {
-    let color = match label {
-        "Boss" => PAD_COLOR_BOSS,
-        "Elite" => PAD_COLOR_ELITE,
-        "Treasure" => PAD_COLOR_TREASURE,
-        "Horde" => PAD_COLOR_HORDE,
-        "Enter" => PAD_COLOR_ENTER,
-        "Shop" => PAD_COLOR_SHOP,
-        _ => PAD_COLOR_FIGHT,
-    };
-    (
-        Sprite { color, custom_size: Some(Vec2::splat(PAD_SIZE)), ..default() },
-        Transform::from_xyz(pos.x, pos.y, 0.5),
-        TeleportPad { label: label.to_string() },
-        Collider { half_extents: Vec2::splat(PAD_SIZE * 0.5) },
-    )
-}
-
 // ─── Teleport transition ─────────────────────────────────────────────────
 
 fn teleport_transition_system(
@@ -771,6 +683,7 @@ fn teleport_transition_system(
     pads: Query<(Entity, &Transform, &Collider, &TeleportPad), Without<Player>>,
     mut player_query: Query<(&mut Transform, &mut Health), (With<Player>, Without<AimIndicator>)>,
     walls: Query<Entity, With<Wall>>,
+    pads_module: Query<Entity, With<TeleportPad>>,
 ) {
     let Ok((mut player_tf, mut player_health)) = player_query.single_mut() else { return; };
 
@@ -806,7 +719,7 @@ fn teleport_transition_system(
 
         // Determine next room kind from pad label.
         let next_kind = match teleport.label.as_str() {
-            "Treasure" => RoomKind::Fight, // Treasure room = fight room with extra loot chance
+            "Treasure" => RoomKind::Fight,
             "Shop" => RoomKind::Shop,
             "Boss" => RoomKind::Boss,
             "Elite" => RoomKind::MiniBoss,
@@ -949,74 +862,6 @@ fn floor_transition_fade_system(
         if state.0.just_finished() {
             commands.entity(entity).despawn();
         }
-    }
-}
-
-// ─── Shop room (Phase 3c) ──────────────────────────────────────────────────
-
-const SHOP_ITEM_COLOR_BUFF: Color = Color::srgb(0.30, 0.75, 0.95);
-const SHOP_ITEM_COLOR_HEAL: Color = Color::srgb(0.30, 0.85, 0.30);
-const SHOP_ITEM_SIZE: f32 = 36.0;
-
-fn spawn_shop_items(commands: &mut Commands, room: &Room) {
-    let center = room.center();
-    let items = [
-        (ShopReward::DamageUp, 50, SHOP_ITEM_COLOR_BUFF),
-        (ShopReward::FireRateUp, 50, SHOP_ITEM_COLOR_BUFF),
-        (ShopReward::SpeedUp, 40, SHOP_ITEM_COLOR_BUFF),
-        (ShopReward::HealFull, 30, SHOP_ITEM_COLOR_HEAL),
-        (ShopReward::Regen, 60, SHOP_ITEM_COLOR_HEAL),
-    ];
-    for (i, (reward, cost, color)) in items.iter().enumerate() {
-        let angle = i as f32 * std::f32::consts::TAU / items.len() as f32;
-        let offset = Vec2::new(angle.cos(), angle.sin()) * room.size().x * 0.25;
-        let pos = center + offset;
-        commands.spawn((
-            Sprite { color: *color, custom_size: Some(Vec2::splat(SHOP_ITEM_SIZE)), ..default() },
-            Transform::from_xyz(pos.x, pos.y, 0.4),
-            ShopItem { cost: *cost, reward: *reward },
-            Collider { half_extents: Vec2::splat(SHOP_ITEM_SIZE * 0.5) },
-        ));
-    }
-}
-
-fn shop_collect_system(
-    mut commands: Commands,
-    mut player_query: Query<(&Transform, &mut Health), (With<Player>, Without<AimIndicator>)>,
-    mut run: ResMut<RunState>,
-    mut shop_items: Query<(Entity, &Transform, &ShopItem)>,
-) {
-    let Ok((player_tf, mut health)) = player_query.single_mut() else {
-        return;
-    };
-    let player_pos = player_tf.translation.truncate();
-    let player_half = Vec2::splat(20.0);
-
-    for (entity, tf, item) in &mut shop_items {
-        if !aabb_overlap(
-            player_pos, player_half,
-            tf.translation.truncate(), Vec2::splat(SHOP_ITEM_SIZE * 0.5),
-        ) {
-            continue;
-        }
-        if run.gold < item.cost {
-            continue;
-        }
-        run.gold = run.gold.saturating_sub(item.cost);
-        match item.reward {
-            ShopReward::DamageUp => { run.damage_stacks = (run.damage_stacks + 1).min(8); }
-            ShopReward::FireRateUp => { run.fire_rate_stacks = (run.fire_rate_stacks + 1).min(8); }
-            ShopReward::SpeedUp => { run.speed_stacks = (run.speed_stacks + 1).min(8); }
-            ShopReward::MaxHpUp => {
-                health.max += 2.0;
-                health.current = (health.current + 2.0).min(health.max);
-            }
-            ShopReward::Regen => { run.regen_per_sec += 0.5; }
-            ShopReward::HealFull => { health.current = health.max; }
-            ShopReward::Weapon(_) => {}
-        }
-        info!("Shop: bought {:?} for {} gold ({} remaining)", item.reward, item.cost, run.gold);
-        commands.entity(entity).despawn();
     }
 }
 

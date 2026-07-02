@@ -1,4 +1,26 @@
-fn enemy_ai_system(
+//! Enemy AI system — per-archetype behavior dispatch.
+//!
+//! Chaser: move toward player. Dasher: approach → dash → recover.
+//! Shooter: maintain distance, fire projectiles. Sniper: charge &
+//! fire. Boss: multi-phase. Orbiter: circle player, fire tangent.
+
+use bevy::prelude::*;
+use log::info;
+
+use crate::components::{
+    AiBehavior, BaseColor, BaseVelocity, BossPhase, BossState, DasherPhase, DasherState,
+    Enemy, EnemyAI, Health, HitFlash, Invulnerable, Knockback, MotionTrail, Player,
+    ShooterState, SniperState, OrbiterState, Team, Velocity,
+};
+use crate::resources::Hitstop;
+use crate::resources::{GameSettings, RunState};
+
+use super::spawn::{
+    spawn_boss_projectile, spawn_orbiter_projectile, spawn_shooter_projectile,
+    spawn_sniper_projectile, SNIPER_CHARGED_COLOR, SNIPER_COLOR,
+};
+
+pub fn enemy_ai_system(
     time: Res<Time>,
     settings: Res<GameSettings>,
     hitstop: Option<Res<Hitstop>>,
