@@ -11,8 +11,8 @@
 use bevy::prelude::*;
 
 use crate::components::{
-    AiBehavior, AppState, Health, Pickup, PickupKind, Player, Velocity, WeaponArchetype,
-    WeaponInventory,
+    AiBehavior, AppState, Health, ItemKind, Pickup, PickupKind, Player, Velocity,
+    WeaponArchetype, WeaponInventory,
 };
 use crate::events::PickupCollectedEvent;
 use crate::resources::{GameSettings, RunState, UnlockableKind};
@@ -181,6 +181,33 @@ fn apply_pickup(
         }
         PickupKind::Gold(amt) => {
             run.gold = run.gold.saturating_add(amt);
+        }
+        PickupKind::Item(kind) => {
+            match kind {
+                ItemKind::RustyNails => run.base_damage += 0.5,
+                ItemKind::LuckyCharm => run.crit_chance = (run.crit_chance + 0.05).min(1.0),
+                ItemKind::Featherlight => run.move_speed_mult += 0.1,
+                ItemKind::SteelToe => run.pierce += 1,
+                ItemKind::Bandage => run.hp_regen_per_sec += 0.5,
+                ItemKind::MagnifyingGlass => run.pickup_range += 10.0,
+                ItemKind::GlassCannon => {
+                    run.base_damage *= 1.5;
+                    if let Ok(mut h) = health_q.single_mut() {
+                        h.max = (h.max * 0.7).max(1.0);
+                        h.current = h.current.min(h.max);
+                    }
+                }
+                ItemKind::VampireFangs => run.lifesteal_pct += 0.05,
+                ItemKind::ExplosiveCharge => run.explosion_radius += 20.0,
+                ItemKind::EnergyShield => run.shield += 1.0,
+                ItemKind::LuckyHorseshoe => run.luck += 0.1,
+                ItemKind::CursedRing => {
+                    run.base_damage *= 1.2;
+                    run.move_speed_mult += 0.2;
+                    run.crit_chance = (run.crit_chance + 0.2).min(1.0);
+                    run.curse += 1;
+                }
+            }
         }
     }
     // Heal a small chunk on every pickup so the player can
@@ -386,6 +413,45 @@ pub fn roll_gold_drop(is_elite: bool, rng: &mut impl FnMut() -> f32) -> Option<u
     }
 }
 
+/// Roll an item drop on enemy kill.
+/// Bosses: 100% chance (guaranteed 1 item).
+/// Elites: 15% chance.
+/// Regulars: 3% chance, scaled by luck (1 + run.luck).
+/// Returns `Some(ItemKind)` on success, `None` otherwise.
+pub fn roll_item_drop(
+    is_boss: bool,
+    is_elite: bool,
+    luck: f32,
+    rng: &mut impl FnMut() -> f32,
+) -> Option<ItemKind> {
+    let chance = if is_boss {
+        1.0
+    } else if is_elite {
+        0.15
+    } else {
+        0.03 * (1.0 + luck)
+    };
+    if rng() >= chance.min(1.0) {
+        return None;
+    }
+    // Uniform random pick from the 12 ItemKinds.
+    let idx = (rng() * 12.0) as usize;
+    Some(match idx {
+        0 => ItemKind::RustyNails,
+        1 => ItemKind::LuckyCharm,
+        2 => ItemKind::Featherlight,
+        3 => ItemKind::SteelToe,
+        4 => ItemKind::Bandage,
+        5 => ItemKind::MagnifyingGlass,
+        6 => ItemKind::GlassCannon,
+        7 => ItemKind::VampireFangs,
+        8 => ItemKind::ExplosiveCharge,
+        9 => ItemKind::EnergyShield,
+        10 => ItemKind::LuckyHorseshoe,
+        _ => ItemKind::CursedRing,
+    })
+}
+
 /// Lifetime: separate from the per-frame drift + tick, so the
 /// drift system can focus on motion and the lifetime is a
 /// background tick. (Both are checked each frame in the same
@@ -439,6 +505,10 @@ pub fn spawn_pickup(commands: &mut Commands, settings: &GameSettings, pos: Vec2,
         ),
         PickupKind::Gold(_) => (
             Color::srgb(0.95, 0.85, 0.10), // bright gold — coin
+            PICKUP_SIZE,
+        ),
+        PickupKind::Item(_) => (
+            Color::srgb(0.60, 0.40, 0.90), // purple — distinct from all other pickups
             PICKUP_SIZE,
         ),
     };

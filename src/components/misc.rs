@@ -18,6 +18,36 @@ pub struct Pickup {
     pub lifetime: Timer,
 }
 
+/// Brotato/Gungeon-style run item kind. Each variant modifies an
+/// expanded RunState stat when picked up.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ItemKind {
+    /// +0.5 base_damage
+    RustyNails,
+    /// +5% crit_chance
+    LuckyCharm,
+    /// +10% move_speed_mult
+    Featherlight,
+    /// +1 pierce
+    SteelToe,
+    /// +0.5 hp_regen_per_sec
+    Bandage,
+    /// +10 pickup_range
+    MagnifyingGlass,
+    /// +50% damage, -30% max HP
+    GlassCannon,
+    /// +5% lifesteal_pct
+    VampireFangs,
+    /// +20 explosion_radius
+    ExplosiveCharge,
+    /// +1.0 shield
+    EnergyShield,
+    /// +10% luck
+    LuckyHorseshoe,
+    /// +20% all stats, +1 curse
+    CursedRing,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PickupKind {
     /// +0.5 HP/sec regen for the rest of the run.
@@ -28,6 +58,8 @@ pub enum PickupKind {
     FireRateUp,
     /// +20% move speed for the rest of the run.
     SpeedUp,
+    /// Run item that modifies expanded stats.
+    Item(ItemKind),
     /// Weapon pickup. Adds the weapon to the first empty
     /// inventory slot. If the inventory is full, the pickup
     /// is silently destroyed (no swap UI in P4).

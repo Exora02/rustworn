@@ -108,6 +108,7 @@ pub fn push_pickup_popup(
         PickupKind::SpeedUp => "Speed Up!".to_string(),
         PickupKind::Regen => "Regen!".to_string(),
         PickupKind::Weapon(w) => format!("{:?}", w),
+        PickupKind::Item(kind) => format!("{:?}", kind),
     };
 
     let color = match kind {
@@ -118,6 +119,7 @@ pub fn push_pickup_popup(
         PickupKind::FireRateUp => Color::srgb(0.30, 0.85, 0.95),
         PickupKind::SpeedUp => Color::srgb(0.30, 1.0, 0.60),
         PickupKind::Regen => Color::srgb(0.30, 0.95, 0.40),
+        PickupKind::Item(_) => Color::srgb(0.80, 0.50, 1.0), // purple — matches pickup sprite
     };
 
     commands.spawn((

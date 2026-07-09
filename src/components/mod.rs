@@ -18,8 +18,8 @@ pub use enemy::{
 };
 pub use misc::{
     AppState, AutoAttackCooldowns, BaseColor, BeamVisual, Breakable, CascadeTelegraph,
-    GameOverReason, Grenade, HudElement, HudElementKind, Pickup, PickupKind, Shrine, ShrineFocus,
-    ShopItem, ShopReward, WeaponInventory,
+    GameOverReason, Grenade, HudElement, HudElementKind, ItemKind, Pickup, PickupKind, Shrine,
+    ShrineFocus, ShopItem, ShopReward, WeaponInventory,
 };
 pub use player::{
     AimDirection, AimIndicator, BaseVelocity, CascadeAffected, Collider, DashCooldown, Health,

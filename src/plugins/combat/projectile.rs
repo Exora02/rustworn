@@ -17,7 +17,8 @@ use crate::plugins::enemy::status::apply_status_effects;
 use crate::plugins::fx::spawn_hit_spark;
 use crate::plugins::fx::spawn_death_particles;
 use crate::plugins::pickups::{
-    roll_gold_drop, roll_health_drop, roll_pickup_drop, roll_weapon_drop, spawn_pickup,
+    roll_gold_drop, roll_health_drop, roll_item_drop, roll_pickup_drop, roll_weapon_drop,
+    spawn_pickup,
 };
 use crate::resources::{CascadeState, CrownSave, GameSettings, Hitstop, RunRng, RunState, ScreenShake};
 
@@ -186,6 +187,15 @@ pub fn projectile_damage_system(
                 // Phase 3c: gold drop.
                 if let Some(amt) = roll_gold_drop(is_elite, &mut rng) {
                     spawn_pickup(&mut commands, &settings, enemy_pos, PickupKind::Gold(amt));
+                }
+                // Phase 3e: item drop. Bosses: 100%, Elites: 15%, Regulars: 3% * (1 + luck).
+                if let Some(item_kind) = roll_item_drop(is_boss, is_elite, run.luck, &mut rng) {
+                    spawn_pickup(
+                        &mut commands,
+                        &settings,
+                        enemy_pos,
+                        PickupKind::Item(item_kind),
+                    );
                 }
                 kill_events.write(EnemyKilledEvent {
                     victim: enemy_entity,

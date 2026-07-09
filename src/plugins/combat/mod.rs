@@ -49,6 +49,7 @@ impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
         // Register ability events.
         app.add_event::<abilities::GrenadeExplosionEvent>();
+        app.add_event::<melee::MeleeSwingEvent>();
 
         // Phase 1 (beam): the beam visual entity is spawned once
         // at startup alongside the player. A single persistent
@@ -116,6 +117,11 @@ impl Plugin for CombatPlugin {
                 // damage pass. One projectile can break multiple
                 // breakables in a single frame.
                 damage::breakable_damage_system,
+                // Melee swing + visual cleanup. Runs after projectile
+                // damage so melee hits resolve in a consistent order
+                // with ranged hits.
+                melee::melee_swing_system,
+                melee::melee_visual_cleanup_system,
             )
                 .chain()
                 // Phase 2: gates the whole combat chain on the

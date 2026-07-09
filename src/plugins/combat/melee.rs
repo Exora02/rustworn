@@ -28,6 +28,12 @@ const MELEE_COOLDOWN_S: f32 = 0.3;
 #[derive(Event)]
 pub struct MeleeSwingEvent;
 
+/// Marker component for the melee arc visual sprite.
+#[derive(Component)]
+pub struct MeleeArcVisual {
+    pub timer: Timer,
+}
+
 /// On left-click while the player has a `MeleeWeapon`, spawn a temporary
 /// hitbox in front of the player, damage enemies in it, and show the arc
 /// visual. The hitbox is a small rectangle at `player_pos + aim_dir * range/2`.
@@ -96,8 +102,7 @@ pub fn melee_swing_system(
     for (enemy_entity, enemy_tf, collider, mut health) in &mut enemies {
         let enemy_pos = enemy_tf.translation.truncate();
 
-        // Check if the enemy is within the melee arc. First: is it close
-        // enough (within range)?
+        // Check if the enemy is within the melee range.
         let to_enemy = enemy_pos - player_pos;
         let distance = to_enemy.length();
         if distance > range || distance < f32::EPSILON {
@@ -111,24 +116,10 @@ pub fn melee_swing_system(
         }
 
         // AABB overlap check: hitbox rectangle vs enemy collider.
-        // Rotate the enemy position into the hitbox's local space so
-        // we can do a simple axis-aligned check.
-        let local_angle = aim_dir.y.atan2(aim_dir.x) - std::f32::consts::FRAC_PI_2;
-        let rotated_dir = Vec2::new(
-            aim_dir.x * local_angle.cos() - aim_dir.y * local_angle.sin(),
-            aim_dir.x * local_angle.sin() + aim_dir.y * local_angle.cos(),
-        );
-
-        // For the overlap, we use a simpler approach: point-in-ellipse
-        // on the swing arc. The hitbox is approximated as a rectangle
-        // centered at `hitbox_center` with half-extents along/perpendicular
-        // to the aim direction.
         let to_hitbox_center = enemy_pos - hitbox_center;
-        // Project onto the aim direction (forward axis) and perpendicular.
         let fwd_proj = to_hitbox_center.dot(aim_dir);
         let perp_proj = to_hitbox_center.dot(Vec2::new(-aim_dir.y, aim_dir.x));
 
-        // Combined half-extents (hitbox + enemy collider).
         let combined_half_w = hitbox_half_w + collider.half_extents.x;
         let combined_half_h = hitbox_half_h + collider.half_extents.y;
 
@@ -169,8 +160,6 @@ pub fn melee_swing_system(
     swing_events.write(MeleeSwingEvent);
 
     // Spawn a temporary arc visual.
-    let arc_angle = melee.arc_deg.to_radians();
-    // Position the arc visual at the midpoint of the swing.
     let arc_pos = player_pos + aim_dir * (range * 0.6);
 
     commands.spawn((
@@ -180,8 +169,9 @@ pub fn melee_swing_system(
             ..default()
         },
         Transform::from_xyz(arc_pos.x, arc_pos.y, 0.55),
-        // Despawn timer.
-        Timer::from_seconds(MELEE_ARC_VISUAL_DURATION_S, TimerMode::Once),
+        MeleeArcVisual {
+            timer: Timer::from_seconds(MELEE_ARC_VISUAL_DURATION_S, TimerMode::Once),
+        },
     ));
 
     // Reset cooldown.
@@ -200,11 +190,11 @@ pub fn melee_swing_system(
 pub fn melee_visual_cleanup_system(
     time: Res<Time>,
     mut commands: Commands,
-    mut visuals: Query<(Entity, &mut Timer), Without<Player>>,
+    mut visuals: Query<(Entity, &mut MeleeArcVisual)>,
 ) {
-    for (entity, mut timer) in &mut visuals {
-        timer.tick(time.delta());
-        if timer.finished() {
+    for (entity, mut visual) in &mut visuals {
+        visual.timer.tick(time.delta());
+        if visual.timer.finished() {
             commands.entity(entity).despawn();
         }
     }
