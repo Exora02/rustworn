@@ -186,6 +186,11 @@ pub enum WeaponArchetype {
     /// comes from `GameSettings::beam_tick_interval_s`
     /// (0.1s).
     Beam,
+    /// Rocket launcher: slow-firing hard-hitting single-target
+    /// weapon. Same projectile system, just higher damage (5.0),
+    /// slower fire rate (0.5 rps), moderate speed (350 u/s).
+    /// No explosion AOE — keeps it clean and simple.
+    RocketLauncher,
 }
 
 /// A projectile in flight. Owns its lifetime so the cleanup system

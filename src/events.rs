@@ -6,12 +6,37 @@ use bevy::prelude::*;
 use crate::components::RoomId;
 
 /// Fired when an entity takes damage. Carries the victim so a single
-/// system can drive health bars, hit-flash, and damage numbers.
+/// system can drive health bars, hit-flash, damage numbers, and audio.
 #[derive(Event)]
 pub struct DamageEvent {
     pub victim: Entity,
     pub amount: f32,
 }
+
+/// Fired when the player collects a pickup. Carries the kind so
+/// the audio system can play the appropriate sound effect.
+#[derive(Event)]
+pub struct PickupCollectedEvent {
+    pub kind: crate::components::PickupKind,
+}
+
+/// Fired when the player initiates a dash. Audio subscriber
+/// plays the dash whoosh sound.
+#[derive(Event)]
+pub struct PlayerDashEvent;
+
+/// Fired when the player fires a weapon shot. Carries the
+/// archetype so the audio system can pick a different pitch /
+/// sound per weapon type.
+#[derive(Event)]
+pub struct WeaponFiredEvent {
+    pub archetype: crate::components::WeaponArchetype,
+}
+
+/// Fired when the player dashes through / hits an enemy during
+/// a Reaver dash-strike. Audio subscriber plays the hit sound.
+#[derive(Event)]
+pub struct ReaverDashHitEvent;
 
 /// Fired when a Cascade Mode window opens. Subscribers typically start
 /// visual effects, audio sting, and UI transitions.

@@ -5,6 +5,7 @@
 //! `Plugin::build()` that registers everything it needs. Long-term
 //! modules (see PLAN.md §8) live alongside the minimal Phase 0 set.
 
+pub mod audio;
 pub mod combat;
 pub mod enemy;
 pub mod fx;
@@ -15,6 +16,7 @@ pub mod player;
 pub mod rooms;
 pub mod setup;
 
+pub use audio::AudioPlugin;
 pub use combat::CombatPlugin;
 pub use enemy::EnemyPlugin;
 pub use fx::FxPlugin;

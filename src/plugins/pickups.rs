@@ -14,6 +14,7 @@ use crate::components::{
     AiBehavior, AppState, Health, Pickup, PickupKind, Player, Velocity, WeaponArchetype,
     WeaponInventory,
 };
+use crate::events::PickupCollectedEvent;
 use crate::resources::{GameSettings, RunState};
 
 const PICKUP_SIZE: f32 = 14.0;
@@ -96,6 +97,7 @@ fn pickup_collect_system(
     pickup_q: Query<(Entity, &Pickup, &Transform)>,
     mut health_q: Query<&mut Health, With<Player>>,
     mut inventory_q: Query<&mut WeaponInventory, With<Player>>,
+    mut pickup_events: EventWriter<PickupCollectedEvent>,
 ) {
     let Ok(player_tf) = player_q.single() else {
         return;
@@ -113,6 +115,10 @@ fn pickup_collect_system(
             &mut health_q,
             &mut inventory_q,
         );
+        // Emit pickup-collected event for the audio system.
+        pickup_events.write(PickupCollectedEvent {
+            kind: pickup.kind,
+        });
         // Phase 4 HUD juice: spawn a floating pickup popup text
         // at the pickup's position before it despawns.
         let pos = tf.translation.truncate();

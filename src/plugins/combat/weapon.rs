@@ -9,6 +9,7 @@ use crate::components::{
     AimDirection, Collider, Player, Projectile, Team, Velocity, Weapon, WeaponArchetype,
     WeaponInventory,
 };
+use crate::events::WeaponFiredEvent;
 use crate::resources::{GameSettings, Hitstop, RunState};
 
 use super::{
@@ -69,6 +70,8 @@ pub fn weapon_switch_system(
         Some(WeaponArchetype::Burst)
     } else if keys.just_pressed(KeyCode::Digit4) {
         Some(WeaponArchetype::Beam)
+    } else if keys.just_pressed(KeyCode::Digit5) {
+        Some(WeaponArchetype::RocketLauncher)
     } else if keys.just_pressed(KeyCode::KeyQ) {
         Some(next_archetype(weapon.archetype))
     } else {
@@ -157,6 +160,7 @@ pub fn weapon_fire_system(
     mut commands: Commands,
     mut weapons: Query<(&mut Weapon, &mut Transform), With<Player>>,
     projectiles: Query<&Projectile>,
+    mut weapon_fire_events: EventWriter<WeaponFiredEvent>,
 ) {
     // Phase 2: no per-system game-over early-return needed — the
     // whole combat chain is gated on `in_state(AppState::InRun)` in
@@ -284,6 +288,12 @@ pub fn weapon_fire_system(
             },
         ));
     }
+
+    // Emit weapon-fire event for audio system — once per shot regardless
+    // of pellet count (the audio plays once per trigger pull).
+    weapon_fire_events.write(WeaponFiredEvent {
+        archetype: weapon.archetype,
+    });
 
     // Update burst state. After this fire:
     //   - if a burst was in progress, decrement remaining

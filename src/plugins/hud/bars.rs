@@ -90,6 +90,7 @@ pub fn fire_rate_color(archetype: WeaponArchetype) -> Color {
         WeaponArchetype::Shotgun => FIRE_RATE_SHOTGUN,
         WeaponArchetype::Burst => FIRE_RATE_BURST,
         WeaponArchetype::Beam => FIRE_RATE_BEAM,
+        WeaponArchetype::RocketLauncher => FIRE_RATE_BEAM,
     }
 }
 

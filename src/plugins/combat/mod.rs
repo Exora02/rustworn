@@ -203,17 +203,19 @@ pub(crate) fn weapon_stats_for(archetype: WeaponArchetype) -> (f32, f32, f32, u3
         // spread_rad=0 means the click path (which early-returns
         // for Beam) wouldn't even spawn anything.
         WeaponArchetype::Beam => (0.5, 10.0, 0.0, 1, 0.0, 1),
+        WeaponArchetype::RocketLauncher => (5.0, 0.5, 350.0, 1, 0.0, 1),
     }
 }
 
-// Cycle order: Pistol → Shotgun → Burst → Beam → Pistol. New
+// Cycle order: Pistol → Shotgun → Burst → Beam → RocketLauncher → Pistol. New
 // weapons slot in here.
 pub(crate) fn next_archetype(current: WeaponArchetype) -> WeaponArchetype {
     match current {
         WeaponArchetype::Pistol => WeaponArchetype::Shotgun,
         WeaponArchetype::Shotgun => WeaponArchetype::Burst,
         WeaponArchetype::Burst => WeaponArchetype::Beam,
-        WeaponArchetype::Beam => WeaponArchetype::Pistol,
+        WeaponArchetype::Beam => WeaponArchetype::RocketLauncher,
+        WeaponArchetype::RocketLauncher => WeaponArchetype::Pistol,
     }
 }
 

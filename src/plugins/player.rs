@@ -10,6 +10,7 @@ use crate::components::{
     DashCooldown, Enemy, Health, HitFlash, Invulnerable, Knockback, LastMoveDirection, MainCamera,
     Player, PlayerClass, ReaverDashHit, RoomKind, Velocity, PLAYER_COLOR,
 };
+use crate::events::PlayerDashEvent;
 use crate::plugins::enemy::{spawn_beacon, spawn_boss};
 use crate::resources::{CascadeState, FloorState, GameSettings, Hitstop, RunState, ScreenShake};
 use log::info;
@@ -278,6 +279,7 @@ fn dash_input_system(
     hitstop: Option<Res<Hitstop>>,
     run: Res<RunState>,
     mut commands: Commands,
+    mut dash_events: EventWriter<PlayerDashEvent>,
     query: Query<Entity, ReadyPlayer>,
 ) {
     if in_hitstop(&hitstop) {
@@ -298,6 +300,9 @@ fn dash_input_system(
     if run.selected_class == PlayerClass::Reaver {
         commands.entity(player).insert(ReaverDashHit::default());
     }
+
+    // Emit dash event for audio system.
+    dash_events.write(PlayerDashEvent);
 
     // Default dash direction if the player hasn't aimed yet.
     let _ = aim.0; // AimDirection is consumed in dash_state_system below.

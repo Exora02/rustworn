@@ -27,8 +27,8 @@ use bevy::prelude::*;
 use bevy::window::WindowResolution;
 
 use crate::plugins::{
-    CombatPlugin, EnemyPlugin, FxPlugin, HudPlugin, MetaPlugin, PickupsPlugin, PlayerPlugin,
-    RoomsPlugin, SetupPlugin,
+    AudioPlugin, CombatPlugin, EnemyPlugin, FxPlugin, HudPlugin, MetaPlugin, PickupsPlugin,
+    PlayerPlugin, RoomsPlugin, SetupPlugin,
 };
 
 /// Boot the Bevy app. Called from `main.rs` and (eventually) from tests.
@@ -77,6 +77,7 @@ pub fn run() {
         // already-reset world, then `setup_rooms_system` to
         // re-anchor the player to R0's center.
         .add_plugins(RoomsPlugin)
+        .add_plugins(AudioPlugin)
         .add_plugins(PlayerPlugin)
         .add_plugins(CombatPlugin)
         .add_plugins(EnemyPlugin)
