@@ -6,9 +6,9 @@
 use bevy::prelude::*;
 
 use crate::components::{
-    AimDirection, AimIndicator, AppState, BaseVelocity, Boss, CascadeAffected, Collider,
-    DashCooldown, Enemy, Health, HitFlash, Invulnerable, Knockback, LastMoveDirection, MainCamera,
-    Player, PlayerClass, ReaverDashHit, RoomKind, Velocity, PLAYER_COLOR,
+    AimDirection, AimIndicator, AppState, BaseVelocity, Boss, CascadeAffected,
+    DashCooldown, Enemy, Health, Invulnerable, Knockback, LastMoveDirection, MainCamera,
+    Player, PlayerClass, ReaverDashHit, RoomKind, Velocity, PLAYER_COLOR, biome_from_floor,
 };
 use crate::events::PlayerDashEvent;
 use crate::plugins::enemy::{spawn_beacon, spawn_boss};
@@ -419,7 +419,7 @@ fn spectre_teleport_system(
     if !keys.just_pressed(KeyCode::KeyE) {
         return;
     }
-    let Ok((player, mut transform)) = player_query.single_mut() else {
+    let Ok((_player, mut transform)) = player_query.single_mut() else {
         return;
     };
 
@@ -747,7 +747,8 @@ fn boss_spawn_system(
             room.bounds_min + Vec2::splat(60.0),
             room.bounds_max - Vec2::splat(60.0),
         );
-        spawn_boss(&mut commands, &settings, &floor, clamped);
+        let biome = biome_from_floor(floor.floor_number);
+        spawn_boss(&mut commands, &settings, &floor, clamped, biome);
         info!(
             "Boss spawned at boss room {}, pos=({:.1}, {:.1})",
             floor.current_room.0, clamped.x, clamped.y
@@ -798,7 +799,8 @@ fn boss_spawn_system(
         })
         .unwrap_or(spawn_pos);
 
-    spawn_boss(&mut commands, &settings, &floor, clamped);
+    let biome = biome_from_floor(floor.floor_number);
+    spawn_boss(&mut commands, &settings, &floor, clamped, biome);
     run.boss_spawned = true;
     info!(
         "mini-boss spawned at t={:.1}s, pos=({:.1}, {:.1})",

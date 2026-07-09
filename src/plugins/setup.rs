@@ -301,7 +301,7 @@ fn menu_input_system(
     keys: Res<ButtonInput<KeyCode>>,
     meta: Res<MetaConfig>,
     mut save: ResMut<CrownSave>,
-    mut run: ResMut<RunState>,
+    run: ResMut<RunState>,
     mut next_state: ResMut<NextState<AppState>>,
 ) {
     if keys.just_pressed(KeyCode::Enter) {

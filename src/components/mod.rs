@@ -12,7 +12,7 @@ pub mod world;
 // imports continue to compile without changes.
 
 pub use enemy::{
-    AiBehavior, Beacon, BomberState, Boss, BossPhase, BossState, DamageNumber, DasherPhase,
+    AiBehavior, Beacon, BomberState, Boss, BossPhase, BossProjectile, BossState, DamageNumber, DasherPhase,
     DasherState, DeathPuff, Elite, Enemy, EnemyAI, EnemyArchetype, HitFlash, HitSpark,
     MotionTrail, OrbiterState, PickupPopup, ShooterState, SniperState, TrailGhost,
 };

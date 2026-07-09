@@ -255,6 +255,12 @@ pub enum BossPhase {
     /// aimed at the player every `boss_phase2_attack_interval_s`
     /// (2s).
     Phase2,
+    /// Spawning minions (Lich death behavior).
+    Summoning,
+    /// Wind-up for charge attack (Yeti).
+    Charging,
+    /// Teleporting around the room (Void Walker).
+    Teleporting,
 }
 
 // ─── Shared combat-visual components ───────────────────────────────────────
@@ -345,3 +351,10 @@ pub struct PickupPopup {
 /// - Visual aura ring (child sprite entity)
 #[derive(Component)]
 pub struct Elite;
+
+/// Marker for boss-specific projectiles (spread, lob, homing, orbit).
+/// Carries a lifetime after which the projectile despawns.
+#[derive(Component)]
+pub struct BossProjectile {
+    pub lifetime: Timer,
+}

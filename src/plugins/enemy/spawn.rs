@@ -6,8 +6,9 @@
 use bevy::prelude::*;
 
 use crate::components::{
-    AiBehavior, BaseColor, BaseVelocity, Beacon, BomberState, Boss, BossPhase, BossState,
-    CascadeAffected, Collider, DasherPhase, DasherState, DeathPuff, Elite, Enemy, EnemyAI, Health, HitFlash, MotionTrail, OrbiterState, Projectile, Room, ShooterState, SniperState, Team, Velocity,
+    AiBehavior, BaseColor, BaseVelocity, Beacon, Biome, BomberState, Boss, BossPhase, BossState,
+    CascadeAffected, Collider, DasherPhase, DasherState, DeathPuff, Elite, Enemy, EnemyAI, Health,
+    HitFlash, MotionTrail, OrbiterState, Projectile, Room, ShooterState, SniperState, Team, Velocity,
 };
 use crate::resources::{FloorState, GameSettings, RunRng};
 
@@ -82,6 +83,38 @@ pub const BOSS_COLOR: Color = Color::srgb(0.70, 0.05, 0.05);
 /// Boss sprite size. 50x50 — bigger than the player (40x40) and other
 /// enemies (30x30).
 pub const BOSS_SIZE: f32 = 50.0;
+
+// ─── Per-biome boss constants ─────────────────────────────────────────
+
+/// Lich (Catacombs) boss constants.
+pub const LICH_COLOR: Color = Color::srgb(0.55, 0.20, 0.55); // purple
+pub const LICH_SIZE: f32 = 60.0;
+pub const LICH_HP: f32 = 30.0;
+pub const LICH_DAMAGE: f32 = 1.0;
+
+/// Yeti (Frost) boss constants.
+pub const YETI_COLOR: Color = Color::srgb(0.30, 0.65, 0.90); // ice blue
+pub const YETI_SIZE: f32 = 80.0;
+pub const YETI_HP: f32 = 40.0;
+pub const YETI_DAMAGE: f32 = 2.0;
+
+/// Inferno (Magma) boss constants.
+pub const INFERNO_COLOR: Color = Color::srgb(0.95, 0.55, 0.10); // orange
+pub const INFERNO_SIZE: f32 = 70.0;
+pub const INFERNO_HP: f32 = 35.0;
+pub const INFERNO_DAMAGE: f32 = 1.5;
+
+/// Treant (Verdant) boss constants.
+pub const TREANT_COLOR: Color = Color::srgb(0.20, 0.75, 0.20); // green
+pub const TREANT_SIZE: f32 = 90.0;
+pub const TREANT_HP: f32 = 50.0;
+pub const TREANT_DAMAGE: f32 = 1.0;
+
+/// Void Walker (Void) boss constants.
+pub const VOID_WALKER_COLOR: Color = Color::srgb(0.08, 0.02, 0.15); // near-black with purple
+pub const VOID_WALKER_SIZE: f32 = 75.0;
+pub const VOID_WALKER_HP: f32 = 45.0;
+pub const VOID_WALKER_DAMAGE: f32 = 2.0;
 
 /// Boss projectile color. Same red family as the boss body but lighter.
 pub const BOSS_PROJECTILE_COLOR: Color = Color::srgb(0.95, 0.20, 0.15);
@@ -591,13 +624,31 @@ pub fn spawn_boss_projectile(
     ));
 }
 
-/// Phase 1 mini-boss: spawn the boss at position with full HP.
-pub fn spawn_boss(commands: &mut Commands, settings: &GameSettings, floor: &FloorState, position: Vec2) {
+/// Phase 1 mini-boss: spawn a biome-specific boss at position with full HP.
+pub fn spawn_boss(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    floor: &FloorState,
+    position: Vec2,
+    biome: Biome,
+) {
     let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
+
+    // Select boss stats per biome.
+    let (boss_color, boss_size, base_hp, _damage) = match biome {
+        Biome::Catacombs => (LICH_COLOR, LICH_SIZE, LICH_HP, LICH_DAMAGE),
+        Biome::Frost => (YETI_COLOR, YETI_SIZE, YETI_HP, YETI_DAMAGE),
+        Biome::Magma => (INFERNO_COLOR, INFERNO_SIZE, INFERNO_HP, INFERNO_DAMAGE),
+        Biome::Verdant => (TREANT_COLOR, TREANT_SIZE, TREANT_HP, TREANT_DAMAGE),
+        Biome::Void => (VOID_WALKER_COLOR, VOID_WALKER_SIZE, VOID_WALKER_HP, VOID_WALKER_DAMAGE),
+    };
+
+    let hp = base_hp * hp_mult;
+
     commands.spawn((
         Sprite {
-            color: BOSS_COLOR,
-            custom_size: Some(Vec2::splat(BOSS_SIZE)),
+            color: boss_color,
+            custom_size: Some(Vec2::splat(boss_size)),
             ..default()
         },
         Transform::from_xyz(position.x, position.y, 0.0),
@@ -607,20 +658,20 @@ pub fn spawn_boss(commands: &mut Commands, settings: &GameSettings, floor: &Floo
             behavior: AiBehavior::Boss,
         },
         Collider {
-            half_extents: Vec2::splat(BOSS_SIZE * 0.5),
+            half_extents: Vec2::splat(boss_size * 0.5),
         },
-        Health::new(settings.boss_max_hp * hp_mult),
+        Health::new(hp),
         Velocity::default(),
         BaseVelocity::default(),
         CascadeAffected,
-        BaseColor(BOSS_COLOR),
+        BaseColor(boss_color),
         BossState {
             phase: BossPhase::Phase1,
             attack_timer: Timer::from_seconds(
                 settings.boss_phase2_attack_interval_s,
                 TimerMode::Once,
             ),
-            current_hp: settings.boss_max_hp * hp_mult,
+            current_hp: hp,
         },
     ));
 }

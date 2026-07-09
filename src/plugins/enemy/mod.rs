@@ -5,6 +5,7 @@
 //! `spawn`, `ai`, `waves`, and `constants`.
 
 pub mod ai;
+pub mod boss_attacks;
 pub mod constants;
 pub mod spawn;
 pub mod waves;
@@ -28,6 +29,12 @@ impl Plugin for EnemyPlugin {
                 ai::enemy_ai_system,
                 spawn::death_puff_tick_system,
                 spawn::hit_flash_tick_system,
+                boss_attacks::lich_boss_system,
+                boss_attacks::yeti_boss_system,
+                boss_attacks::yeti_charge_movement_system,
+                boss_attacks::inferno_boss_system,
+                boss_attacks::treant_boss_system,
+                boss_attacks::void_walker_boss_system,
             )
                 .chain()
                 .run_if(in_state(AppState::InRun)),

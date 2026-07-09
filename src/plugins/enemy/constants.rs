@@ -4,7 +4,6 @@
 //! individual spawn functions in spawn.rs. Only the difficulty helper
 //! remains.
 
-use bevy::prelude::*;
 
 pub const CREDIT_RATE_FIGHT: f32 = 8.0;
 pub const CREDIT_RATE_HORDE: f32 = 10.0;

@@ -339,6 +339,11 @@ pub fn enemy_ai_system(
                     BossPhase::Phase2 => {
                         settings.boss_move_speed * settings.boss_phase2_speed_multiplier
                     }
+                    // New phase variants: use standard movement speed
+                    // (attack patterns are in boss_attacks.rs).
+                    BossPhase::Summoning
+                    | BossPhase::Charging
+                    | BossPhase::Teleporting => settings.boss_move_speed,
                 };
                 base.0 = dir * speed;
 
