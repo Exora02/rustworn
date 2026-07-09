@@ -13,6 +13,7 @@ use crate::components::{
 };
 use crate::events::{DamageEvent, EnemyKilledEvent};
 use crate::plugins::enemy::spawn_death_puff;
+use crate::plugins::enemy::status::apply_status_effects;
 use crate::plugins::fx::spawn_hit_spark;
 use crate::plugins::fx::spawn_death_particles;
 use crate::plugins::pickups::{
@@ -132,6 +133,8 @@ pub fn projectile_damage_system(
                 victim: enemy_entity,
                 amount: proj.damage,
             });
+            // Phase 5.1: roll for status effects on hit.
+            apply_status_effects(&mut commands, enemy_entity, &mut || rng.next_unit());
             if health.current <= 0.0 {
                 commands.entity(enemy_entity).despawn();
                 spawn_death_puff(&mut commands, &settings, enemy_pos);

@@ -14,6 +14,8 @@ use crate::components::{
 };
 use crate::events::{DamageEvent, EnemyKilledEvent};
 use crate::plugins::enemy::spawn_death_puff;
+use crate::plugins::enemy::status::apply_status_effects;
+use crate::plugins::fx::spawn_death_particles;
 use crate::plugins::fx::spawn_hit_spark;
 use crate::plugins::pickups::{
     roll_gold_drop, roll_health_drop, roll_pickup_drop, roll_weapon_drop, spawn_pickup,
@@ -139,8 +141,12 @@ pub fn beam_damage_system(
             victim: enemy_entity,
             amount: damage,
         });
+        // Phase 5.1: roll for status effects on beam tick hit.
+        apply_status_effects(&mut commands, enemy_entity, &mut || rng.next_unit());
         if health.current <= 0.0 {
             spawn_death_puff(&mut commands, &settings, enemy_pos);
+            // Phase 5 game juice: death burst particles.
+            spawn_death_particles(&mut commands, enemy_pos);
             run_state.enemies_killed += 1;
             // Phase 2 P5: XP + cascade bookkeeping shared
             // with the projectile kill branch. The helper
@@ -260,6 +266,9 @@ pub fn breakable_damage_system(
                 // Breakable destroyed — same reward path as enemies.
                 commands.entity(breakable_entity).despawn();
                 spawn_death_puff(&mut commands, &settings, breakable_pos);
+                // Phase 5 game juice: death burst particles on
+                // breakable destruction.
+                spawn_death_particles(&mut commands, breakable_pos);
                 run.enemies_killed = run.enemies_killed.saturating_add(1);
                 on_enemy_killed(&settings, &mut run, &mut cascade, false);
 

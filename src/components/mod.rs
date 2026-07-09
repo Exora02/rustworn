@@ -14,7 +14,7 @@ pub mod world;
 pub use enemy::{
     AiBehavior, Beacon, BomberState, Boss, BossPhase, BossProjectile, BossState, DamageNumber, DasherPhase,
     DasherState, DeathParticle, DeathPuff, Elite, Enemy, EnemyAI, EnemyArchetype, HitFlash, HitSpark,
-    MotionTrail, OrbiterState, PickupPopup, ShooterState, SniperState, TrailGhost,
+    MotionTrail, OrbiterState, PickupPopup, ShooterState, SniperState, StatusEffects, TrailGhost,
 };
 pub use misc::{
     AppState, AutoAttackCooldowns, BaseColor, BeamVisual, Breakable, CascadeTelegraph,

@@ -8,6 +8,7 @@ pub mod ai;
 pub mod boss_attacks;
 pub mod constants;
 pub mod spawn;
+pub mod status;
 pub mod waves;
 
 use bevy::prelude::*;
@@ -27,6 +28,7 @@ impl Plugin for EnemyPlugin {
             (
                 waves::wave_spawner_tick_system,
                 ai::enemy_ai_system,
+                status::status_effect_tick_system,
                 spawn::death_puff_tick_system,
                 spawn::hit_flash_tick_system,
                 boss_attacks::lich_boss_system,

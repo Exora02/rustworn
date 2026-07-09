@@ -671,6 +671,7 @@ pub fn spawn_boss(
                 settings.boss_phase2_attack_interval_s,
                 TimerMode::Once,
             ),
+            phase2_attack_timer: Timer::from_seconds(1.0, TimerMode::Once),
             current_hp: hp,
         },
     ));

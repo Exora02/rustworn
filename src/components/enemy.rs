@@ -242,6 +242,10 @@ pub struct Beacon;
 pub struct BossState {
     pub phase: BossPhase,
     pub attack_timer: Timer,
+    /// Separate timer for the second (health-gated) attack pattern.
+    /// Runs independently so both patterns can coexist at different
+    /// intervals even after the boss enters Phase 2.
+    pub phase2_attack_timer: Timer,
     pub current_hp: f32,
 }
 
@@ -273,6 +277,23 @@ pub enum BossPhase {
 pub struct DeathPuff {
     pub lifetime: Timer,
 }
+
+// ─── Status Effects (Burn, Slow, Stun) ──────────────────────────────────────
+
+/// Status effects applied to enemies by player projectiles and beam.
+///
+/// Each optional `Timer` represents an active effect:
+/// - Burn: deals 0.5 damage/sec over 3s.
+/// - Slow: halves movement speed over 2s.
+/// - Stun: prevents all movement and attacks for 1s.
+#[derive(Component, Default)]
+pub struct StatusEffects {
+    pub burn_timer: Option<Timer>,
+    pub slow_timer: Option<Timer>,
+    pub stun_timer: Option<Timer>,
+}
+
+// ─── Shared combat-visual components ───────────────────────────────────────
 
 /// Phase 5 game juice: small burst particle spawned on enemy death.
 /// Each particle has a fixed lifetime, an outward velocity, and

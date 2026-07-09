@@ -70,13 +70,16 @@ pub const CASCADE_BAR_WIDTH: f32 = 60.0;
 pub const CASCADE_BAR_HEIGHT: f32 = 8.0;
 pub const CASCADE_BAR_OFFSET_Y: f32 = -14.0;
 
-// ─── Mini-boss HP bar (top-center) ───────────────────────────────────────
+// ─── Boss HP bar (top-center) ────────────────────────────────────────────
 
 pub const BOSS_HP_BAR_COLOR: Color = Color::srgb(0.90, 0.20, 0.20);
 pub const BOSS_HP_BAR_BG: Color = Color::srgb(0.10, 0.10, 0.10);
-pub const BOSS_HP_BAR_WIDTH: f32 = 240.0;
-pub const BOSS_HP_BAR_HEIGHT: f32 = 8.0;
+pub const BOSS_HP_BAR_BORDER: Color = Color::srgb(0.30, 0.30, 0.30);
+pub const BOSS_HP_BAR_WIDTH: f32 = 200.0;
+pub const BOSS_HP_BAR_HEIGHT: f32 = 16.0;
 pub const BOSS_HP_BAR_OFFSET_Y: f32 = -90.0;
+pub const BOSS_LABEL_OFFSET_Y: f32 = -100.0;
+pub const BOSS_LABEL_TEXT: &str = "BOSS";
 
 /// Color the fire-rate bar fill by the current weapon archetype.
 /// Pistol reads as a calm yellow, shotgun as a hot red, burst
@@ -126,16 +129,30 @@ pub fn spawn_bar(
     ));
 }
 
-// Phase 1 mini-boss: spawn the top-center boss HP bar as a
-// bg + fill pair (same pattern as `spawn_bar` but the fill
-// is queried separately in `hud_update_system` to update the
-// scale to the boss's current HP). The bar's anchor is
-// `Center` so the translation is the bar's center, and the
-// y-offset in `hud_update_system` puts it above the player
-// (top of the screen). Hidden by default; flipped to
-// `Visibility::Inherited` by `hud_update_system` while a
-// `With<Boss>` entity is alive.
+/// Phase 1 mini-boss: spawn the top-center boss HP bar as a
+/// bg + fill pair (same pattern as `spawn_bar` but the fill
+/// is queried separately in `hud_update_system` to update the
+/// scale to the boss's current HP). The bar's anchor is
+/// `Center` so the translation is the bar's center, and the
+/// y-offset in `hud_update_system` puts it above the player
+/// (top of the screen). Hidden by default; flipped to
+/// `Visibility::Inherited` by `hud_update_system` while a
+/// `With<Boss>` entity is alive. Also spawns a 1px border
+/// outline and a "BOSS" text label above the bar.
 pub fn spawn_boss_hp_bar(commands: &mut Commands) {
+    commands.spawn((
+        Sprite {
+            color: BOSS_HP_BAR_BORDER,
+            custom_size: Some(Vec2::new(BOSS_HP_BAR_WIDTH + 2.0, BOSS_HP_BAR_HEIGHT + 2.0)),
+            anchor: Anchor::Center,
+            ..default()
+        },
+        Transform::from_xyz(0.0, 0.0, 10.0),
+        Visibility::Hidden,
+        HudElement {
+            kind: HudElementKind::BossHpBar,
+        },
+    ));
     commands.spawn((
         Sprite {
             color: BOSS_HP_BAR_BG,
@@ -153,10 +170,29 @@ pub fn spawn_boss_hp_bar(commands: &mut Commands) {
         Sprite {
             color: BOSS_HP_BAR_COLOR,
             custom_size: Some(Vec2::new(BOSS_HP_BAR_WIDTH, BOSS_HP_BAR_HEIGHT)),
-            anchor: Anchor::Center,
+            anchor: Anchor::CenterLeft,
             ..default()
         },
-        Transform::from_xyz(0.0, 0.0, 10.0),
+        Transform::from_xyz(
+            -(BOSS_HP_BAR_WIDTH * 0.5),
+            0.0,
+            10.0 + 0.1,
+        ),
+        Visibility::Hidden,
+        HudElement {
+            kind: HudElementKind::BossHpBar,
+        },
+    ));
+    // "BOSS" label text above the bar
+    commands.spawn((
+        Text2d::new(BOSS_LABEL_TEXT),
+        TextFont {
+            font_size: 12.0,
+            ..default()
+        },
+        TextColor(Color::srgb(0.95, 0.90, 0.90)),
+        TextLayout::new_with_justify(JustifyText::Center),
+        Transform::from_xyz(0.0, BOSS_LABEL_OFFSET_Y, 10.0 + 0.2),
         Visibility::Hidden,
         HudElement {
             kind: HudElementKind::BossHpBar,
@@ -253,6 +289,7 @@ pub fn hud_update_system(
         Option<&mut Text2d>,
     )>,
     boss_alive: Query<(), With<Boss>>,
+    boss_health: Query<&Health, With<Boss>>,
 ) {
     let Ok((player_tf, health, weapon)) = player_query.single() else {
         return;
@@ -383,6 +420,18 @@ pub fn hud_update_system(
                     tf.translation.z,
                 );
                 *vis = boss_alive_global_flag;
+                // Update fill sprite scale from boss HP ratio
+                if let Some(mut sprite) = sprite {
+                    if !approx_eq_color(sprite.color, BOSS_HP_BAR_BG)
+                        && !approx_eq_color(sprite.color, BOSS_HP_BAR_BORDER)
+                    {
+                        // Fill sprite — update scale from boss HP
+                        if let Ok(boss_hp) = boss_health.get_single() {
+                            let ratio = (boss_hp.current / boss_hp.max).clamp(0.0, 1.0);
+                            tf.scale.x = ratio;
+                        }
+                    }
+                }
             }
             HudElementKind::FloorIndicator => {
                 tf.translation = Vec3::new(
