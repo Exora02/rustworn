@@ -386,6 +386,14 @@ pub fn hud_update_system(
                     tf.translation.z,
                 );
             }
+            // Character select: screen-stable below player origin.
+            HudElementKind::CharacterSelect => {
+                tf.translation = Vec3::new(
+                    player_pos.x,
+                    player_pos.y - 280.0,
+                    tf.translation.z,
+                );
+            }
         }
     }
 }

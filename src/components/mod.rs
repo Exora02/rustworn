@@ -23,8 +23,8 @@ pub use misc::{
 };
 pub use player::{
     AimDirection, AimIndicator, BaseVelocity, CascadeAffected, Collider, DashCooldown, Health,
-    Invulnerable, Knockback, LastMoveDirection, MainCamera, Player, Projectile, Team, Velocity,
-    Weapon, WeaponArchetype, PLAYER_COLOR,
+    Invulnerable, Knockback, LastMoveDirection, MainCamera, Player, PlayerClass, Projectile, Team,
+    Velocity, Weapon, WeaponArchetype, PLAYER_COLOR,
 };
 pub use world::{
     FloorTransitionText, Room, RoomId, RoomKind, TeleportPad, Wall,

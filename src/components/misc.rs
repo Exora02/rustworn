@@ -156,6 +156,8 @@ pub enum HudElementKind {
     /// Phase 3 meta-progression: upgrade shop. Visible only on the
     /// MainMenu screen. Shows Crown balance + 8 upgrade rows.
     MetaShop,
+    /// Phase 3: character select overlay on MainMenu.
+    CharacterSelect,
 }
 
 /// Phase 1 cascade telegraph: a full-screen overlay sprite that

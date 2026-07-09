@@ -228,3 +228,16 @@ pub struct Knockback {
     pub direction: Vec2,
     pub timer: Timer,
 }
+
+// ─── Playable characters ────────────────────────────────────────────────────
+
+/// Which playable character the player selected this session.
+/// Determines starting stats, passive, and active ability.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PlayerClass {
+    #[default]
+    Marauder,
+    Reaver,
+    Spectre,
+    Engineer,
+}

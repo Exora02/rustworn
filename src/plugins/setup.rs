@@ -22,8 +22,8 @@ use log::info;
 use crate::components::{
     AimIndicator, AppState, BaseVelocity, Collider, DashCooldown, DeathPuff, Enemy, GameOverReason,
     Health, HudElement, HudElementKind, Invulnerable, Knockback, LastMoveDirection, MainCamera,
-    MotionTrail, Pickup, Player, Projectile, Velocity, Weapon, WeaponArchetype, WeaponInventory,
-    PLAYER_COLOR,
+    MotionTrail, Pickup, Player, PlayerClass, Projectile, Velocity, Weapon, WeaponArchetype,
+    WeaponInventory, PLAYER_COLOR,
 };
 use crate::resources::{CascadeState, CrownSave, FloorState, GameSettings, MetaConfig, MetaUpgradeKind, RunRng, RunState, ScreenShake};
 
@@ -263,6 +263,27 @@ fn spawn_world(mut commands: Commands, settings: Res<GameSettings>, meta: Res<Me
         HudElement { kind: HudElementKind::MetaShop },
     ));
 
+    // Character select text — centered below the title.
+    // Shows 4 characters with current selection highlighted.
+    // Updated dynamically by character_select_system.
+    let char_text = concat!(
+        "Select character (1-4):\n\n",
+        "1: Marauder  [selected]  — Knife AoE | Grenade (3s)\n",
+        "2: Reaver    [press 2]   — Lifesteal | Dash-strike (2s)\n",
+        "3: Spectre   [press 3]   — Regen     | Teleport (1.5s)\n",
+        "4: Engineer  [press 4]   — +1 HP     | Turret (4s)\n",
+    );
+    commands.spawn((
+        Text2d::new(char_text),
+        TextFont { font_size: 14.0, ..default() },
+        TextColor(Color::srgb(0.7, 0.7, 0.8)),
+        Anchor::Center,
+        TextLayout::new_with_justify(JustifyText::Center),
+        Transform::from_xyz(0.0, -280.0, MAIN_MENU_Z + 0.15),
+        Visibility::Hidden,
+        HudElement { kind: HudElementKind::CharacterSelect },
+    ));
+
     info!("RUSTWORN booted — player + chaser/dasher/shooter/sniper spawners + main menu overlay spawned at origin");
 }
 
@@ -279,6 +300,7 @@ fn menu_input_system(
     keys: Res<ButtonInput<KeyCode>>,
     meta: Res<MetaConfig>,
     mut save: ResMut<CrownSave>,
+    mut run: ResMut<RunState>,
     mut next_state: ResMut<NextState<AppState>>,
 ) {
     if keys.just_pressed(KeyCode::Enter) {
@@ -289,34 +311,64 @@ fn menu_input_system(
     }
 
     // Meta-upgrade purchases (keys 1-8).
-    for (key_idx, key) in [
-        KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4,
-        KeyCode::Digit5, KeyCode::Digit6, KeyCode::Digit7, KeyCode::Digit8,
-    ].iter().enumerate() {
-        if keys.just_pressed(*key) {
-            let def = &meta.upgrades[key_idx];
-            let current_level = save.upgrades[key_idx];
-            if current_level < def.max_level {
-                let cost = def.base_cost;
-                if save.crown >= cost {
-                    save.crown -= cost;
-                    save.upgrades[key_idx] = current_level + 1;
-                    crate::plugins::meta::write_save(&save);
-                    info!("Bought {} (level {}/{}) for {} Crown",
-                        def.name, current_level + 1, def.max_level, cost);
-                } else {
-                    info!("Not enough Crown for {} (need {}, have {})",
-                        def.name, cost, save.crown);
-                }
-            }
-            break; // Only process one key per frame.
-        }
+    if !handle_upgrade_purchases(&keys, &meta, &mut save) {
+        // Key wasn't a purchase — try character select.
+        handle_character_select(&keys, run);
     }
 }
 
-// InRun: ESC returns to the title. R-restart during a run is
-// intentionally NOT bound here — restart is a GameOver-only
-// affordance (you can only "restart" if you're dead). If the
+/// Returns true if a key was consumed as an upgrade purchase.
+fn handle_upgrade_purchases(
+    keys: &Res<ButtonInput<KeyCode>>,
+    meta: &Res<MetaConfig>,
+    save: &mut ResMut<CrownSave>,
+) -> bool {
+        for (key_idx, key) in [
+            KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4,
+            KeyCode::Digit5, KeyCode::Digit6, KeyCode::Digit7, KeyCode::Digit8,
+        ].iter().enumerate() {
+            if keys.just_pressed(*key) {
+                let def = &meta.upgrades[key_idx];
+                let current_level = save.upgrades[key_idx];
+                if current_level < def.max_level {
+                    let cost = def.base_cost;
+                    if save.crown >= cost {
+                        save.crown -= cost;
+                        save.upgrades[key_idx] = current_level + 1;
+                        crate::plugins::meta::write_save(&save);
+                        info!(
+                            "Bought {} (level {}/{}) for {} Crown",
+                            def.name, current_level + 1, def.max_level, cost
+                        );
+                    } else {
+                        info!(
+                            "Not enough Crown for {} (need {}, have {})",
+                            def.name, cost, save.crown
+                        );
+                    }
+                }
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Handle character select keys (1-4 on the MainMenu).
+    fn handle_character_select(keys: &Res<ButtonInput<KeyCode>>, mut run: ResMut<RunState>) {
+        if keys.just_pressed(KeyCode::Digit1) {
+            run.selected_class = PlayerClass::Marauder;
+            info!("Selected character: Marauder");
+        } else if keys.just_pressed(KeyCode::Digit2) {
+            run.selected_class = PlayerClass::Reaver;
+            info!("Selected character: Reaver");
+        } else if keys.just_pressed(KeyCode::Digit3) {
+            run.selected_class = PlayerClass::Spectre;
+            info!("Selected character: Spectre");
+        } else if keys.just_pressed(KeyCode::Digit4) {
+            run.selected_class = PlayerClass::Engineer;
+            info!("Selected character: Engineer");
+        }
+    }
 // player wants to abandon a run, the path is ESC → MainMenu.
 fn in_run_esc_system(keys: Res<ButtonInput<KeyCode>>, mut next_state: ResMut<NextState<AppState>>) {
     if keys.just_pressed(KeyCode::Escape) {
@@ -403,8 +455,8 @@ fn state_visibility_system(
             HudElementKind::RestartPrompt => {
                 *state.get() == AppState::GameOver
             }
-            // Meta shop: visible only in MainMenu.
-            HudElementKind::MetaShop => *state.get() == AppState::MainMenu,
+            // Meta shop & character select: visible only in MainMenu.
+            HudElementKind::MetaShop | HudElementKind::CharacterSelect => *state.get() == AppState::MainMenu,
             // HP / fire-rate / kill / time / cascade / boss HP:
             // visible whenever the run is "active or showing
             // the result" (InRun + GameOver). Hidden on the
@@ -526,6 +578,27 @@ fn enter_in_run_system(
             // This requires changing the type. For now: skip — we handle this
             // separately in a future refactor if needed.
         }
+
+        // Apply character-specific starting stats.
+        match run.selected_class {
+            PlayerClass::Marauder => {
+                // Default stats — everything stays as-is.
+            }
+            PlayerClass::Reaver => {
+                h.max = 3.0;
+                h.current = 3.0;
+                run.regen_per_sec += 0.1; // Minor lifesteal supplement
+            }
+            PlayerClass::Spectre => {
+                h.max = 3.0;
+                h.current = 3.0;
+                run.regen_per_sec += 0.5; // Better baseline regen
+            }
+            PlayerClass::Engineer => {
+                h.max = 5.0;
+                h.current = 5.0;
+            }
+        }
     }
 
     // Apply meta-progression upgrades (game-level, not player-entity-level).
@@ -559,6 +632,17 @@ fn enter_in_run_system(
     let regen_level = save.upgrades[MetaUpgradeKind::Regen as usize];
     if regen_level > 0 {
         run.regen_per_sec += regen_level as f32 * 0.5;
+    }
+
+    // Apply character-specific speed modifiers.
+    match run.selected_class {
+        PlayerClass::Reaver => {
+            settings.player_move_speed *= 1.15;
+        }
+        PlayerClass::Engineer => {
+            settings.player_move_speed *= 0.85;
+        }
+        _ => {}
     }
 
     // Phase 2.3: seed the run's RNG from system time. Phase 3+

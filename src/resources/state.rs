@@ -1,4 +1,5 @@
 use crate::components::GameOverReason;
+use crate::components::PlayerClass;
 use bevy::prelude::*;
 
 /// Phase 2 P6 (Crab Champions run): tracks the current floor's
@@ -91,6 +92,8 @@ pub struct RunState {
     /// show "GAME OVER" vs "EXTRACTED!" and by (future) meta-
     /// progression systems.
     pub game_over_reason: GameOverReason,
+    /// Character class selected on the main menu. Applied on run start.
+    pub selected_class: PlayerClass,
 }
 
 impl Default for RunState {
@@ -112,6 +115,7 @@ impl Default for RunState {
             gold: 0,
             armor: 0.0,
             game_over_reason: GameOverReason::Died,
+            selected_class: PlayerClass::Marauder,
         }
     }
 }
