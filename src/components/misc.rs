@@ -158,6 +158,8 @@ pub enum HudElementKind {
     MetaShop,
     /// Phase 3: character select overlay on MainMenu.
     CharacterSelect,
+    /// Phase 3: pause overlay. Visible only on AppState::Paused.
+    PauseOverlay,
 }
 
 /// Phase 1 cascade telegraph: a full-screen overlay sprite that

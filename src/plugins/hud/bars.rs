@@ -394,6 +394,10 @@ pub fn hud_update_system(
                     tf.translation.z,
                 );
             }
+            // Pause overlay: centered on screen.
+            HudElementKind::PauseOverlay => {
+                tf.translation = Vec3::new(player_pos.x, player_pos.y, tf.translation.z);
+            }
         }
     }
 }

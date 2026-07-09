@@ -78,6 +78,7 @@ impl Plugin for SetupPlugin {
                 (
                     menu_input_system,
                     in_run_esc_system,
+                    paused_esc_system,
                     game_over_input_system,
                     state_visibility_system,
                 )
@@ -369,10 +370,17 @@ fn handle_upgrade_purchases(
             info!("Selected character: Engineer");
         }
     }
+// Paused: ESC resumes (→ InRun).
+fn paused_esc_system(keys: Res<ButtonInput<KeyCode>>, mut next_state: ResMut<NextState<AppState>>) {
+    if keys.just_pressed(KeyCode::Escape) {
+        next_state.set(AppState::InRun);
+    }
+}
+
 // player wants to abandon a run, the path is ESC → MainMenu.
 fn in_run_esc_system(keys: Res<ButtonInput<KeyCode>>, mut next_state: ResMut<NextState<AppState>>) {
     if keys.just_pressed(KeyCode::Escape) {
-        next_state.set(AppState::MainMenu);
+        next_state.set(AppState::Paused);
     }
 }
 
@@ -452,6 +460,7 @@ fn state_visibility_system(
                 *state.get() == AppState::GameOver
                     && run.as_ref().map(|r| r.game_over_reason == GameOverReason::Extracted).unwrap_or(false)
             }
+            HudElementKind::PauseOverlay => *state.get() == AppState::Paused,
             HudElementKind::RestartPrompt => {
                 *state.get() == AppState::GameOver
             }
