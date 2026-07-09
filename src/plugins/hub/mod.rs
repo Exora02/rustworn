@@ -6,7 +6,7 @@
 //!   2. CROWN SHOP         (left, gold)          → show shop overlay
 //!   3. UNLOCKABLES        (right, purple)       → progress view
 //!   4. CHARACTER SELECT   (top-left, cyan)      → change class
-//!   5. STATS              (top-right, white)     → run history
+//!   5. STATS              (top-right, white)    → run history
 //!
 //! Spawned on OnEnter(MainMenu), despawned on OnExit(MainMenu).
 
@@ -37,11 +37,20 @@ const PORTAL_H: f32 = 70.0;
 const FLOOR_W: f32 = 1280.0;
 const FLOOR_H: f32 = 720.0;
 
+/// Z-offset for overlay entities — above the hub, below the HUD.
+const OVERLAY_Z: f32 = HUB_Z + 0.3;
+const OVERLAY_TEXT_Z: f32 = OVERLAY_Z + 0.1;
+
 /// Marker component identifying a hub zone entity.
 #[derive(Component)]
 pub struct HubZone {
     pub kind: HubZoneKind,
 }
+
+/// Marker component identifying a hub overlay entity (shop, unlockables, etc.).
+/// Used so ESC can despawn overlays without despawning the hub itself.
+#[derive(Component)]
+pub struct HubOverlay;
 
 /// Which zone this entity represents.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -203,7 +212,7 @@ fn spawn_hub_menu(mut commands: Commands) {
         };
 
         commands.spawn((
-            Text2d::new(format!("{}\n{}", label, sub_text)),
+            Text2d::new(format!("{}\\n{}", label, sub_text)),
             TextFont {
                 font_size,
                 ..default()
@@ -256,12 +265,112 @@ fn spawn_hub_menu(mut commands: Commands) {
 /// Despawn all hub entities when leaving MainMenu.
 fn despawn_hub_menu(
     mut commands: Commands,
-    zones: Query<Entity, Or<(With<HubZone>, With<HubBackground>)>>,
+    zones: Query<Entity, Or<(With<HubZone>, With<HubBackground>, With<HubOverlay>)>>,
 ) {
     for entity in &zones {
         commands.entity(entity).despawn();
     }
 }
+
+// ─── Overlay spawn helpers ──────────────────────────────────────────────
+
+/// Build the Crown Shop overlay text content.
+fn build_shop_text(meta: &MetaConfig, save: &CrownSave) -> String {
+    let mut text = format!("=== CROWN SHOP ===\n\nCrown: {}\n\n", save.crown);
+    for (i, def) in meta.unlockables.iter().enumerate().take(8) {
+        let status = if save.unlocks[i] { "✓" } else { "-" };
+        let line = format!("{}: {:<16} — {:>3} Cr  [{}]\n", i + 1, def.name, def.base_cost, status);
+        text.push_str(&line);
+    }
+    text.push_str("\n(More items available in runs)\n");
+    text.push_str("\nPress ESC to close");
+    text
+}
+
+/// Build the Unlockables overlay text content.
+fn build_unlockables_text(meta: &MetaConfig, save: &CrownSave) -> String {
+    let mut text = String::from("=== UNLOCKABLES ===\n\n");
+    let categories = [
+        ("Weapons", 0..6),
+        ("Passives", 6..16),
+        ("Actives", 16..20),
+        ("Core", 20..25),
+    ];
+    for (cat_name, range) in &categories {
+        text.push_str(&format!("{}:\n", cat_name));
+        for i in range.clone() {
+            let def = &meta.unlockables[i];
+            let status = if save.unlocks[i] { "UNLOCKED" } else { "LOCKED" };
+            text.push_str(&format!("  {:<20} — {:>3} Cr [{status}]\n", def.name, def.base_cost));
+        }
+        text.push('\n');
+    }
+    text.push_str("Press ESC to close");
+    text
+}
+
+/// Build the Character Select overlay text content.
+fn build_character_select_text(run: &RunState) -> String {
+    let current = &run.selected_class;
+    format!(
+        "=== CHARACTER SELECT ===\n\n\
+        Current: {:#?}\n\n\
+        1: Marauder  [{}]  — Knife AoE | Grenade (3s)\n\
+        2: Reaver    [{}]  — Lifesteal | Dash-strike (2s)\n\
+        3: Spectre   [{}]  — Regen     | Teleport (1.5s)\n\
+        4: Engineer  [{}]  — +1 HP     | Turret (4s)\n\n\
+        Press 1-4 to select  |  ESC to close",
+        current,
+        if *current == crate::components::PlayerClass::Marauder { "selected" } else { "press 1" },
+        if *current == crate::components::PlayerClass::Reaver { "selected" } else { "press 2" },
+        if *current == crate::components::PlayerClass::Spectre { "selected" } else { "press 3" },
+        if *current == crate::components::PlayerClass::Engineer { "selected" } else { "press 4" },
+    )
+}
+
+/// Build the Stats overlay text content.
+fn build_stats_text(run: &RunState) -> String {
+    format!(
+        "=== STATS ===\n\n\
+        Runs completed: (not yet tracked)\n\
+        Best floor:     N/A\n\
+        Total kills:    {}\n\
+        Gold collected: {}\n\
+        Time played:    {:.1}s",
+        run.enemies_killed, run.gold, run.time_elapsed,
+    )
+}
+
+/// Spawn a dark background + multi-line text overlay centered on screen.
+fn spawn_overlay(commands: &mut Commands, text: String) {
+    // Semi-transparent dark background box
+    commands.spawn((
+        Sprite {
+            color: Color::srgba(0.05, 0.05, 0.10, 0.90),
+            custom_size: Some(Vec2::new(600.0, 450.0)),
+            anchor: Anchor::Center,
+            ..default()
+        },
+        Transform::from_xyz(0.0, 0.0, OVERLAY_Z),
+        HubOverlay,
+    ));
+
+    // Text
+    commands.spawn((
+        Text2d::new(text),
+        TextFont {
+            font_size: 16.0,
+            ..default()
+        },
+        TextColor(Color::srgb(0.9, 0.9, 0.9)),
+        Anchor::Center,
+        TextLayout::new_with_justify(JustifyText::Center),
+        Transform::from_xyz(0.0, 0.0, OVERLAY_TEXT_Z),
+        HubOverlay,
+    ));
+}
+
+// ─── Interaction system ─────────────────────────────────────────────────
 
 /// Handle mouse click on hub zones and keyboard Enter/Escape.
 ///
@@ -275,20 +384,36 @@ fn hub_interaction_system(
     windows: Query<&Window>,
     camera_q: Query<(&Camera, &GlobalTransform), With<crate::components::MainCamera>>,
     zones: Query<(&HubZone, &Transform), (With<HubZone>, Without<HubBackground>)>,
+    overlays: Query<Entity, With<HubOverlay>>,
     run: Res<RunState>,
     meta: Res<MetaConfig>,
     save: Res<CrownSave>,
     mut next_state: ResMut<NextState<AppState>>,
+    mut commands: Commands,
 ) {
-    // Enter → start run (also handled by menu_input_system)
+    let overlay_open = !overlays.is_empty();
+
+    // ESC: if an overlay is open, close it. Otherwise quit.
+    if keys.just_pressed(KeyCode::Escape) {
+        if overlay_open {
+            for entity in &overlays {
+                commands.entity(entity).despawn();
+            }
+            info!("Hub overlay closed");
+            return;
+        } else {
+            std::process::exit(0);
+        }
+    }
+
+    // Enter → start run (only if no overlay is open)
     if keys.just_pressed(KeyCode::Enter) {
+        if overlay_open {
+            return;
+        }
         info!("Hub: ENTER THE DEPTHS");
         next_state.set(AppState::InRun);
         return;
-    }
-    // Escape → quit (also handled by menu_input_system)
-    if keys.just_pressed(KeyCode::Escape) {
-        std::process::exit(0);
     }
 
     // ── Mouse click detection ────────────────────────────────────────
@@ -321,7 +446,7 @@ fn hub_interaction_system(
                 && world_pos.y <= pos.y + half.y
             {
                 info!("Hub: clicked {:?}", zone.kind);
-                act_on_zone(zone.kind, &meta, &save, &run, next_state);
+                act_on_zone(zone.kind, &meta, &save, &run, next_state, &mut commands);
                 return;
             }
         }
@@ -335,6 +460,7 @@ fn act_on_zone(
     save: &CrownSave,
     run: &RunState,
     mut next_state: ResMut<NextState<AppState>>,
+    commands: &mut Commands,
 ) {
     match kind {
         HubZoneKind::EnterDepths => {
@@ -342,34 +468,23 @@ fn act_on_zone(
         }
         HubZoneKind::CrownShop => {
             info!("=== CROWN SHOP ===");
-            info!("Press 1-8 to buy an unlockable");
-            // The shop overlay is managed by state_visibility_system
-            // on HudElementKind::MetaShop — already resident.
+            let text = build_shop_text(meta, save);
+            spawn_overlay(commands, text);
         }
         HubZoneKind::Unlockables => {
             info!("=== UNLOCKABLES ===");
-            for (i, def) in meta.unlockables.iter().enumerate() {
-                let status = if save.unlocks[i] {
-                    "UNLOCKED"
-                } else {
-                    "LOCKED"
-                };
-                info!(
-                    "  {}: {:<20} — {:>3} Cr [{status}]",
-                    i + 1,
-                    def.name,
-                    def.base_cost
-                );
-            }
+            let text = build_unlockables_text(meta, save);
+            spawn_overlay(commands, text);
         }
         HubZoneKind::CharacterSelect => {
             info!("=== CHARACTER SELECT ===");
-            info!("Current: {:?}", run.selected_class);
-            info!("Press 1-4 to change character");
+            let text = build_character_select_text(run);
+            spawn_overlay(commands, text);
         }
         HubZoneKind::Stats => {
             info!("=== STATS ===");
-            info!("Runs completed: (not yet tracked)");
+            let text = build_stats_text(run);
+            spawn_overlay(commands, text);
         }
     }
 }
