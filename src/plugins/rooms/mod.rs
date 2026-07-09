@@ -607,6 +607,54 @@ fn spawn_walls(commands: &mut Commands, room: &Room, floor_number: u32) {
         base_srgba.blue * 0.75 + accent_srgba.blue * 0.25,
     );
 
+    // ── Floor background ────────────────────────────────────────────
+    commands.spawn((
+        Sprite {
+            color: Color::srgba(base_srgba.red * 0.5, base_srgba.green * 0.5, base_srgba.blue * 0.5, 1.0),
+            custom_size: Some(Vec2::new(w, h)),
+            anchor: Anchor::Center,
+            ..default()
+        },
+        Transform::from_xyz(cx, cy, -0.1),
+        Wall,
+    ));
+
+    // ── Room floor grid lines ────────────────────────────────────────
+    // Horizontal and vertical lines every 40px spanning the room.
+    // Color: biome accent at 20% opacity.
+    let grid_color = Color::srgba(accent_srgba.red, accent_srgba.green, accent_srgba.blue, 0.2);
+    let grid_step = 40.0;
+    // Vertical lines (spanning full height of room)
+    let mut x = (room.bounds_min.x + grid_step) - room.bounds_min.x % grid_step;
+    while x < room.bounds_max.x {
+        commands.spawn((
+            Sprite {
+                color: grid_color,
+                custom_size: Some(Vec2::new(1.0, h)),
+                anchor: Anchor::Center,
+                ..default()
+            },
+            Transform::from_xyz(x, cy, -0.09),
+            Wall,
+        ));
+        x += grid_step;
+    }
+    // Horizontal lines (spanning full width of room)
+    let mut y = (room.bounds_min.y + grid_step) - room.bounds_min.y % grid_step;
+    while y < room.bounds_max.y {
+        commands.spawn((
+            Sprite {
+                color: grid_color,
+                custom_size: Some(Vec2::new(w, 1.0)),
+                anchor: Anchor::Center,
+                ..default()
+            },
+            Transform::from_xyz(cx, y, -0.09),
+            Wall,
+        ));
+        y += grid_step;
+    }
+
     let walls_data = [
         (Vec3::new(cx, room.bounds_max.y + half, 0.0), Vec2::new(w + WALL_THICKNESS * 2.0, WALL_THICKNESS)),
         (Vec3::new(cx, room.bounds_min.y - half, 0.0), Vec2::new(w + WALL_THICKNESS * 2.0, WALL_THICKNESS)),

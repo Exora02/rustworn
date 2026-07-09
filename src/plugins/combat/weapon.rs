@@ -10,12 +10,29 @@ use crate::components::{
     WeaponInventory,
 };
 use crate::events::WeaponFiredEvent;
+use crate::plugins::enemy::GameSprites;
 use crate::resources::{GameSettings, Hitstop, RunState};
 
 use super::{
     in_hitstop, next_archetype, rotate_vec2, weapon_stats_for,
-    PROJECTILE_COLOR, PROJECTILE_SIZE,
+    PROJECTILE_COLOR,
 };
+
+/// Map a WeaponArchetype to its pixel-art sprite handle.
+/// Projectiles use 12×12 sprites, tinted with the projectile color.
+pub(crate) fn weapon_sprite_for(archetype: WeaponArchetype, sprites: &GameSprites) -> Handle<Image> {
+    match archetype {
+        WeaponArchetype::Pistol => sprites.weapon_pistol.clone(),
+        WeaponArchetype::Shotgun => sprites.weapon_shotgun.clone(),
+        WeaponArchetype::Burst => sprites.weapon_burst.clone(),
+        WeaponArchetype::Beam => sprites.weapon_beam.clone(),
+        WeaponArchetype::RocketLauncher => sprites.weapon_rocket.clone(),
+        // Fall back to pistol sprite for weapons without dedicated art.
+        WeaponArchetype::Sniper | WeaponArchetype::SMG | WeaponArchetype::ArcGun => {
+            sprites.weapon_pistol.clone()
+        }
+    }
+}
 
 // Each frame, advance every weapon's fire_timer. A freshly fired weapon
 // has its timer set to `1.0 / fire_rate`; once it ticks down to zero the
@@ -165,6 +182,7 @@ pub fn weapon_fire_system(
     mut weapons: Query<(&mut Weapon, &mut Transform), With<Player>>,
     projectiles: Query<&Projectile>,
     mut weapon_fire_events: EventWriter<WeaponFiredEvent>,
+    sprites: Res<GameSprites>,
 ) {
     // Phase 2: no per-system game-over early-return needed — the
     // whole combat chain is gated on `in_state(AppState::InRun)` in
@@ -260,10 +278,13 @@ pub fn weapon_fire_system(
         let spawn_pos = player_pos + dir * settings.weapon_muzzle_offset;
         let angle = dir.y.atan2(dir.x) - std::f32::consts::FRAC_PI_2;
 
+        let proj_sprite = weapon_sprite_for(weapon.archetype, &sprites);
+
         commands.spawn((
             Sprite {
+                image: proj_sprite,
                 color: PROJECTILE_COLOR,
-                custom_size: Some(PROJECTILE_SIZE),
+                custom_size: Some(Vec2::splat(12.0)),
                 ..default()
             },
             Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.5)
@@ -278,7 +299,7 @@ pub fn weapon_fire_system(
             // against enemy hitboxes. Kept slightly smaller than the visual
             // so close calls feel like hits rather than near-misses.
             Collider {
-                half_extents: Vec2::new(PROJECTILE_SIZE.x * 0.5, PROJECTILE_SIZE.y * 0.5),
+                half_extents: Vec2::splat(6.0),
             },
             Projectile {
                 // Pickup-multiplied damage: each DamageUp adds

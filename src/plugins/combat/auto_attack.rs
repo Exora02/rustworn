@@ -12,12 +12,14 @@ use bevy::prelude::*;
 
 use crate::components::{
     AutoAttackCooldowns, Collider, Enemy, Player, Projectile, Team, Velocity, Weapon,
-    WeaponInventory,
+    WeaponArchetype, WeaponInventory,
 };
+use crate::plugins::enemy::GameSprites;
 use crate::resources::{GameSettings, Hitstop, RunState};
 
 use super::rotate_vec2;
-use super::{in_hitstop, weapon_stats_for, PROJECTILE_COLOR, PROJECTILE_SIZE};
+use super::weapon::weapon_sprite_for;
+use super::{in_hitstop, weapon_stats_for, PROJECTILE_COLOR};
 
 /// Auto-attack system.
 ///
@@ -40,6 +42,7 @@ pub fn auto_attack_system(
     ), With<Player>>,
     mut cooldown_q: Query<&mut AutoAttackCooldowns, With<Player>>,
     enemies: Query<&Transform, (With<Enemy>, Without<Player>)>,
+    sprites: Res<GameSprites>,
 ) {
     if in_hitstop(&hitstop) {
         return;
@@ -139,6 +142,8 @@ pub fn auto_attack_system(
             projectile_speed,
             pellet_count,
             spread_rad,
+            *archetype,
+            &sprites,
         );
     }
 }
@@ -155,8 +160,11 @@ pub(crate) fn spawn_projectile(
     projectile_speed: f32,
     pellet_count: u32,
     spread_rad: f32,
+    archetype: WeaponArchetype,
+    sprites: &GameSprites,
 ) {
     let count = pellet_count.max(1);
+    let proj_sprite = weapon_sprite_for(archetype, sprites);
     for i in 0..count {
         let angle_offset = if count == 1 {
             0.0
@@ -170,15 +178,16 @@ pub(crate) fn spawn_projectile(
 
         commands.spawn((
             Sprite {
+                image: proj_sprite.clone(),
                 color: PROJECTILE_COLOR,
-                custom_size: Some(PROJECTILE_SIZE),
+                custom_size: Some(Vec2::splat(12.0)),
                 ..default()
             },
             Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.5)
                 .with_rotation(Quat::from_rotation_z(angle)),
             Velocity(dir * projectile_speed),
             Collider {
-                half_extents: Vec2::new(PROJECTILE_SIZE.x * 0.5, PROJECTILE_SIZE.y * 0.5),
+                half_extents: Vec2::splat(6.0),
             },
             Projectile {
                 damage,

@@ -45,7 +45,18 @@ const OVERLAY_TEXT_Z: f32 = OVERLAY_Z + 0.1;
 #[derive(Component)]
 pub struct HubZone {
     pub kind: HubZoneKind,
+    pub base_color: Color,
 }
+
+/// Marker for the border behind a hub zone.
+#[derive(Component)]
+pub struct HubZoneBorder {
+    pub kind: HubZoneKind,
+}
+
+/// Marker for the pulsing glow behind the EnterDepths zone.
+#[derive(Component)]
+pub struct HubZoneGlow;
 
 /// Marker component identifying a hub overlay entity (shop, unlockables, etc.).
 /// Used so ESC can despawn overlays without despawning the hub itself.
@@ -169,9 +180,46 @@ fn spawn_hub_menu(mut commands: Commands) {
 
     for (kind, label, (x, y), color, w, h) in &zones {
         let zone_z = HUB_Z;
+        let is_portal = *kind == HubZoneKind::EnterDepths;
 
-        // Brighter portal border for EnterDepths
-        if *kind == HubZoneKind::EnterDepths {
+        // Lighter tint for borders: 1.3x brighter
+        let srgba = color.to_srgba();
+        let lighter = Color::srgb(
+            (srgba.red * 1.3).min(1.0),
+            (srgba.green * 1.3).min(1.0),
+            (srgba.blue * 1.3).min(1.0),
+        );
+
+        // Zone border (2px larger, 1.3x lighter, behind zone body)
+        if !is_portal {
+            // Only spawn explicit borders for non-portal zones
+            // (portal has its own glow entity)
+            commands.spawn((
+                Sprite {
+                    color: lighter,
+                    custom_size: Some(Vec2::new(*w + 4.0, *h + 4.0)),
+                    anchor: Anchor::Center,
+                    ..default()
+                },
+                Transform::from_xyz(*x, *y, zone_z - 0.02),
+                HubZoneBorder { kind: *kind },
+            ));
+        }
+
+        // Portal glow behind EnterDepths
+        if is_portal {
+            commands.spawn((
+                Sprite {
+                    color: Color::srgba(0.3, 0.8, 0.7, 0.7),
+                    custom_size: Some(Vec2::new(*w + 16.0, *h + 16.0)),
+                    anchor: Anchor::Center,
+                    ..default()
+                },
+                Transform::from_xyz(*x, *y, zone_z - 0.03),
+                HubZoneGlow,
+            ));
+
+            // Brighter portal border
             commands.spawn((
                 Sprite {
                     color: Color::srgba(0.3, 0.8, 0.7, 0.4),
@@ -180,7 +228,7 @@ fn spawn_hub_menu(mut commands: Commands) {
                     ..default()
                 },
                 Transform::from_xyz(*x, *y, zone_z - 0.01),
-                HubZone { kind: *kind },
+                HubZone { kind: *kind, base_color: *color },
             ));
         }
 
@@ -193,7 +241,7 @@ fn spawn_hub_menu(mut commands: Commands) {
                 ..default()
             },
             Transform::from_xyz(*x, *y, zone_z),
-            HubZone { kind: *kind },
+            HubZone { kind: *kind, base_color: *color },
         ));
 
         // Text label + subtitle
@@ -221,7 +269,7 @@ fn spawn_hub_menu(mut commands: Commands) {
             Anchor::Center,
             TextLayout::new_with_justify(JustifyText::Center),
             Transform::from_xyz(*x, *y, HUB_TEXT_Z),
-            HubZone { kind: *kind },
+            HubZone { kind: *kind, base_color: Color::WHITE }, // text entities don't use base_color for shading
         ));
 
         // Keyboard hint below the zone
@@ -242,7 +290,7 @@ fn spawn_hub_menu(mut commands: Commands) {
             Anchor::Center,
             TextLayout::new_with_justify(JustifyText::Center),
             Transform::from_xyz(*x, *y - *h / 2.0 - 14.0, HUB_TEXT_Z),
-            HubZone { kind: *kind },
+            HubZone { kind: *kind, base_color: Color::WHITE },
         ));
     }
 
@@ -265,7 +313,7 @@ fn spawn_hub_menu(mut commands: Commands) {
 /// Despawn all hub entities when leaving MainMenu.
 fn despawn_hub_menu(
     mut commands: Commands,
-    zones: Query<Entity, Or<(With<HubZone>, With<HubBackground>, With<HubOverlay>)>>,
+    zones: Query<Entity, Or<(With<HubZone>, With<HubBackground>, With<HubOverlay>, With<HubZoneBorder>, With<HubZoneGlow>)>>,
 ) {
     for entity in &zones {
         commands.entity(entity).despawn();
@@ -381,9 +429,12 @@ fn spawn_overlay(commands: &mut Commands, text: String) {
 fn hub_interaction_system(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
+    time: Res<Time>,
     windows: Query<&Window>,
     camera_q: Query<(&Camera, &GlobalTransform), With<crate::components::MainCamera>>,
     zones: Query<(&HubZone, &Transform), (With<HubZone>, Without<HubBackground>)>,
+    mut zone_sprites: Query<(&HubZone, &mut Sprite), (With<HubZone>, Without<HubBackground>)>,
+    mut glow_q: Query<&mut Sprite, With<HubZoneGlow>>,
     overlays: Query<Entity, With<HubOverlay>>,
     run: Res<RunState>,
     meta: Res<MetaConfig>,
@@ -392,6 +443,70 @@ fn hub_interaction_system(
     mut commands: Commands,
 ) {
     let overlay_open = !overlays.is_empty();
+
+    // ── Portal glow pulse ───────────────────────────────────────────
+    for mut glow_sprite in &mut glow_q {
+        let pulse = (time.elapsed_secs() * 2.0).sin() * 0.3 + 0.7;
+        glow_sprite.color.set_alpha(pulse);
+    }
+
+    // ── Zone hover highlight ────────────────────────────────────────
+    // Check mouse cursor against each zone's transform. If hovering,
+    // brighten the zone sprite by 1.3x. Restore to base_color when not.
+    let mut hovered_zone: Option<HubZoneKind> = None;
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let Ok((camera, camera_transform)) = camera_q.single() else {
+        return;
+    };
+    if let Some(cursor_pos) = window.cursor_position() {
+        if let Ok(world_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) {
+            for (zone, transform) in &zones {
+                let zone_size = if zone.kind == HubZoneKind::EnterDepths {
+                    Vec2::new(PORTAL_W, PORTAL_H)
+                } else {
+                    Vec2::new(ZONE_W, ZONE_H)
+                };
+                let half = zone_size / 2.0;
+                let pos = transform.translation.truncate();
+                if world_pos.x >= pos.x - half.x
+                    && world_pos.x <= pos.x + half.x
+                    && world_pos.y >= pos.y - half.y
+                    && world_pos.y <= pos.y + half.y
+                {
+                    hovered_zone = Some(zone.kind);
+                    break;
+                }
+            }
+        }
+    }
+
+    // ── Apply hover color to zone body sprites ──────────────────────
+    if overlay_open {
+        // When overlay is open, restore all zones to base color.
+        for (zone, mut sprite) in &mut zone_sprites {
+            sprite.color = zone.base_color;
+        }
+    } else if let Some(hovered) = hovered_zone {
+        for (zone, mut sprite) in &mut zone_sprites {
+            if zone.kind == hovered {
+                let bc = zone.base_color.to_srgba();
+                sprite.color = Color::srgb(
+                    (bc.red * 1.3).min(1.0),
+                    (bc.green * 1.3).min(1.0),
+                    (bc.blue * 1.3).min(1.0),
+                );
+            } else {
+                sprite.color = zone.base_color;
+            }
+        }
+    } else {
+        // No hover, restore all.
+        for (zone, mut sprite) in &mut zone_sprites {
+            sprite.color = zone.base_color;
+        }
+    }
 
     // ESC: if an overlay is open, close it. Otherwise quit.
     if keys.just_pressed(KeyCode::Escape) {
