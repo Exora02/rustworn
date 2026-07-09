@@ -49,6 +49,10 @@ human-panic = "2.0"
 # directly so we can use `info!`, `warn!`, etc. in our own code.
 log = "0.4"
 
+# Meta-progression: persistent save data
+serde = { version = "1", features = ["derive"] }
+ron = "0.8"
+
 [profile.dev]
 # Bevy debug rebuilds are painful without these. opt-level 1 keeps the
 # binary fast enough to test gameplay while shaving ~40% off link time.

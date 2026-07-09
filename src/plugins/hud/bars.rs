@@ -377,6 +377,15 @@ pub fn hud_update_system(
                 );
                 *vis = boss_alive_global_flag;
             }
+            // Meta shop: screen-stable at fixed offset from player
+            // (only visible in MainMenu, where the player is at origin).
+            HudElementKind::MetaShop => {
+                tf.translation = Vec3::new(
+                    player_pos.x - 580.0,
+                    player_pos.y + 320.0,
+                    tf.translation.z,
+                );
+            }
         }
     }
 }

@@ -153,6 +153,9 @@ pub enum HudElementKind {
     /// is a warm gold so it reads as "Cascade progress" rather
     /// than "kill counter" (which is a dim white).
     XpBar,
+    /// Phase 3 meta-progression: upgrade shop. Visible only on the
+    /// MainMenu screen. Shows Crown balance + 8 upgrade rows.
+    MetaShop,
 }
 
 /// Phase 1 cascade telegraph: a full-screen overlay sprite that

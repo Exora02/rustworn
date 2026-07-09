@@ -3727,6 +3727,8 @@ dependencies = [
  "bevy",
  "human-panic",
  "log",
+ "ron",
+ "serde",
 ]
 
 [[package]]

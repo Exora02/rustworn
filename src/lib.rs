@@ -27,8 +27,8 @@ use bevy::prelude::*;
 use bevy::window::WindowResolution;
 
 use crate::plugins::{
-    CombatPlugin, EnemyPlugin, FxPlugin, HudPlugin, PickupsPlugin, PlayerPlugin, RoomsPlugin,
-    SetupPlugin,
+    CombatPlugin, EnemyPlugin, FxPlugin, HudPlugin, MetaPlugin, PickupsPlugin, PlayerPlugin,
+    RoomsPlugin, SetupPlugin,
 };
 
 /// Boot the Bevy app. Called from `main.rs` and (eventually) from tests.
@@ -67,6 +67,7 @@ pub fn run() {
         // door(s) to `locked = false`.
         .add_event::<events::RoomClearedEvent>()
         .add_plugins(SetupPlugin)
+        .add_plugins(MetaPlugin)
         // Phase 2: RoomsPlugin must be added AFTER SetupPlugin so
         // its `setup_rooms_system` (OnEnter InRun) fires after
         // `enter_in_run_system`. The OnEnter systems run in
