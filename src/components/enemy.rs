@@ -274,6 +274,16 @@ pub struct DeathPuff {
     pub lifetime: Timer,
 }
 
+/// Phase 5 game juice: small burst particle spawned on enemy death.
+/// Each particle has a fixed lifetime, an outward velocity, and
+/// fades from its spawn color toward transparent. Spawned in groups
+/// of 3-5 at the death position.
+#[derive(Component)]
+pub struct DeathParticle {
+    pub lifetime: Timer,
+    pub velocity: Vec2,
+}
+
 /// Brief white flash on an enemy when hit by a projectile. Inserted
 /// by the projectile-damage system on every hit (not just kills).
 /// Drives a per-frame color lerp in the enemy plugin; the system

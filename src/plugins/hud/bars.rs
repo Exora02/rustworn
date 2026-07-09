@@ -352,25 +352,29 @@ pub fn hud_update_system(
                 }
             }
             HudElementKind::GameOver => {
-                tf.translation = Vec3::new(
-                    player_pos.x,
-                    player_pos.y + super::overlay::GAME_OVER_OFFSET_Y,
-                    tf.translation.z,
-                );
+                tf.translation = Vec3::new(player_pos.x, player_pos.y, tf.translation.z);
+                if let Some(mut text) = text {
+                    let title = if run.game_over_reason == crate::components::GameOverReason::Died {
+                        "[ GAME OVER ]"
+                    } else {
+                        "[ EXTRACTED! ]"
+                    };
+                    text.0 = super::overlay::format_stats_text(&run, title);
+                }
             }
             HudElementKind::GameOverExtracted => {
-                tf.translation = Vec3::new(
-                    player_pos.x,
-                    player_pos.y + super::overlay::GAME_OVER_OFFSET_Y,
-                    tf.translation.z,
-                );
+                tf.translation = Vec3::new(player_pos.x, player_pos.y, tf.translation.z);
+                if let Some(mut text) = text {
+                    let title = if run.game_over_reason == crate::components::GameOverReason::Died {
+                        "[ GAME OVER ]"
+                    } else {
+                        "[ EXTRACTED! ]"
+                    };
+                    text.0 = super::overlay::format_stats_text(&run, title);
+                }
             }
             HudElementKind::RestartPrompt => {
-                tf.translation = Vec3::new(
-                    player_pos.x,
-                    player_pos.y + super::overlay::RESTART_PROMPT_OFFSET_Y,
-                    tf.translation.z,
-                );
+                tf.translation = Vec3::new(player_pos.x, player_pos.y + 200.0, tf.translation.z);
             }
             HudElementKind::BossHpBar => {
                 tf.translation = Vec3::new(

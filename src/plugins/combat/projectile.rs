@@ -8,12 +8,13 @@ use bevy::prelude::*;
 use log::warn;
 
 use crate::components::{
-    Beacon, Collider, Elite, Enemy, EnemyAI, Health, HitFlash, Invulnerable, Knockback,
+    Beacon, Boss, Collider, Elite, Enemy, EnemyAI, Health, HitFlash, Invulnerable, Knockback,
     PickupKind, Player, Projectile, Team,
 };
 use crate::events::{DamageEvent, EnemyKilledEvent};
 use crate::plugins::enemy::spawn_death_puff;
 use crate::plugins::fx::spawn_hit_spark;
+use crate::plugins::fx::spawn_death_particles;
 use crate::plugins::pickups::{
     roll_gold_drop, roll_health_drop, roll_pickup_drop, roll_weapon_drop, spawn_pickup,
 };
@@ -67,9 +68,19 @@ pub fn projectile_damage_system(
     mut rng: ResMut<RunRng>,
     mut cascade: ResMut<CascadeState>,
     mut commands: Commands,
+    mut shake: ResMut<ScreenShake>,
     projectiles: Query<(Entity, &Transform, &Collider, &Projectile)>,
     mut enemies: Query<
-        (Entity, &Transform, &Collider, &mut Health, &EnemyAI, Has<Beacon>, Has<Elite>),
+        (
+            Entity,
+            &Transform,
+            &Collider,
+            &mut Health,
+            &EnemyAI,
+            Has<Beacon>,
+            Has<Elite>,
+            Has<Boss>,
+        ),
         With<Enemy>,
     >,
     mut damage_events: EventWriter<DamageEvent>,
@@ -88,7 +99,9 @@ pub fn projectile_damage_system(
         let proj_pos = proj_tf.translation.truncate();
 
         let mut hit = false;
-        for (enemy_entity, enemy_tf, enemy_col, mut health, enemy_ai, is_beacon, is_elite) in &mut enemies {
+        for (enemy_entity, enemy_tf, enemy_col, mut health, enemy_ai, is_beacon, is_elite, is_boss) in
+            &mut enemies
+        {
             if !aabb_overlap(
                 proj_pos,
                 proj_col.half_extents,
@@ -122,6 +135,15 @@ pub fn projectile_damage_system(
             if health.current <= 0.0 {
                 commands.entity(enemy_entity).despawn();
                 spawn_death_puff(&mut commands, &settings, enemy_pos);
+                // Phase 5 game juice: spawn death burst particles.
+                spawn_death_particles(&mut commands, enemy_pos);
+                // Phase 5 game juice: stronger screen shake on boss
+                // kills for a meatier feel.
+                if is_boss {
+                    shake.intensity = settings.screen_shake_intensity * 2.5;
+                    shake.duration = settings.screen_shake_duration_s * 2.0;
+                    shake.remaining = shake.duration;
+                }
                 // Day 15-16: bump the kill counter so the HUD bar
                 // reflects progress. Saturating add would be cleaner
                 // if we ever expected a "win" state; for now an

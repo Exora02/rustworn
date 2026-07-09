@@ -13,7 +13,7 @@ pub mod world;
 
 pub use enemy::{
     AiBehavior, Beacon, BomberState, Boss, BossPhase, BossProjectile, BossState, DamageNumber, DasherPhase,
-    DasherState, DeathPuff, Elite, Enemy, EnemyAI, EnemyArchetype, HitFlash, HitSpark,
+    DasherState, DeathParticle, DeathPuff, Elite, Enemy, EnemyAI, EnemyArchetype, HitFlash, HitSpark,
     MotionTrail, OrbiterState, PickupPopup, ShooterState, SniperState, TrailGhost,
 };
 pub use misc::{

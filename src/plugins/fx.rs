@@ -12,7 +12,9 @@
 
 use bevy::prelude::*;
 
-use crate::components::{AppState, DamageNumber, HitSpark, MotionTrail, TrailGhost};
+use crate::components::{
+    AppState, DamageNumber, DeathParticle, HitSpark, MotionTrail, Player, TrailGhost,
+};
 use crate::resources::{CascadeState, GameSettings};
 
 pub struct FxPlugin;
@@ -43,6 +45,14 @@ impl Plugin for FxPlugin {
             Update,
             (trail_spawn_system, trail_fade_system)
                 .chain()
+                .run_if(in_state(AppState::InRun)),
+        );
+        // Phase 5 game juice: death particle burst ticks every
+        // frame (also runs during hitstop so particles visually
+        // freeze along with the action).
+        app.add_systems(
+            Update,
+            (death_particle_tick_system, player_motion_trail_system)
                 .run_if(in_state(AppState::InRun)),
         );
     }
@@ -195,9 +205,7 @@ fn trail_spawn_system(
             (color.to_srgba().blue + 0.15).min(1.0),
             0.35,
         );
-        let size = sprite
-            .custom_size
-            .unwrap_or(Vec2::splat(30.0));
+        let size = sprite.custom_size.unwrap_or(Vec2::splat(30.0));
         commands.spawn((
             TrailGhost {
                 lifetime: Timer::from_seconds(TRAIL_GHOST_LIFETIME_S, TimerMode::Once),
@@ -234,4 +242,104 @@ fn trail_fade_system(
             commands.entity(entity).despawn();
         }
     }
+}
+
+// ─── Phase 5 game juice ─────────────────────────────────────────────
+
+/// Color palette for death burst particles. Picked to be distinct
+/// from enemy colours and easy to read against any background.
+const DEATH_PARTICLE_COLORS: [Color; 5] = [
+    Color::srgb(1.0, 0.5, 0.0),   // orange
+    Color::srgb(1.0, 0.2, 0.1),   // red
+    Color::srgb(1.0, 0.8, 0.2),   // gold
+    Color::srgb(1.0, 1.0, 0.4),   // yellow
+    Color::srgb(1.0, 0.6, 0.4),   // salmon
+];
+
+/// Death-particle lifetime in seconds.
+const DEATH_PARTICLE_LIFETIME_S: f32 = 0.4;
+
+/// Spawn 3-5 small colored particles at `position` that fly outward
+/// in random directions and fade. Called from the death path in both
+/// `projectile_damage_system` and `beam_damage_system`.
+pub fn spawn_death_particles(commands: &mut Commands, position: Vec2) {
+    use std::f32::consts::TAU;
+    let count = 4;
+    let base_angle = position.x + position.y; // cheap pseudo-random seed
+    for i in 0..count {
+        let angle = base_angle + (i as f32 / count as f32) * TAU;
+        let speed = 60.0 + (i as f32 * 17.3) % 40.0;
+        let vel = Vec2::new(angle.cos(), angle.sin()) * speed;
+        let color = DEATH_PARTICLE_COLORS[i % DEATH_PARTICLE_COLORS.len()];
+        commands.spawn((
+            DeathParticle {
+                lifetime: Timer::from_seconds(DEATH_PARTICLE_LIFETIME_S, TimerMode::Once),
+                velocity: vel,
+            },
+            Sprite {
+                color,
+                custom_size: Some(Vec2::splat(5.0)),
+                ..default()
+            },
+            Transform::from_xyz(position.x, position.y, 0.55),
+            Visibility::Inherited,
+        ));
+    }
+}
+
+/// Per-frame update for death burst particles: move outward, fade
+/// alpha, despawn on expiry.
+fn death_particle_tick_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut q: Query<(Entity, &mut DeathParticle, &mut Transform, &mut Sprite)>,
+) {
+    for (entity, mut particle, mut tf, mut sprite) in &mut q {
+        particle.lifetime.tick(time.delta());
+        let t = if particle.lifetime.duration().as_secs_f32() > 0.0 {
+            (particle.lifetime.elapsed_secs() / particle.lifetime.duration().as_secs_f32())
+                .clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        // Move outward.
+        tf.translation.x += particle.velocity.x * time.delta_secs();
+        tf.translation.y += particle.velocity.y * time.delta_secs();
+        // Fade alpha.
+        let alpha = (1.0 - t).powf(0.6);
+        sprite.color = sprite.color.with_alpha(alpha);
+        if particle.lifetime.finished() {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+/// Always-on player trail: every frame, spawn a semi-transparent
+/// copy of the player sprite at the player's current position with
+/// a short 0.1s lifetime. Unlike the Cascade-gated `trail_spawn_system`,
+/// this runs independently whenever the player is alive, providing a
+/// constant movement-juice trail effect.
+fn player_motion_trail_system(
+    mut commands: Commands,
+    player_query: Query<(&Transform, &Sprite), (With<Player>, Without<TrailGhost>)>,
+) {
+    let Ok((tf, sprite)) = player_query.get_single() else {
+        return;
+    };
+    let pos = tf.translation;
+    let color = sprite.color.with_alpha(0.20);
+    let size = sprite.custom_size.unwrap_or(Vec2::splat(30.0));
+    commands.spawn((
+        TrailGhost {
+            lifetime: Timer::from_seconds(0.1, TimerMode::Once),
+            initial_color: color,
+        },
+        Sprite {
+            color,
+            custom_size: Some(size * 0.85),
+            ..default()
+        },
+        Transform::from_xyz(pos.x, pos.y, 0.25),
+        Visibility::Inherited,
+    ));
 }

@@ -1,11 +1,12 @@
-//! Game-over overlay and restart prompt.
+//! Game-over overlay with run stats breakdown.
 //!
-//! Two entities each: a colored box (sprite) and a text label.
-//! They live on separate entities so the text can sit at a higher
-//! z than the sprite (Bevy 2D sorts back-to-front by z, and same-z
-//! is arbitrary — without the z offset the sprite would obscure
-//! the text on at least some drivers). Both entities are positioned
-//! + visibility-toggled by `hud_update_system`.
+//! Two multi-line Text2d entities: a stats summary for death and one
+//! for extraction. Each contains the title ("GAME OVER" / "EXTRACTED!"),
+//! run stats (floors, kills, gold, time, crowns), and instructions.
+//! A separate RestartPrompt entity sits below showing input options.
+//!
+//! The text content is updated dynamically each frame by
+//! `hud_update_system` so the values reflect the final RunState.
 
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
@@ -15,148 +16,150 @@ use crate::components::{HudElement, HudElementKind};
 
 use super::HUD_Z;
 
-pub const GAME_OVER_COLOR: Color = Color::srgba(0.85, 0.10, 0.10, 0.90);
-pub const GAME_OVER_WIDTH: f32 = 360.0;
-pub const GAME_OVER_HEIGHT: f32 = 80.0;
-pub const GAME_OVER_OFFSET_Y: f32 = -60.0;
-pub const GAME_OVER_TEXT: &str = "GAME OVER";
-// Sized to fit comfortably in the 360×80 box with ~16px vertical
-// breathing room. 48 = cap height ~36, full glyph height ~48, so
-// the descender on "G" is the closest any letter gets to the
-// bottom edge. 96 (the previous value) overflowed the box top
-// and bottom — the text rendered, just got clipped/looked huge.
-pub const GAME_OVER_FONT_SIZE: f32 = 48.0;
+pub const GAME_OVER_BG_COLOR: Color = Color::srgba(0.20, 0.05, 0.05, 0.85);
+pub const EXTRACT_BG_COLOR: Color = Color::srgba(0.05, 0.20, 0.08, 0.85);
+/// Default text color for stats lines.
+const STATS_TEXT_COLOR: Color = Color::srgb(0.85, 0.85, 0.85);
 
-/// Extraction overlay uses the same dimensions as the game-over
-/// overlay but a golden color scheme instead of red.
-pub const EXTRACT_COLOR: Color = Color::srgba(0.20, 0.80, 0.30, 0.90);
+/// BG sprite size — large enough to cover the screen center area.
+pub const GAME_OVER_BG_SIZE: (f32, f32) = (500.0, 320.0);
 
-pub const RESTART_PROMPT_COLOR: Color = Color::srgba(0.30, 0.85, 0.30, 0.90);
-pub const RESTART_PROMPT_WIDTH: f32 = 240.0;
-pub const RESTART_PROMPT_HEIGHT: f32 = 40.0;
-pub const RESTART_PROMPT_OFFSET_Y: f32 = 50.0;
-pub const RESTART_TEXT: &str = "Press R to restart";
-// 240×40 box → font_size 24 fits with ~8px vertical margin.
-pub const RESTART_FONT_SIZE: f32 = 24.0;
+/// Z offsets for the bg sprite and text layers.
+pub const BG_Z: f32 = HUD_Z + 0.2;
+pub const TEXT_Z: f32 = HUD_Z + 0.3;
 
-/// Spawn the game-over overlay + restart prompt entities (called
-/// from `spawn_hud` in mod.rs).
+/// Placeholder text that gets replaced every frame during GameOver.
+/// We need non-empty text so the Text2d entity has valid content at
+/// spawn time (Bevy doesn't render empty text). The hud_update_system
+/// overwrites this immediately when the state becomes GameOver.
+const PLACEHOLDER_TEXT: &str = "GAME OVER\n\n\n\n\n";
+
+/// Spawn the game-over stats overlays + restart prompt (called from
+/// `spawn_hud` in mod.rs).
 pub fn spawn_game_over_overlay(commands: &mut Commands) {
-    // Game-over overlay. Two entities sharing the same
-    // `HudElementKind::GameOver`: the colored box (sprite) and
-    // the text label. They live on separate entities so the
-    // text can sit at a higher z than the sprite (Bevy 2D
-    // sorts back-to-front by z, and same-z is arbitrary —
-    // without the z offset the sprite would obscure the text
-    // on at least some drivers). Both entities are positioned
-    // + visibility-toggled by `hud_update_system`.
+    // Death overlay: dim bg box (so the stats text is readable on
+    // any background) + multi-line stats text.
     commands.spawn((
         Sprite {
-            color: GAME_OVER_COLOR,
-            custom_size: Some(Vec2::new(GAME_OVER_WIDTH, GAME_OVER_HEIGHT)),
+            color: GAME_OVER_BG_COLOR,
+            custom_size: Some(Vec2::new(GAME_OVER_BG_SIZE.0, GAME_OVER_BG_SIZE.1)),
             anchor: Anchor::Center,
             ..default()
         },
-        Transform::from_xyz(0.0, GAME_OVER_OFFSET_Y, HUD_Z + 0.2),
+        Transform::from_xyz(0.0, 0.0, BG_Z),
         Visibility::Hidden,
         HudElement {
             kind: HudElementKind::GameOver,
         },
     ));
     commands.spawn((
-        Text2d::new(GAME_OVER_TEXT),
+        Text2d::new(PLACEHOLDER_TEXT),
         TextFont {
-            font_size: GAME_OVER_FONT_SIZE,
+            font_size: 20.0,
             ..default()
         },
-        // Bright yellow on the red box — high contrast in case
-        // the previous white-on-red was getting eaten by the
-        // semi-transparent red overlay.
-        TextColor(Color::srgb(1.0, 0.95, 0.20)),
-        // Explicit `Anchor::Center` as a separate component
-        // (in addition to the auto-required default) — the
-        // `Text2d::new` constructor's `#[require(...)]` should
-        // insert this automatically, but on the user's Bazzite
-        // box the text isn't rendering at all even with the
-        // z-offset fix, so we set it explicitly to rule out
-        // a missing auto-requirement.
-        // (See bevy-0.16-gotchas §12 correction note.)
+        TextColor(STATS_TEXT_COLOR),
         Anchor::Center,
-        // Explicit `TextLayout` with center justification. The
-        // default is left-aligned, which would put the text at
-        // the left edge of the box even with `Anchor::Center`
-        // on the entity. For "GAME OVER" (a short string) the
-        // difference is small, but for "Press R to restart"
-        // (longer) it's visible. Setting this explicitly
-        // removes one variable from the "why isn't it
-        // rendering" investigation.
         TextLayout::new_with_justify(JustifyText::Center),
-        Transform::from_xyz(0.0, GAME_OVER_OFFSET_Y, HUD_Z + 0.3),
+        Transform::from_xyz(0.0, 0.0, TEXT_Z),
         Visibility::Hidden,
         HudElement {
             kind: HudElementKind::GameOver,
         },
     ));
 
-    // \"EXTRACTED!\" overlay — same layout as GameOver but green/gold box.
+    // Extraction overlay: green-tinted bg + multi-line stats text.
     commands.spawn((
         Sprite {
-            color: EXTRACT_COLOR,
-            custom_size: Some(Vec2::new(GAME_OVER_WIDTH, GAME_OVER_HEIGHT)),
+            color: EXTRACT_BG_COLOR,
+            custom_size: Some(Vec2::new(GAME_OVER_BG_SIZE.0, GAME_OVER_BG_SIZE.1)),
             anchor: Anchor::Center,
             ..default()
         },
-        Transform::from_xyz(0.0, GAME_OVER_OFFSET_Y, HUD_Z + 0.2),
+        Transform::from_xyz(0.0, 0.0, BG_Z),
         Visibility::Hidden,
         HudElement {
             kind: HudElementKind::GameOverExtracted,
         },
     ));
     commands.spawn((
-        Text2d::new("EXTRACTED!"),
+        Text2d::new(PLACEHOLDER_TEXT),
         TextFont {
-            font_size: GAME_OVER_FONT_SIZE,
+            font_size: 20.0,
             ..default()
         },
-        TextColor(Color::srgb(1.0, 0.95, 0.20)),
+        TextColor(STATS_TEXT_COLOR),
         Anchor::Center,
         TextLayout::new_with_justify(JustifyText::Center),
-        Transform::from_xyz(0.0, GAME_OVER_OFFSET_Y, HUD_Z + 0.3),
+        Transform::from_xyz(0.0, 0.0, TEXT_Z),
         Visibility::Hidden,
         HudElement {
             kind: HudElementKind::GameOverExtracted,
         },
     ));
 
-    // Restart prompt: same two-entity pattern (box + text) as
-    // the game-over overlay. The two entities are independently
-    // positioned by `hud_update_system` so they stay in lockstep.
+    // Restart prompt: centered below the stats box.
     commands.spawn((
         Sprite {
-            color: RESTART_PROMPT_COLOR,
-            custom_size: Some(Vec2::new(RESTART_PROMPT_WIDTH, RESTART_PROMPT_HEIGHT)),
+            color: Color::srgba(0.30, 0.85, 0.30, 0.90),
+            custom_size: Some(Vec2::new(280.0, 36.0)),
             anchor: Anchor::Center,
             ..default()
         },
-        Transform::from_xyz(0.0, RESTART_PROMPT_OFFSET_Y, HUD_Z + 0.2),
+        Transform::from_xyz(0.0, 200.0, BG_Z),
         Visibility::Hidden,
         HudElement {
             kind: HudElementKind::RestartPrompt,
         },
     ));
     commands.spawn((
-        Text2d::new(RESTART_TEXT),
+        Text2d::new("R to restart  |  ESC to exit"),
         TextFont {
-            font_size: RESTART_FONT_SIZE,
+            font_size: 20.0,
             ..default()
         },
         TextColor(Color::WHITE),
         Anchor::Center,
         TextLayout::new_with_justify(JustifyText::Center),
-        Transform::from_xyz(0.0, RESTART_PROMPT_OFFSET_Y, HUD_Z + 0.3),
+        Transform::from_xyz(0.0, 200.0, TEXT_Z),
         Visibility::Hidden,
         HudElement {
             kind: HudElementKind::RestartPrompt,
         },
     ));
+}
+
+/// Format the elapsed time (seconds) as "Mm Ss" — e.g., "2m 14s".
+pub fn format_time(secs: f32) -> String {
+    let total = secs as u32;
+    let minutes = total / 60;
+    let seconds = total % 60;
+    format!("{}m {:02}s", minutes, seconds)
+}
+
+/// Format the stats text for the current RunState.
+pub fn format_stats_text(run: &crate::resources::RunState, title: &str) -> String {
+    let floors = run.biome_index;
+    let kills = run.enemies_killed;
+    let gold = run.gold;
+    let time_str = format_time(run.time_elapsed);
+    let crowns = floors * 12 + gold / 3;
+
+    format!(
+        "\
+{title}
+━━━━━━━━━━━━━━━━━━━━
+
+Floors Cleared:  {floors}
+Enemies Killed:  {kills}
+Gold Collected:  {gold}
+Time Survived:   {time_str}
+Crowns Earned:   {crowns}",
+        title = title,
+        floors = floors,
+        kills = kills,
+        gold = gold,
+        time_str = time_str,
+        crowns = crowns,
+    )
 }
