@@ -15,7 +15,7 @@ use crate::components::{
     WeaponArchetype, WeaponInventory,
 };
 use crate::events::PickupCollectedEvent;
-use crate::resources::{GameSettings, RunState, UnlockableKind};
+use crate::resources::{GameSettings, RunState, UnlockableKind, UNLOCKABLE_COUNT};
 
 const PICKUP_SIZE: f32 = 14.0;
 
@@ -334,7 +334,7 @@ pub fn roll_weapon_drop(
     settings: &GameSettings,
     cascade_active: bool,
     curse: u32,
-    unlocks: &[bool; 8],
+    unlocks: &[bool; UNLOCKABLE_COUNT],
     rng: &mut impl FnMut() -> f32,
 ) -> Option<WeaponArchetype> {
     let chance = match behavior {
@@ -363,9 +363,7 @@ pub fn roll_weapon_drop(
     }
     // Build the pool of available weapon archetypes.
     // Pistol and Shotgun are always available.
-    // Beam, Burst, and RocketLauncher require the corresponding unlock.
-    // Note: the old 4-way roll (Pistol/Shotgun/Burst/Beam) is updated
-    // to include Rocket Launcher when unlocked.
+    // Beam, Burst, RocketLauncher, Sniper, SMG, ArcGun require unlocks.
     let mut available: Vec<WeaponArchetype> = vec![
         WeaponArchetype::Pistol,
         WeaponArchetype::Shotgun,
@@ -377,8 +375,16 @@ pub fn roll_weapon_drop(
         available.push(WeaponArchetype::Beam);
     }
     if unlocks[UnlockableKind::RocketLauncher as usize] {
-        // RocketLauncher is a WeaponArchetype variant.
         available.push(WeaponArchetype::RocketLauncher);
+    }
+    if unlocks[UnlockableKind::Sniper as usize] {
+        available.push(WeaponArchetype::Sniper);
+    }
+    if unlocks[UnlockableKind::SMG as usize] {
+        available.push(WeaponArchetype::SMG);
+    }
+    if unlocks[UnlockableKind::ArcGun as usize] {
+        available.push(WeaponArchetype::ArcGun);
     }
     // If no weapons are unlocked beyond Pistol/Shotgun, just Pistol.
     if available.is_empty() {
@@ -557,7 +563,7 @@ mod tests {
     fn roll_weapon_drop_returns_some_when_chance_is_one() {
         let s = settings();
         let mut rng = || 0.0_f32; // first rng() < 1.0 → drop
-        let result = roll_weapon_drop(AiBehavior::Chaser, &s, false, 0, &[true; 8], &mut rng);
+        let result = roll_weapon_drop(AiBehavior::Chaser, &s, false, 0, &[true; UNLOCKABLE_COUNT], &mut rng);
         assert!(result.is_some(), "chance=1.0 must always drop");
         assert!(matches!(
             result.unwrap(),

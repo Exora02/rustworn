@@ -23,7 +23,7 @@ use crate::plugins::pickups::{
 };
 
 use super::aabb_overlap;
-use crate::resources::{CascadeState, CrownSave, GameSettings, Hitstop, RunRng, RunState};
+use crate::resources::{CascadeState, CrownSave, GameSettings, Hitstop, RunRng, RunState, ScreenShake, UNLOCKABLE_COUNT};
 
 use super::{in_hitstop, on_enemy_killed, point_to_segment_distance};
 
@@ -292,7 +292,7 @@ pub fn breakable_damage_system(
                 }
                 // Roll weapon drop (same stand-in).
                 if let Some(weapon_kind) =
-                                roll_weapon_drop(AiBehavior::Chaser, &settings, cascade.active, run.curse, &[true; 8], &mut rng)
+                                roll_weapon_drop(AiBehavior::Chaser, &settings, cascade.active, run.curse, &[true; UNLOCKABLE_COUNT], &mut rng)
                 {
                     spawn_pickup(
                         &mut commands,

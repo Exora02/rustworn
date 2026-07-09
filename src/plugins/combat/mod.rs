@@ -211,18 +211,23 @@ pub(crate) fn weapon_stats_for(archetype: WeaponArchetype) -> (f32, f32, f32, u3
         // for Beam) wouldn't even spawn anything.
         WeaponArchetype::Beam => (0.5, 10.0, 0.0, 1, 0.0, 1),
         WeaponArchetype::RocketLauncher => (5.0, 0.5, 350.0, 1, 0.0, 1),
+        WeaponArchetype::Sniper => (4.0, 0.5, 900.0, 1, 0.0, 1),
+        WeaponArchetype::SMG => (0.4, 8.0, 500.0, 1, 0.2, 1),
+        WeaponArchetype::ArcGun => (0.8, 2.0, 400.0, 1, 0.0, 1),
     }
 }
 
-// Cycle order: Pistol → Shotgun → Burst → Beam → RocketLauncher → Pistol. New
-// weapons slot in here.
+// Cycle order: Pistol → Shotgun → Burst → Beam → RocketLauncher → Sniper → SMG → ArcGun → Pistol.
 pub(crate) fn next_archetype(current: WeaponArchetype) -> WeaponArchetype {
     match current {
         WeaponArchetype::Pistol => WeaponArchetype::Shotgun,
         WeaponArchetype::Shotgun => WeaponArchetype::Burst,
         WeaponArchetype::Burst => WeaponArchetype::Beam,
         WeaponArchetype::Beam => WeaponArchetype::RocketLauncher,
-        WeaponArchetype::RocketLauncher => WeaponArchetype::Pistol,
+        WeaponArchetype::RocketLauncher => WeaponArchetype::Sniper,
+        WeaponArchetype::Sniper => WeaponArchetype::SMG,
+        WeaponArchetype::SMG => WeaponArchetype::ArcGun,
+        WeaponArchetype::ArcGun => WeaponArchetype::Pistol,
     }
 }
 

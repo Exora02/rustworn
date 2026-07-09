@@ -199,6 +199,15 @@ pub enum WeaponArchetype {
     /// slower fire rate (0.5 rps), moderate speed (350 u/s).
     /// No explosion AOE — keeps it clean and simple.
     RocketLauncher,
+    /// Sniper: long range, high damage, slow fire rate.
+    /// 4.0 damage, 0.5 fire rate, 900 speed, 1 pellet, no spread.
+    Sniper,
+    /// SMG: fast fire, low damage, spray pattern.
+    /// 0.4 damage, 8.0 fire rate, 500 speed, 1 pellet, spread 0.2.
+    SMG,
+    /// Arc Gun: chain lightning between nearby enemies.
+    /// 0.8 damage, 2.0 fire rate, 400 speed, 1 pellet, no spread.
+    ArcGun,
 }
 
 /// A projectile in flight. Owns its lifetime so the cleanup system

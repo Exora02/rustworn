@@ -97,6 +97,9 @@ fn weapon_fire_audio_system(
             crate::components::WeaponArchetype::Burst => "burst_fire",
             crate::components::WeaponArchetype::Beam => "beam_fire",
             crate::components::WeaponArchetype::RocketLauncher => "rocket_fire",
+            crate::components::WeaponArchetype::Sniper => "sniper_fire",
+            crate::components::WeaponArchetype::SMG => "smg_fire",
+            crate::components::WeaponArchetype::ArcGun => "arcgun_fire",
         };
         // STUB: audio.play_with_settings(
         //     handles.pistol.clone(),

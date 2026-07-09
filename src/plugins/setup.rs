@@ -209,8 +209,8 @@ fn spawn_world(mut commands: Commands, settings: Res<GameSettings>, meta: Res<Me
 
     // Phase 2: title-screen overlay. Spawned once at startup and
     // toggled visible by `state_visibility_system` when state is
-    // `MainMenu`. Hidden in InRun / GameOver. Two entities: a dim
-    // full-screen bg + a centered "PRESS ENTER TO START" text.
+    // `MainMenu`. Hidden in InRun / GameOver. A dim full-screen bg
+    // only — the hub world provides the visual menu.
     // z = MAIN_MENU_Z (above the game-over overlay) so a
     // MainMenu re-entry cleanly covers whatever was on screen.
     commands.spawn((
@@ -225,43 +225,24 @@ fn spawn_world(mut commands: Commands, settings: Res<GameSettings>, meta: Res<Me
             kind: HudElementKind::MainMenu,
         },
     ));
-    commands.spawn((
-        Text2d::new(MAIN_MENU_TEXT),
-        TextFont {
-            font_size: MAIN_MENU_TEXT_SIZE,
-            ..default()
-        },
-        TextColor(MAIN_MENU_TEXT_COLOR),
-        // +0.1 over the bg so the text renders on top within the
-        // same 2D phase (matches the §12 sprite+text z-offset rule).
-        Transform::from_xyz(0.0, 0.0, MAIN_MENU_Z + 0.1),
-        Visibility::Hidden,
-        HudElement {
-            kind: HudElementKind::MainMenu,
-        },
-    ));
 
     // Phase 3 meta-progression: shop overlay. Spawned once at startup,
-        // visible only on MainMenu (toggled by state_visibility_system).
-        // Shows Crown balance + 8 unlockable rows. Each row shows key, name,
-        // locked/unlocked status and cost.
-        //
-        // The shop text is a single large multi-line Text2d entity.
-        // Positioned in the top-left quarter of the screen.
-        //
-        // Build the unlockable shop text dynamically from MetaConfig.
-        let mut shop_lines = String::from("=== CROWN SHOP ===\n\nCrown: {}\n\n");
-        for (i, def) in meta.unlockables.iter().enumerate() {
-            let line = format!(
-                "{}: {:<16} — {:>3} Cr\n",
-                i + 1,
-                def.name,
-                def.base_cost,
-            );
-            shop_lines.push_str(&line);
-        }
-        shop_lines.push_str("\nPress 1-8 to buy  |  ESC to exit");
-        let shop_text = shop_lines;
+    // visible only on MainMenu (toggled by state_visibility_system).
+    // Shows Crown balance + 8 unlockable rows. Each row shows key, name,
+    // locked/unlocked status and cost.
+    //
+    // The shop text is a single large multi-line Text2d entity.
+    // Positioned in the top-left quarter of the screen.
+    //
+    // Build the unlockable shop text dynamically from MetaConfig.
+    let mut shop_lines = String::from("=== CROWN SHOP ===\n\nCrown: {}\n\n");
+    for (i, def) in meta.unlockables.iter().enumerate().take(8) {
+        let line = format!("{}: {:<16} — {:>3} Cr\n", i + 1, def.name, def.base_cost);
+        shop_lines.push_str(&line);
+    }
+    shop_lines.push_str("\n(More items available in runs)\n");
+    shop_lines.push_str("\nPress 1-8 to buy  |  ESC to exit");
+    let shop_text = shop_lines;
     commands.spawn((
         Text2d::new(shop_text),
         TextFont { font_size: 16.0, ..default() },
@@ -606,6 +587,76 @@ fn enter_in_run_system(
         }
         // Explosive Rounds: placeholders for future AoE effect.
         // if save.unlocks[UnlockableKind::ExplosiveRounds as usize] { ... }
+
+        // ─── New weapon unlocks: start with the weapon in inventory ─────
+        // Sniper unlock: add Sniper to inventory if slot available.
+        if save.unlocks[UnlockableKind::Sniper as usize] {
+            if let Some(slot) = inventory.slots.iter_mut().find(|s| s.is_none()) {
+                *slot = Some(WeaponArchetype::Sniper);
+            }
+        }
+        // SMG unlock: add SMG to inventory if slot available.
+        if save.unlocks[UnlockableKind::SMG as usize] {
+            if let Some(slot) = inventory.slots.iter_mut().find(|s| s.is_none()) {
+                *slot = Some(WeaponArchetype::SMG);
+            }
+        }
+        // Arc Gun unlock: add ArcGun to inventory if slot available.
+        if save.unlocks[UnlockableKind::ArcGun as usize] {
+            if let Some(slot) = inventory.slots.iter_mut().find(|s| s.is_none()) {
+                *slot = Some(WeaponArchetype::ArcGun);
+            }
+        }
+
+        // ─── New passive item effects ───────────────────────────────────
+        if save.unlocks[UnlockableKind::SharpenedEdge as usize] {
+            run.pierce += 1;
+        }
+        if save.unlocks[UnlockableKind::RabbitsFoot as usize] {
+            run.luck += 0.15;
+        }
+        if save.unlocks[UnlockableKind::TitaniumPlating as usize] {
+            run.armor += 0.5;
+        }
+        if save.unlocks[UnlockableKind::Scope as usize] {
+            run.range_mult += 0.15;
+        }
+        if save.unlocks[UnlockableKind::HeavyMagazine as usize] {
+            run.attack_speed_mult += 0.2;
+            run.move_speed_mult -= 0.15;
+        }
+        if save.unlocks[UnlockableKind::ConductingRod as usize] {
+            run.chain_targets = 2;
+        }
+        if save.unlocks[UnlockableKind::BloodPrice as usize] {
+            h.current = (h.current + 1.0).min(h.max);
+            run.curse += 1;
+        }
+        // Flags (checked by other systems at runtime)
+        if save.unlocks[UnlockableKind::Adrenaline as usize] {
+            run.adrenaline_unlocked = true;
+        }
+        if save.unlocks[UnlockableKind::ReactiveArmor as usize] {
+            run.reactive_armor = true;
+        }
+        if save.unlocks[UnlockableKind::EchoChamber as usize] {
+            run.echo_chamber = true;
+            run.echo_shot_count = 0;
+        }
+
+        // ─── Active item flags ──────────────────────────────────────────
+        if save.unlocks[UnlockableKind::SmokeBomb as usize] {
+            run.smoke_bomb_unlocked = true;
+        }
+        if save.unlocks[UnlockableKind::RageMode as usize] {
+            run.rage_mode_unlocked = true;
+        }
+        if save.unlocks[UnlockableKind::HealingAura as usize] {
+            run.healing_aura_unlocked = true;
+        }
+        if save.unlocks[UnlockableKind::TimeWarp as usize] {
+            run.time_warp_unlocked = true;
+        }
 
         // Apply character-specific starting stats.
         match run.selected_class {

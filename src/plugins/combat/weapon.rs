@@ -72,6 +72,10 @@ pub fn weapon_switch_system(
         Some(WeaponArchetype::Beam)
     } else if keys.just_pressed(KeyCode::Digit5) {
         Some(WeaponArchetype::RocketLauncher)
+    } else if keys.just_pressed(KeyCode::Digit6) {
+        Some(WeaponArchetype::Sniper)
+    } else if keys.just_pressed(KeyCode::Digit7) {
+        Some(WeaponArchetype::SMG)
     } else if keys.just_pressed(KeyCode::KeyQ) {
         Some(next_archetype(weapon.archetype))
     } else {

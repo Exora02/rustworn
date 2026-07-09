@@ -149,6 +149,28 @@ pub struct RunState {
     pub luck: f32,
     /// Free shop rerolls per run.
     pub rerolls: u32,
+
+    // ─── Unlockable passive effect flags ─────────────────────────────────
+    /// Adrenaline: speed boost when HP < 30%.
+    pub adrenaline_unlocked: bool,
+    /// Reactive Armor: shockwave on damage taken.
+    pub reactive_armor: bool,
+    /// Echo Chamber: every 3rd shot is doubled.
+    pub echo_chamber: bool,
+    /// Conducting Rod: chain to N nearby enemies.
+    pub chain_targets: u32,
+    /// Echo chamber shot counter.
+    pub echo_shot_count: u32,
+
+    // ─── Unlockable active item flags ─────────────────────────────────────
+    /// Smoke Bomb: teleport dodge.
+    pub smoke_bomb_unlocked: bool,
+    /// Rage Mode: 2x damage for 3s.
+    pub rage_mode_unlocked: bool,
+    /// Healing Aura: heal 2 HP over 3s.
+    pub healing_aura_unlocked: bool,
+    /// Time Warp: 50% slow for 2s.
+    pub time_warp_unlocked: bool,
 }
 
 impl Default for RunState {
@@ -199,6 +221,19 @@ impl Default for RunState {
             attack_speed_mult: 1.0,
             luck: 0.0,
             rerolls: 0,
+
+            // Unlockable passive flags
+            adrenaline_unlocked: false,
+            reactive_armor: false,
+            echo_chamber: false,
+            chain_targets: 0,
+            echo_shot_count: 0,
+
+            // Unlockable active item flags
+            smoke_bomb_unlocked: false,
+            rage_mode_unlocked: false,
+            healing_aura_unlocked: false,
+            time_warp_unlocked: false,
         }
     }
 }
