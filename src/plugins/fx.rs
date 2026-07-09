@@ -323,7 +323,7 @@ fn player_motion_trail_system(
     mut commands: Commands,
     player_query: Query<(&Transform, &Sprite), (With<Player>, Without<TrailGhost>)>,
 ) {
-    let Ok((tf, sprite)) = player_query.get_single() else {
+    let Ok((tf, sprite)) = player_query.single() else {
         return;
     };
     let pos = tf.translation;

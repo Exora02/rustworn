@@ -12,6 +12,48 @@ use crate::components::{
 };
 use crate::resources::{FloorState, GameSettings, RunRng};
 
+// ─── Pixel art sprite resource ─────────────────────────────────────────
+
+/// Resource holding handles to all pixel art sprites.
+/// Loaded once at Startup, cloned at spawn time.
+#[derive(Resource)]
+pub struct GameSprites {
+    pub player: Handle<Image>,
+    pub enemy_chaser: Handle<Image>,
+    pub enemy_dasher: Handle<Image>,
+    pub ui_heart: Handle<Image>,
+    pub weapon_pistol: Handle<Image>,
+    pub weapon_shotgun: Handle<Image>,
+    pub weapon_burst: Handle<Image>,
+    pub weapon_beam: Handle<Image>,
+    pub weapon_rocket: Handle<Image>,
+    pub boss_lich: Handle<Image>,
+    pub boss_yeti: Handle<Image>,
+    pub boss_inferno: Handle<Image>,
+    pub boss_treant: Handle<Image>,
+    pub boss_voidwalker: Handle<Image>,
+}
+
+/// Load all pixel art sprites at startup. Called as a Startup system.
+pub fn load_sprites(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands.insert_resource(GameSprites {
+        player: asset_server.load("art/player.png"),
+        enemy_chaser: asset_server.load("art/enemy_chaser.png"),
+        enemy_dasher: asset_server.load("art/enemy_dasher.png"),
+        ui_heart: asset_server.load("art/ui_heart.png"),
+        weapon_pistol: asset_server.load("art/weapon_pistol.png"),
+        weapon_shotgun: asset_server.load("art/weapon_shotgun.png"),
+        weapon_burst: asset_server.load("art/weapon_burst.png"),
+        weapon_beam: asset_server.load("art/weapon_beam.png"),
+        weapon_rocket: asset_server.load("art/weapon_rocket.png"),
+        boss_lich: asset_server.load("art/boss_lich.png"),
+        boss_yeti: asset_server.load("art/boss_yeti.png"),
+        boss_inferno: asset_server.load("art/boss_inferno.png"),
+        boss_treant: asset_server.load("art/boss_treant.png"),
+        boss_voidwalker: asset_server.load("art/boss_voidwalker.png"),
+    });
+}
+
 /// Color of the chaser — high-contrast red so it reads as "danger" at
 /// a glance against the orange player and the dark background we'll
 /// add later.
@@ -210,6 +252,7 @@ pub fn spawn_chaser(
     spawn_pos: Vec2,
     floor: &FloorState,
     is_elite: bool,
+    sprites: &GameSprites,
 ) {
     let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
     let hp = settings.enemy_max_hp * hp_mult * if is_elite { 2.0 } else { 1.0 };
@@ -219,8 +262,10 @@ pub fn spawn_chaser(
         CHASER_COLOR
     };
 
+    // Use pixel art sprite, colored with base_color (tint preserves it)
     let mut spawn = commands.spawn((
         Sprite {
+            image: sprites.enemy_chaser.clone(),
             color: base_color,
             custom_size: Some(Vec2::splat(CHASER_SIZE)),
             ..default()
@@ -251,6 +296,7 @@ pub fn spawn_dasher(
     spawn_pos: Vec2,
     floor: &FloorState,
     is_elite: bool,
+    sprites: &GameSprites,
 ) {
     let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
     let hp = settings.dasher_max_hp * hp_mult * if is_elite { 2.0 } else { 1.0 };
@@ -262,6 +308,7 @@ pub fn spawn_dasher(
 
     let mut spawn = commands.spawn((
         Sprite {
+            image: sprites.enemy_dasher.clone(),
             color: base_color,
             custom_size: Some(Vec2::splat(DASHER_SIZE)),
             ..default()
@@ -631,22 +678,24 @@ pub fn spawn_boss(
     floor: &FloorState,
     position: Vec2,
     biome: Biome,
+    sprites: &GameSprites,
 ) {
     let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
 
-    // Select boss stats per biome.
-    let (boss_color, boss_size, base_hp, _damage) = match biome {
-        Biome::Catacombs => (LICH_COLOR, LICH_SIZE, LICH_HP, LICH_DAMAGE),
-        Biome::Frost => (YETI_COLOR, YETI_SIZE, YETI_HP, YETI_DAMAGE),
-        Biome::Magma => (INFERNO_COLOR, INFERNO_SIZE, INFERNO_HP, INFERNO_DAMAGE),
-        Biome::Verdant => (TREANT_COLOR, TREANT_SIZE, TREANT_HP, TREANT_DAMAGE),
-        Biome::Void => (VOID_WALKER_COLOR, VOID_WALKER_SIZE, VOID_WALKER_HP, VOID_WALKER_DAMAGE),
+    // Select boss stats + sprite per biome.
+    let (boss_color, boss_size, base_hp, _damage, sprite_handle) = match biome {
+        Biome::Catacombs => (LICH_COLOR, LICH_SIZE, LICH_HP, LICH_DAMAGE, &sprites.boss_lich),
+        Biome::Frost => (YETI_COLOR, YETI_SIZE, YETI_HP, YETI_DAMAGE, &sprites.boss_yeti),
+        Biome::Magma => (INFERNO_COLOR, INFERNO_SIZE, INFERNO_HP, INFERNO_DAMAGE, &sprites.boss_inferno),
+        Biome::Verdant => (TREANT_COLOR, TREANT_SIZE, TREANT_HP, TREANT_DAMAGE, &sprites.boss_treant),
+        Biome::Void => (VOID_WALKER_COLOR, VOID_WALKER_SIZE, VOID_WALKER_HP, VOID_WALKER_DAMAGE, &sprites.boss_voidwalker),
     };
 
     let hp = base_hp * hp_mult;
 
     commands.spawn((
         Sprite {
+            image: sprite_handle.clone(),
             color: boss_color,
             custom_size: Some(Vec2::splat(boss_size)),
             ..default()

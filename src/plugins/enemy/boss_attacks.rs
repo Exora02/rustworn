@@ -89,7 +89,7 @@ pub fn lich_boss_system(
     player_query: Query<&Transform, With<Player>>,
     mut boss_query: Query<(&Transform, &Health, &mut BossState), (With<Boss>, With<Enemy>)>,
 ) {
-    let Ok(player_tf) = player_query.get_single() else {
+    let Ok(player_tf) = player_query.single() else {
         return;
     };
     let player_pos = player_tf.translation.truncate();
@@ -187,7 +187,7 @@ pub fn yeti_boss_system(
         (With<Boss>, With<Enemy>),
     >,
 ) {
-    let Ok(player_tf) = player_query.get_single() else {
+    let Ok(player_tf) = player_query.single() else {
         return;
     };
     let player_pos = player_tf.translation.truncate();
@@ -280,7 +280,7 @@ pub fn inferno_boss_system(
     player_query: Query<&Transform, With<Player>>,
     mut boss_query: Query<(&Transform, &Health, &mut BossState), (With<Boss>, With<Enemy>)>,
 ) {
-    let Ok(player_tf) = player_query.get_single() else {
+    let Ok(player_tf) = player_query.single() else {
         return;
     };
     let player_pos = player_tf.translation.truncate();
@@ -389,7 +389,7 @@ pub fn treant_boss_system(
     player_query: Query<&Transform, With<Player>>,
     mut boss_query: Query<(&Transform, &mut Health, &mut BossState), (With<Boss>, With<Enemy>)>,
 ) {
-    let Ok(player_tf) = player_query.get_single() else {
+    let Ok(player_tf) = player_query.single() else {
         return;
     };
     let player_pos = player_tf.translation.truncate();
@@ -492,7 +492,7 @@ pub fn void_walker_boss_system(
         (With<Boss>, With<Enemy>),
     >,
 ) {
-    let Ok(player_tf) = player_query.get_single() else {
+    let Ok(player_tf) = player_query.single() else {
         return;
     };
     let player_pos = player_tf.translation.truncate();

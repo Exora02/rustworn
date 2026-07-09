@@ -11,7 +11,7 @@
 
 use bevy::prelude::*;
 
-use crate::components::{BaseVelocity, Enemy, Health, StatusEffects};
+use crate::components::{BaseVelocity, Health, StatusEffects};
 
 /// Tick all active status effects on enemies.
 ///

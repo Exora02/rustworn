@@ -7,7 +7,7 @@
 use bevy::prelude::*;
 
 use crate::components::{
-    AimDirection, Collider, Enemy, Health, Knockback, MeleeWeapon, Player, Team,
+    AimDirection, Collider, Enemy, Health, Knockback, MeleeWeapon, Player,
 };
 use crate::events::{DamageEvent, EnemyKilledEvent};
 use crate::resources::{GameSettings, Hitstop, RunState};

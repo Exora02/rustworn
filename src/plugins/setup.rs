@@ -19,6 +19,8 @@ use bevy::prelude::*;
 use bevy::sprite::Anchor;
 use log::info;
 
+use crate::plugins::enemy::GameSprites;
+
 use crate::components::{
     AimIndicator, AppState, BaseVelocity, Collider, DashCooldown, DeathPuff, Enemy, GameOverReason,
     Health, HudElement, HudElementKind, Invulnerable, Knockback, LastMoveDirection, MainCamera,
@@ -88,13 +90,14 @@ impl Plugin for SetupPlugin {
     }
 }
 
-fn spawn_world(mut commands: Commands, settings: Res<GameSettings>, meta: Res<MetaConfig>) {
+fn spawn_world(mut commands: Commands, settings: Res<GameSettings>, meta: Res<MetaConfig>, sprites: Res<GameSprites>) {
     commands.spawn((Camera2d, MainCamera));
 
     commands
         .spawn((
-            // Visual: a 40x40 orange square. Real sprite lands in Phase 1.
+            // Pixel art player sprite
             Sprite {
+                image: sprites.player.clone(),
                 color: PLAYER_COLOR,
                 custom_size: Some(Vec2::splat(40.0)),
                 ..default()
@@ -513,7 +516,7 @@ fn state_visibility_system(
 #[allow(clippy::too_many_arguments)]
 fn enter_in_run_system(
     mut settings: ResMut<GameSettings>,
-    meta: Res<MetaConfig>,
+    _meta: Res<MetaConfig>,
     save: Res<CrownSave>,
     mut run: ResMut<RunState>,
     mut rng: ResMut<RunRng>,

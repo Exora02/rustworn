@@ -6,7 +6,6 @@
 
 pub mod ai;
 pub mod boss_attacks;
-pub mod constants;
 pub mod spawn;
 pub mod status;
 pub mod waves;
@@ -14,7 +13,7 @@ pub mod waves;
 use bevy::prelude::*;
 
 pub use spawn::{
-    spawn_beacon, spawn_boss, spawn_death_puff,
+    spawn_beacon, spawn_boss, spawn_death_puff, GameSprites,
 };
 
 use crate::components::AppState;
@@ -23,7 +22,8 @@ pub struct EnemyPlugin;
 
 impl Plugin for EnemyPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app.add_systems(Startup, spawn::load_sprites)
+            .add_systems(
             Update,
             (
                 waves::wave_spawner_tick_system,

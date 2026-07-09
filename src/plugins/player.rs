@@ -11,7 +11,7 @@ use crate::components::{
     Player, PlayerClass, ReaverDashHit, RoomKind, Velocity, PLAYER_COLOR, biome_from_floor,
 };
 use crate::events::PlayerDashEvent;
-use crate::plugins::enemy::{spawn_beacon, spawn_boss};
+use crate::plugins::enemy::{spawn_beacon, spawn_boss, GameSprites};
 use crate::resources::{CascadeState, FloorState, GameSettings, Hitstop, RunState, ScreenShake};
 use log::info;
 
@@ -726,6 +726,7 @@ fn boss_spawn_system(
     player_query: Query<&Transform, With<Player>>,
     floor: Res<FloorState>,
     bosses: Query<(), With<Boss>>,
+    sprites: Res<GameSprites>,
 ) {
     // Per-room boss spawning: each boss room gets its own boss instance.
     // Check if a Boss entity already exists in the world (for any room).
@@ -748,7 +749,7 @@ fn boss_spawn_system(
             room.bounds_max - Vec2::splat(60.0),
         );
         let biome = biome_from_floor(floor.floor_number);
-        spawn_boss(&mut commands, &settings, &floor, clamped, biome);
+        spawn_boss(&mut commands, &settings, &floor, clamped, biome, &sprites);
         info!(
             "Boss spawned at boss room {}, pos=({:.1}, {:.1})",
             floor.current_room.0, clamped.x, clamped.y
@@ -800,7 +801,7 @@ fn boss_spawn_system(
         .unwrap_or(spawn_pos);
 
     let biome = biome_from_floor(floor.floor_number);
-    spawn_boss(&mut commands, &settings, &floor, clamped, biome);
+    spawn_boss(&mut commands, &settings, &floor, clamped, biome, &sprites);
     run.boss_spawned = true;
     info!(
         "mini-boss spawned at t={:.1}s, pos=({:.1}, {:.1})",

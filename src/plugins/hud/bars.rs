@@ -421,12 +421,12 @@ pub fn hud_update_system(
                 );
                 *vis = boss_alive_global_flag;
                 // Update fill sprite scale from boss HP ratio
-                if let Some(mut sprite) = sprite {
+                if let Some(sprite) = sprite {
                     if !approx_eq_color(sprite.color, BOSS_HP_BAR_BG)
                         && !approx_eq_color(sprite.color, BOSS_HP_BAR_BORDER)
                     {
                         // Fill sprite — update scale from boss HP
-                        if let Ok(boss_hp) = boss_health.get_single() {
+                        if let Ok(boss_hp) = boss_health.single() {
                             let ratio = (boss_hp.current / boss_hp.max).clamp(0.0, 1.0);
                             tf.scale.x = ratio;
                         }

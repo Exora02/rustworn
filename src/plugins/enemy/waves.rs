@@ -15,7 +15,7 @@ use crate::components::{
 use crate::events::RoomClearedEvent;
 use crate::resources::{BossRampTimer, FloorState, GameSettings, Hitstop, RunRng, RunState};
 
-// Re-use constants from spawn module
+// Re-use constants and types from spawn module
 use super::spawn;
 
 /// Per-room-type director credit accumulation rate (credits/s).
@@ -113,6 +113,7 @@ pub fn spawn_wave_enemy(
     player_pos: Vec2,
     archetype: EnemyArchetype,
     is_elite: bool,
+    sprites: &spawn::GameSprites,
 ) {
     let room = biome
         .rooms
@@ -121,8 +122,8 @@ pub fn spawn_wave_enemy(
         .expect("current room must exist in biome");
     let spawn_pos = spawn::random_spawn_position(settings, player_pos, room, rng);
     match archetype {
-        EnemyArchetype::Chaser => spawn::spawn_chaser(commands, settings, room, spawn_pos, biome, is_elite),
-        EnemyArchetype::Dasher => spawn::spawn_dasher(commands, settings, room, spawn_pos, biome, is_elite),
+        EnemyArchetype::Chaser => spawn::spawn_chaser(commands, settings, room, spawn_pos, biome, is_elite, sprites),
+        EnemyArchetype::Dasher => spawn::spawn_dasher(commands, settings, room, spawn_pos, biome, is_elite, sprites),
         EnemyArchetype::Shooter => spawn::spawn_shooter(commands, settings, room, spawn_pos, biome, is_elite),
         EnemyArchetype::Sniper => spawn::spawn_sniper(commands, settings, room, spawn_pos, biome, is_elite),
         EnemyArchetype::Bomber => spawn::spawn_bomber(commands, settings, room, spawn_pos, biome, is_elite),
@@ -138,6 +139,7 @@ pub fn spawn_enemy(
     biome: &FloorState,
     player_pos: Vec2,
     archetype: EnemyArchetype,
+    sprites: &spawn::GameSprites,
 ) {
     let room = biome
         .rooms
@@ -145,8 +147,8 @@ pub fn spawn_enemy(
         .find(|r| r.id == biome.current_room)
         .expect("current room must exist in biome");
     match archetype {
-        EnemyArchetype::Chaser => spawn::spawn_chaser(commands, settings, room, player_pos, biome, false),
-        EnemyArchetype::Dasher => spawn::spawn_dasher(commands, settings, room, player_pos, biome, false),
+        EnemyArchetype::Chaser => spawn::spawn_chaser(commands, settings, room, player_pos, biome, false, sprites),
+        EnemyArchetype::Dasher => spawn::spawn_dasher(commands, settings, room, player_pos, biome, false, sprites),
         EnemyArchetype::Shooter => spawn::spawn_shooter(commands, settings, room, player_pos, biome, false),
         EnemyArchetype::Sniper => spawn::spawn_sniper(commands, settings, room, player_pos, biome, false),
         EnemyArchetype::Bomber => spawn::spawn_bomber(commands, settings, room, player_pos, biome, false),
@@ -169,6 +171,7 @@ pub fn wave_spawner_tick_system(
     mut room_cleared_events: EventWriter<RoomClearedEvent>,
     boss_ramp: Option<Res<BossRampTimer>>,
     run: Res<RunState>,
+    sprites: Res<spawn::GameSprites>,
 ) {
     if hitstop.is_some() {
         return;
@@ -275,6 +278,7 @@ pub fn wave_spawner_tick_system(
             player_pos,
             archetype,
             is_elite,
+            &sprites,
         );
         spawner.spawned_this_wave += 1;
         spawner.wave_timer = Timer::from_seconds(interval, TimerMode::Once);
