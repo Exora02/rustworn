@@ -143,27 +143,27 @@ pub(crate) fn generate_room(
     if kind != RoomKind::Spawn {
         let (waves, breakable_count, shrine_count) = match kind {
             RoomKind::MiniBoss | RoomKind::Boss => {
-                // Tougher / mini-boss waves.
+                // Tougher / mini-boss waves. 2x density for horde feel.
                 let base_interval = 1.2;
                 let waves = vec![
                     WaveDefinition {
                         archetype: EnemyArchetype::Chaser,
-                        count: (6 + floor.floor_number).min(14),
+                        count: ((6 + floor.floor_number) * 2).min(28),
                         interval_s: base_interval * 0.5,
                     },
                     WaveDefinition {
                         archetype: EnemyArchetype::Dasher,
-                        count: (3 + floor.floor_number / 2).min(10),
+                        count: ((3 + floor.floor_number / 2) * 2).min(20),
                         interval_s: base_interval * 0.4,
                     },
                     WaveDefinition {
                         archetype: EnemyArchetype::Shooter,
-                        count: (3 + floor.floor_number / 2).min(10),
+                        count: ((3 + floor.floor_number / 2) * 2).min(20),
                         interval_s: base_interval * 0.4,
                     },
                     WaveDefinition {
                         archetype: EnemyArchetype::Sniper,
-                        count: (2 + floor.floor_number / 3).min(7),
+                        count: ((2 + floor.floor_number / 3) * 2).min(14),
                         interval_s: base_interval * 0.4,
                     },
                 ];

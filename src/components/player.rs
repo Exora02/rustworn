@@ -144,6 +144,14 @@ pub struct Weapon {
     /// the first tick is exactly `tick_interval` after the
     /// press, not immediate.
     pub beam_tick_timer: Timer,
+
+    // ─── Item system stat multipliers ──────────────────────────────────
+    /// Status effect chance multiplier from items.
+    pub status_chance_mult: f32,
+    /// Area-of-effect size multiplier from items.
+    pub area_mult: f32,
+    /// Number of extra projectiles per shot from items.
+    pub projectile_count_mult: f32,
 }
 
 /// Available weapon archetypes. Pistol is the single-shot starter;
@@ -240,6 +248,25 @@ pub struct ReaverDashHit {
 pub struct Knockback {
     pub direction: Vec2,
     pub timer: Timer,
+}
+
+// ─── Melee weapons ──────────────────────────────────────────────────────────
+
+/// A melee weapon attached to an entity. Swings in an arc in front of
+/// the entity, damaging enemies on contact. Works alongside the `Weapon`
+/// component (ranged) so a character can have both.
+#[derive(Component)]
+pub struct MeleeWeapon {
+    /// Base damage per swing.
+    pub damage: f32,
+    /// Swing arc radius (how far the swing reaches).
+    pub range: f32,
+    /// Swing arc angle in degrees (total arc width).
+    pub arc_deg: f32,
+    /// Knockback force applied to hit enemies.
+    pub knockback: f32,
+    /// Cooldown between swings. Starts finished (ready to swing).
+    pub cooldown: Timer,
 }
 
 // ─── Playable characters ────────────────────────────────────────────────────

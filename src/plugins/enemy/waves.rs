@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use log::info;
 
 use crate::components::{
-    Biome, EnemyArchetype, Player, RoomKind,
+    Biome, Enemy, EnemyArchetype, Player, RoomKind,
     WaveSpawner,
 };
 use crate::events::RoomClearedEvent;
@@ -165,6 +165,7 @@ pub fn wave_spawner_tick_system(
     mut commands: Commands,
     mut spawners: Query<&mut WaveSpawner>,
     player_query: Query<&Transform, With<Player>>,
+    enemy_query: Query<(), With<Enemy>>,
     mut room_cleared_events: EventWriter<RoomClearedEvent>,
     boss_ramp: Option<Res<BossRampTimer>>,
     run: Res<RunState>,
@@ -177,6 +178,12 @@ pub fn wave_spawner_tick_system(
     };
     let player_pos = player_transform.translation.truncate();
     let dt = time.delta_secs();
+
+    // ─── Enemy cap: skip spawning when at max ──────────────
+    let enemy_count = enemy_query.iter().count();
+    if enemy_count >= 60 {
+        return;
+    }
 
     for mut spawner in &mut spawners {
         if spawner.room_id != biome.current_room {
@@ -212,7 +219,17 @@ pub fn wave_spawner_tick_system(
             }
         }
 
+        // ─── Horde Density: floor & curse multipliers ──────
+        // Floor multiplier: floor 0 = 1.0x, floor 1 = 1.5x, ..., cap at 3.5x
+        let floor_mult = (1.0 + biome.floor_number as f32 * 0.5).min(3.5);
+        // Curse bonus: each curse point = +10% more credits
+        let curse_credit_bonus = 1.0 + run.curse as f32 * 0.1;
+
         // ─── Spawn interval computation ───────────────────
+        // Base interval: 0.8s, reduced by 0.02 per cleared room (min 0.25s)
+        let cleared_rooms = biome.rooms.iter().filter(|r| r.kind != RoomKind::Boss).count().saturating_sub(1) as f32;
+        let per_room_speedup = 0.02 * cleared_rooms;
+        let base_interval = (0.80 - per_room_speedup).max(0.25);
         let time_before_clear = (60.0 - spawner.clear_delay).max(0.0);
         let slow_factor = 1.0 / (1.0 + time_before_clear * 0.008);
         let fast_factor = if spawner.clear_delay <= 0.0 {
@@ -231,8 +248,9 @@ pub fn wave_spawner_tick_system(
             })
             .unwrap_or(1.0);
         let ramp = (universal_factor * boss_factor).max(0.08);
-        let curse_factor = 1.0 / (1.0 + run.curse as f32 * 0.10);
-        let interval = (spawner.farming_interval * ramp * curse_factor).max(0.08);
+        // Curse also speeds up spawn interval: each curse = 5% faster
+        let curse_interval_bonus = 1.0 / (1.0 + run.curse as f32 * 0.05);
+        let interval = (base_interval * ramp * curse_interval_bonus).max(0.08);
 
         // Director picks the next enemy archetype
         let room_kind = biome
@@ -242,7 +260,10 @@ pub fn wave_spawner_tick_system(
             .map(|r| r.kind)
             .unwrap_or(RoomKind::Fight);
         let credit_rate = director_credit_rate(room_kind);
-        spawner.director_credits = (spawner.director_credits + credit_rate * dt).min(spawn::CREDITS_MAX);
+        // Apply floor + curse multipliers to credit accumulation
+        let effective_credit_rate = credit_rate * floor_mult * curse_credit_bonus;
+        spawner.director_credits =
+            (spawner.director_credits + effective_credit_rate * dt).min(spawn::CREDITS_MAX);
         let current_biome = crate::components::biome_from_floor(run.biome_index);
         let (archetype, is_elite) = director_pick(&mut spawner, &mut rng, current_biome);
 

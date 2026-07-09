@@ -9,6 +9,7 @@ pub mod damage;
 pub mod auto_attack;
 pub mod abilities;
 pub mod turret;
+pub mod melee;
 
 use bevy::prelude::*;
 use bevy::sprite::Anchor;

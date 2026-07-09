@@ -110,6 +110,45 @@ pub struct RunState {
     pub vampire_heal: f32,
     /// Unlockable: Thorns — reflect damage back to attackers.
     pub thorns_damage: f32,
+
+    // ─── Expanded Brotato-style offensive stats ─────────────────────────────
+    /// Raw weapon damage multiplier. Applied multiplicatively on top of
+    /// damage_stacks and archetype base damage.
+    pub base_damage: f32,
+    /// Projectile range / beam range multiplier.
+    pub range_mult: f32,
+    /// Flat critical hit chance (0.0 = never, 1.0 = always).
+    pub crit_chance: f32,
+    /// Critical hit damage multiplier.
+    pub crit_mult: f32,
+    /// Number of enemies a projectile pierces through (0 = no pierce).
+    pub pierce: u32,
+    /// Explosion radius on projectile hit (0.0 = no explosion).
+    pub explosion_radius: f32,
+    /// Percentage of damage dealt healed as HP (0.0–1.0).
+    pub lifesteal_pct: f32,
+
+    // ─── Expanded Brotato-style defensive stats ─────────────────────────────
+    /// Flat dodge chance (0.0 = never, 1.0 = always).
+    pub dodge_chance: f32,
+    /// Passive HP regen per second, separate from pickup-stack regen.
+    pub hp_regen_per_sec: f32,
+    /// Flat percentage damage reduction (0.0–1.0).
+    pub damage_reduction: f32,
+    /// Extra HP layer that regens after 5s of no damage.
+    pub shield: f32,
+
+    // ─── Expanded Brotato-style utility stats ───────────────────────────────
+    /// Auto-pickup radius for items and XP.
+    pub pickup_range: f32,
+    /// Movement speed multiplier (separate from speed_stacks).
+    pub move_speed_mult: f32,
+    /// Attack speed / fire rate multiplier.
+    pub attack_speed_mult: f32,
+    /// Luck — affects drop rates and room quality.
+    pub luck: f32,
+    /// Free shop rerolls per run.
+    pub rerolls: u32,
 }
 
 impl Default for RunState {
@@ -142,6 +181,24 @@ impl Default for RunState {
             gold_mult: 1.0,
             vampire_heal: 0.0,
             thorns_damage: 0.0,
+
+            // Expanded Brotato-style stats defaults
+            base_damage: 1.0,
+            range_mult: 1.0,
+            crit_chance: 0.0,
+            crit_mult: 2.0,
+            pierce: 0,
+            explosion_radius: 0.0,
+            lifesteal_pct: 0.0,
+            dodge_chance: 0.0,
+            hp_regen_per_sec: 0.0,
+            damage_reduction: 0.0,
+            shield: 0.0,
+            pickup_range: 40.0,
+            move_speed_mult: 1.0,
+            attack_speed_mult: 1.0,
+            luck: 0.0,
+            rerolls: 0,
         }
     }
 }

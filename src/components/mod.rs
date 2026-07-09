@@ -23,7 +23,7 @@ pub use misc::{
 };
 pub use player::{
     AimDirection, AimIndicator, BaseVelocity, CascadeAffected, Collider, DashCooldown, Health,
-    Invulnerable, Knockback, LastMoveDirection, MainCamera, Player, PlayerClass, Projectile,
+    Invulnerable, Knockback, LastMoveDirection, MainCamera, MeleeWeapon, Player, PlayerClass, Projectile,
     ReaverDashHit, Team, Velocity, Weapon, WeaponArchetype, PLAYER_COLOR,
 };
 pub use world::{

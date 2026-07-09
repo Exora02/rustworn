@@ -156,6 +156,10 @@ fn spawn_world(mut commands: Commands, settings: Res<GameSettings>, meta: Res<Me
                     settings.beam_tick_interval_s,
                     TimerMode::Repeating,
                 ),
+                // Item stat multipliers: start at 1.0 (neutral).
+                status_chance_mult: 1.0,
+                area_mult: 1.0,
+                projectile_count_mult: 1.0,
             },
             // Phase 2 P5.1: Sandevistan-style motion trail during
             // Cascade Mode. The trail system spawns ghost afterimages
