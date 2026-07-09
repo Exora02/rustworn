@@ -27,6 +27,6 @@ pub use player::{
     Weapon, WeaponArchetype, PLAYER_COLOR,
 };
 pub use world::{
-    Door, FloorTransitionText, Room, RoomId, RoomKind, RoomScope, TeleportPad, Wall,
+    FloorTransitionText, Room, RoomId, RoomKind, TeleportPad, Wall,
     WaveDefinition, WaveSpawner,
 };

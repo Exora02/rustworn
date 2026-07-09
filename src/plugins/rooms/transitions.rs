@@ -7,12 +7,12 @@ use log::info;
 
 use crate::components::{
     AimIndicator, AppState, Boss, Breakable, Collider, DeathPuff, Enemy, FloorTransitionText,
-    GameOverReason, Health, MainCamera, Pickup, Player, Projectile, Room, RoomId, RoomKind, Shrine,
-    TeleportPad, Velocity, Wall, WaveSpawner,
+    GameOverReason, Health, Pickup, Player, Projectile, RoomId, RoomKind, Shrine,
+    TeleportPad, Wall, WaveSpawner,
 };
 use crate::events::RoomClearedEvent;
 use crate::resources::RunState;
-use crate::resources::{BossRampTimer, FloorState, GameSettings, RunRng};
+use crate::resources::{BossRampTimer, FloorState, GameSettings};
 
 const PAD_SIZE: f32 = 60.0;
 const ENTRY_INSET: f32 = 50.0;
@@ -165,7 +165,7 @@ pub fn boss_death_room_clear_system(
     if pads.iter().any(|p| p.label == "Boss" || p.label == "Fight") {
         return;
     }
-    events.send(RoomClearedEvent {
+    events.write(RoomClearedEvent {
         room_id: floor.current_room,
     });
 
@@ -198,7 +198,7 @@ pub fn floor_transition_fade_system(
         &mut Transform,
     )>,
 ) {
-    for (entity, mut state, mut color, mut tf) in &mut query {
+    for (entity, mut state, mut color, _tf) in &mut query {
         state.0.tick(time.delta());
         let progress = state.0.fraction();
 

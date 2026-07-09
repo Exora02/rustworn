@@ -10,18 +10,11 @@ pub mod auto_attack;
 
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
-use log::warn;
 
 use crate::components::{
-    AimDirection, AppState, AiBehavior, Beacon, BeamVisual, Breakable, Collider, Elite, Enemy, EnemyAI,
-    Health, HitFlash, Invulnerable, Knockback, PickupKind, Player, Projectile, Team, Velocity,
-    Weapon, WeaponArchetype,
+    AppState, BeamVisual, WeaponArchetype,
 };
-use crate::events::{DamageEvent, EnemyKilledEvent};
-use crate::plugins::enemy::spawn_death_puff;
-use crate::plugins::fx::spawn_hit_spark;
-use crate::plugins::pickups::{roll_gold_drop, roll_health_drop, roll_pickup_drop, roll_weapon_drop, spawn_pickup};
-use crate::resources::{CascadeState, GameSettings, Hitstop, RunRng, RunState, ScreenShake};
+use crate::resources::{CascadeState, GameSettings, Hitstop, RunState};
 
 /// Color of the player projectile — warm white, clearly readable as a
 /// bullet against any background we'll add later.

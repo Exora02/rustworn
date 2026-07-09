@@ -6,12 +6,11 @@
 use bevy::prelude::*;
 
 use crate::components::{
-    AimDirection, AimIndicator, AppState, BaseVelocity, Beacon, Boss, CascadeAffected, DashCooldown,
+    AimDirection, AimIndicator, AppState, BaseVelocity, Boss, CascadeAffected, DashCooldown,
     Health, Invulnerable, Knockback, LastMoveDirection, MainCamera, Player, RoomKind, Velocity,
     PLAYER_COLOR,
 };
 use crate::plugins::enemy::{spawn_beacon, spawn_boss};
-use crate::events::{CascadeEndEvent, CascadeStartEvent};
 use crate::resources::{CascadeState, FloorState, GameSettings, Hitstop, RunState, ScreenShake};
 use log::info;
 
@@ -131,7 +130,7 @@ fn cascade_state_system(
         if cascade.duration_timer.finished() {
             cascade.active = false;
             cascade.time_remaining = 0.0;
-            let kills = cascade.kills_during;
+            let _kills = cascade.kills_during;
             cascade.kills_during = 0;
             cascade.chain_extends = 0;
             cascade.interval_timer =
@@ -276,7 +275,7 @@ fn dash_input_system(
     settings: Res<GameSettings>,
     aim: Res<AimDirection>,
     hitstop: Option<Res<Hitstop>>,
-    run: Res<RunState>,
+    _run: Res<RunState>,
     mut commands: Commands,
     query: Query<Entity, ReadyPlayer>,
 ) {
@@ -311,7 +310,7 @@ fn dash_state_system(
     aim: Res<AimDirection>,
     settings: Res<GameSettings>,
     hitstop: Option<Res<Hitstop>>,
-    run: Res<RunState>,
+    _run: Res<RunState>,
     mut commands: Commands,
     mut query: Query<
         (
@@ -354,7 +353,7 @@ fn dash_state_system(
 fn cooldown_tick_system(
     time: Res<Time>,
     hitstop: Option<Res<Hitstop>>,
-    run: Res<RunState>,
+    _run: Res<RunState>,
     mut commands: Commands,
     mut query: Query<(Entity, &mut DashCooldown), With<Player>>,
 ) {
@@ -379,7 +378,7 @@ fn knockback_system(
     time: Res<Time>,
     settings: Res<GameSettings>,
     hitstop: Option<Res<Hitstop>>,
-    run: Res<RunState>,
+    _run: Res<RunState>,
     mut commands: Commands,
     mut query: Query<(Entity, &mut BaseVelocity, &mut Knockback), With<Player>>,
 ) {
@@ -411,7 +410,7 @@ fn velocity_apply_system(
     cascade: Res<CascadeState>,
     settings: Res<GameSettings>,
     hitstop: Option<Res<Hitstop>>,
-    run: Res<RunState>,
+    _run: Res<RunState>,
     mut query: Query<(&BaseVelocity, &mut Velocity, Has<CascadeAffected>)>,
 ) {
     if in_hitstop(&hitstop) {
@@ -589,7 +588,7 @@ fn time_tick_system(time: Res<Time>, mut run: ResMut<RunState>) {
 // on InRun, so this is automatic — but the comment stays for
 // future readers tracing the timing.)
 fn boss_spawn_system(
-    time: Res<Time>,
+    _time: Res<Time>,
     settings: Res<GameSettings>,
     mut run: ResMut<RunState>,
     mut commands: Commands,
@@ -608,7 +607,7 @@ fn boss_spawn_system(
 
     if in_boss_room && !boss_alive {
         let Ok(player_tf) = player_query.single() else { return; };
-        let player_pos = player_tf.translation.truncate();
+        let _player_pos = player_tf.translation.truncate();
         // Spawn at the room center, offset upward slightly so it's visible.
         let Some(room) = floor.rooms.iter().find(|r| r.id == floor.current_room) else { return; };
         let room_center = (room.bounds_min + room.bounds_max) * 0.5;

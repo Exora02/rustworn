@@ -5,10 +5,9 @@
 use bevy::prelude::*;
 use log::info;
 
-use crate::components::{AppState, Collider, Health, Player, Room, ShopItem, ShopReward, AimIndicator};
-use crate::resources::{RunState, RunRng};
+use crate::components::{Collider, Health, Player, Room, ShopItem, ShopReward, AimIndicator};
+use crate::resources::RunState;
 
-use crate::events::RoomClearedEvent;
 
 const SHOP_ITEM_COLOR_BUFF: Color = Color::srgb(0.30, 0.75, 0.95);
 const SHOP_ITEM_COLOR_HEAL: Color = Color::srgb(0.30, 0.85, 0.30);

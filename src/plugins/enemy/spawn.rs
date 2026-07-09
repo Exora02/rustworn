@@ -4,13 +4,10 @@
 //! functions for every enemy archetype.
 
 use bevy::prelude::*;
-use log::info;
 
 use crate::components::{
     AiBehavior, BaseColor, BaseVelocity, Beacon, BomberState, Boss, BossPhase, BossState,
-    CascadeAffected, Collider, DasherPhase, DasherState, DeathPuff, Elite, Enemy, EnemyAI,
-    EnemyArchetype, Health, HitFlash, Invulnerable, MotionTrail, OrbiterState, Projectile, Room,
-    RoomKind, ShooterState, SniperState, Team, Velocity,
+    CascadeAffected, Collider, DasherPhase, DasherState, DeathPuff, Elite, Enemy, EnemyAI, Health, HitFlash, MotionTrail, OrbiterState, Projectile, Room, ShooterState, SniperState, Team, Velocity,
 };
 use crate::resources::{FloorState, GameSettings, RunRng};
 
@@ -176,7 +173,7 @@ pub fn random_spawn_position(
 pub fn spawn_chaser(
     commands: &mut Commands,
     settings: &GameSettings,
-    room: &Room,
+    _room: &Room,
     spawn_pos: Vec2,
     floor: &FloorState,
     is_elite: bool,
@@ -217,7 +214,7 @@ pub fn spawn_chaser(
 pub fn spawn_dasher(
     commands: &mut Commands,
     settings: &GameSettings,
-    room: &Room,
+    _room: &Room,
     spawn_pos: Vec2,
     floor: &FloorState,
     is_elite: bool,
@@ -262,7 +259,7 @@ pub fn spawn_dasher(
 pub fn spawn_shooter(
     commands: &mut Commands,
     settings: &GameSettings,
-    room: &Room,
+    _room: &Room,
     spawn_pos: Vec2,
     floor: &FloorState,
     is_elite: bool,
@@ -309,7 +306,7 @@ pub fn spawn_shooter(
 pub fn spawn_sniper(
     commands: &mut Commands,
     settings: &GameSettings,
-    room: &Room,
+    _room: &Room,
     spawn_pos: Vec2,
     floor: &FloorState,
     is_elite: bool,
@@ -357,7 +354,7 @@ pub fn spawn_sniper(
 pub fn spawn_bomber(
     commands: &mut Commands,
     settings: &GameSettings,
-    room: &Room,
+    _room: &Room,
     spawn_pos: Vec2,
     floor: &FloorState,
     is_elite: bool,
@@ -401,7 +398,7 @@ pub fn spawn_bomber(
 pub fn spawn_orbiter(
     commands: &mut Commands,
     settings: &GameSettings,
-    room: &Room,
+    _room: &Room,
     spawn_pos: Vec2,
     floor: &FloorState,
     is_elite: bool,

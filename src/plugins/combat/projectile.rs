@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use log::warn;
 
 use crate::components::{
-    AiBehavior, Beacon, Collider, Elite, Enemy, EnemyAI, Health, HitFlash, Invulnerable, Knockback,
+    Beacon, Collider, Elite, Enemy, EnemyAI, Health, HitFlash, Invulnerable, Knockback,
     PickupKind, Player, Projectile, Team,
 };
 use crate::events::{DamageEvent, EnemyKilledEvent};
@@ -27,7 +27,7 @@ use super::{aabb_overlap, in_hitstop, on_enemy_killed};
 pub fn projectile_lifetime_system(
     time: Res<Time>,
     hitstop: Option<Res<Hitstop>>,
-    run: Res<RunState>,
+    _run: Res<RunState>,
     mut commands: Commands,
     mut query: Query<(Entity, &mut Projectile)>,
 ) {
@@ -114,7 +114,7 @@ pub fn projectile_damage_system(
             });
             let enemy_pos = enemy_tf.translation.truncate();
             spawn_hit_spark(&mut commands, &settings, enemy_pos);
-            damage_events.send(DamageEvent {
+            damage_events.write(DamageEvent {
                 victim: enemy_entity,
                 amount: proj.damage,
             });
@@ -161,7 +161,7 @@ pub fn projectile_damage_system(
                 if let Some(amt) = roll_gold_drop(is_elite, &mut rng) {
                     spawn_pickup(&mut commands, &settings, enemy_pos, PickupKind::Gold(amt));
                 }
-                kill_events.send(EnemyKilledEvent {
+                kill_events.write(EnemyKilledEvent {
                     victim: enemy_entity,
                     killer: Entity::PLACEHOLDER,
                     position: enemy_pos,
@@ -195,7 +195,7 @@ pub fn projectile_damage_system(
 pub fn enemy_projectile_damage_system(
     settings: Res<GameSettings>,
     hitstop: Option<Res<Hitstop>>,
-    run: Res<RunState>,
+    _run: Res<RunState>,
     mut commands: Commands,
     projectiles: Query<(Entity, &Transform, &Collider, &Projectile)>,
     mut player_query: Query<
@@ -254,7 +254,7 @@ pub fn enemy_projectile_damage_system(
 
         health.current = (health.current - proj.damage).max(0.0);
         let player_pos = player_tf.translation.truncate();
-        damage_events.send(DamageEvent {
+        damage_events.write(DamageEvent {
             victim: player_entity,
             amount: proj.damage,
         });

@@ -441,7 +441,7 @@ fn state_visibility_system(
 #[allow(clippy::too_many_arguments)]
 fn enter_in_run_system(
     mut settings: ResMut<GameSettings>,
-    meta: Res<MetaConfig>,
+    _meta: Res<MetaConfig>,
     save: Res<CrownSave>,
     mut run: ResMut<RunState>,
     mut rng: ResMut<RunRng>,

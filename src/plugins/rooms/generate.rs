@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use log::info;
 
 use crate::components::{
-    Breakable, Collider, EnemyArchetype, Room, RoomId, RoomKind, Shrine, ShrineFocus, Wall,
+    Collider, EnemyArchetype, Room, RoomId, RoomKind, Shrine, ShrineFocus, Wall,
     WaveDefinition, WaveSpawner,
 };
 use crate::resources::{FloorState, GameSettings};
@@ -58,7 +58,7 @@ const ENTRY_INSET: f32 = 50.0;
 pub fn generate_room(
     commands: &mut Commands,
     floor: &FloorState,
-    settings: &GameSettings,
+    _settings: &GameSettings,
     room_id: RoomId,
     kind: RoomKind,
 ) -> Room {

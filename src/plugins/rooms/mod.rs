@@ -20,8 +20,8 @@ use log::info;
 
 use crate::components::{
     AimIndicator, AppState, Boss, Breakable, Collider, DeathPuff, Enemy, EnemyArchetype,
-    FloorTransitionText, Health, MainCamera, Pickup, Player, Projectile, Room, RoomId, RoomKind,
-    Shrine, ShrineFocus, ShopItem, ShopReward, TeleportPad, Velocity, Wall, WaveDefinition, WaveSpawner,
+    FloorTransitionText, Health, Pickup, Player, Projectile, Room, RoomId, RoomKind,
+    Shrine, ShrineFocus, TeleportPad, Velocity, Wall, WaveDefinition, WaveSpawner,
 };
 use crate::events::RoomClearedEvent;
 use crate::resources::{BossRampTimer, FloorState, GameSettings, Hitstop, RunRng, RunState};
@@ -101,7 +101,7 @@ impl Plugin for RoomsPlugin {
 pub(crate) fn generate_room(
     commands: &mut Commands,
     floor: &FloorState,
-    settings: &GameSettings,
+    _settings: &GameSettings,
     room_id: RoomId,
     kind: RoomKind,
 ) -> Room {
@@ -353,7 +353,7 @@ fn shrine_collect_system(
     let player_pos = player_tf.translation.truncate();
     let player_half = Vec2::splat(20.0);
 
-    for (entity, tf, mut shrine, mut sprite) in &mut shrines {
+    for (entity, tf, mut shrine, _sprite) in &mut shrines {
         if shrine.activated {
             continue;
         }
@@ -598,8 +598,8 @@ fn spawn_walls(commands: &mut Commands, room: &Room, floor_number: u32) {
 fn physics_step_system(
     time: Res<Time>,
     hitstop: Option<Res<Hitstop>>,
-    setting: Res<GameSettings>,
-    floor: Res<FloorState>,
+    _setting: Res<GameSettings>,
+    _floor: Res<FloorState>,
     mut movers: Query<
         (&mut Transform, &Velocity, &Collider),
         (
@@ -683,7 +683,7 @@ fn teleport_transition_system(
     pads: Query<(Entity, &Transform, &Collider, &TeleportPad), Without<Player>>,
     mut player_query: Query<(&mut Transform, &mut Health), (With<Player>, Without<AimIndicator>)>,
     walls: Query<Entity, With<Wall>>,
-    pads_module: Query<Entity, With<TeleportPad>>,
+    _pads_module: Query<Entity, With<TeleportPad>>,
 ) {
     let Ok((mut player_tf, mut player_health)) = player_query.single_mut() else { return; };
 
@@ -813,7 +813,7 @@ fn boss_death_room_clear_system(
     if pads.iter().any(|p| p.label == "Boss" || p.label == "Fight") {
         return;
     }
-    events.send(RoomClearedEvent {
+    events.write(RoomClearedEvent {
         room_id: floor.current_room,
     });
 
@@ -848,7 +848,7 @@ fn floor_transition_fade_system(
         &mut Transform,
     )>,
 ) {
-    for (entity, mut state, mut color, mut tf) in &mut query {
+    for (entity, mut state, mut color, _tf) in &mut query {
         state.0.tick(time.delta());
         let progress = state.0.fraction();
 

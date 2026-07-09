@@ -9,7 +9,7 @@
 use bevy::prelude::*;
 
 use crate::components::{
-    AiBehavior, AimDirection, AppState, Beacon, BeamVisual, Breakable, Collider, Elite, Enemy,
+    AiBehavior, AimDirection, Beacon, BeamVisual, Breakable, Collider, Elite, Enemy,
     EnemyAI, Health, HitFlash, PickupKind, Player, Projectile, Team, Weapon, WeaponArchetype,
 };
 use crate::events::{DamageEvent, EnemyKilledEvent};
@@ -134,7 +134,7 @@ pub fn beam_damage_system(
             timer: Timer::from_seconds(0.1, TimerMode::Once),
         });
         spawn_hit_spark(&mut commands, &settings, enemy_pos);
-        damage_events.send(DamageEvent {
+        damage_events.write(DamageEvent {
             victim: enemy_entity,
             amount: damage,
         });
@@ -182,7 +182,7 @@ pub fn beam_damage_system(
             if let Some(amt) = roll_gold_drop(is_elite, &mut rng) {
                 spawn_pickup(&mut commands, &settings, enemy_pos, PickupKind::Gold(amt));
             }
-            kill_events.send(EnemyKilledEvent {
+            kill_events.write(EnemyKilledEvent {
                 victim: enemy_entity,
                 killer: Entity::PLACEHOLDER,
                 position: enemy_pos,
@@ -250,7 +250,7 @@ pub fn breakable_damage_system(
             });
             let breakable_pos = breakable_tf.translation.truncate();
             spawn_hit_spark(&mut commands, &settings, breakable_pos);
-            damage_events.send(DamageEvent {
+            damage_events.write(DamageEvent {
                 victim: breakable_entity,
                 amount: proj.damage,
             });
@@ -291,7 +291,7 @@ pub fn breakable_damage_system(
                     let amt = 1 + (rng() * 3.0) as u32;
                     spawn_pickup(&mut commands, &settings, breakable_pos, PickupKind::Gold(amt));
                 }
-                kill_events.send(EnemyKilledEvent {
+                kill_events.write(EnemyKilledEvent {
                     victim: breakable_entity,
                     killer: Entity::PLACEHOLDER,
                     position: breakable_pos,

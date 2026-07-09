@@ -11,11 +11,9 @@ pub mod waves;
 
 use bevy::prelude::*;
 
-pub use ai::enemy_ai_system;
 pub use spawn::{
-    death_puff_tick_system, hit_flash_tick_system, spawn_beacon, spawn_boss, spawn_death_puff,
+    spawn_beacon, spawn_boss, spawn_death_puff,
 };
-pub use waves::wave_spawner_tick_system;
 
 use crate::components::AppState;
 

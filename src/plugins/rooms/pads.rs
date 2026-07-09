@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use log::info;
 
 use crate::components::{
-    AppState, Collider, Room, RoomId, RoomKind, TeleportPad,
+    Collider, TeleportPad,
 };
 use crate::events::RoomClearedEvent;
 use crate::resources::{FloorState, RunRng};

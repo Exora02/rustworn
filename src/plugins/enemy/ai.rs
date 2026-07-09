@@ -5,12 +5,11 @@
 //! fire. Boss: multi-phase. Orbiter: circle player, fire tangent.
 
 use bevy::prelude::*;
-use log::info;
 
 use crate::components::{
-    AiBehavior, BaseColor, BaseVelocity, BossPhase, BossState, DasherPhase, DasherState,
-    Enemy, EnemyAI, Health, HitFlash, Invulnerable, Knockback, MotionTrail, Player,
-    ShooterState, SniperState, OrbiterState, Team, Velocity,
+    AiBehavior, BaseVelocity, BossPhase, BossState, DasherPhase, DasherState,
+    Enemy, EnemyAI, Health, Player,
+    ShooterState, SniperState, OrbiterState,
 };
 use crate::resources::Hitstop;
 use crate::resources::{GameSettings, RunState};
@@ -24,7 +23,7 @@ pub fn enemy_ai_system(
     time: Res<Time>,
     settings: Res<GameSettings>,
     hitstop: Option<Res<Hitstop>>,
-    run: Res<RunState>,
+    _run: Res<RunState>,
     mut commands: Commands,
     player_query: Query<&Transform, With<Player>>,
     // `Option<&mut DasherState>` lets the same query match both

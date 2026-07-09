@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use log::info;
 
 use crate::components::{
-    AiBehavior, BaseColor, Boss, Enemy, EnemyAI, EnemyArchetype, Player, Room, RoomKind,
+    EnemyArchetype, Player, RoomKind,
     WaveSpawner,
 };
 use crate::events::RoomClearedEvent;

@@ -6,18 +6,13 @@
 use bevy::prelude::*;
 
 use crate::components::{
-    AimDirection, AppState, Collider, Player, Projectile, Team, Velocity, Weapon, WeaponArchetype,
+    AimDirection, Collider, Player, Projectile, Team, Velocity, Weapon, WeaponArchetype,
     WeaponInventory,
-    AiBehavior, Beacon, Elite, EnemyAI, Health, HitFlash, PickupKind,
 };
-use crate::events::{DamageEvent, EnemyKilledEvent};
-use crate::plugins::enemy::spawn_death_puff;
-use crate::plugins::fx::spawn_hit_spark;
-use crate::plugins::pickups::{roll_gold_drop, roll_health_drop, roll_pickup_drop, roll_weapon_drop, spawn_pickup};
-use crate::resources::{CascadeState, GameSettings, Hitstop, RunRng, RunState, ScreenShake};
+use crate::resources::{GameSettings, Hitstop, RunState};
 
 use super::{
-    aabb_overlap, in_hitstop, next_archetype, on_enemy_killed, rotate_vec2, weapon_stats_for,
+    in_hitstop, next_archetype, rotate_vec2, weapon_stats_for,
     PROJECTILE_COLOR, PROJECTILE_SIZE,
 };
 
@@ -28,7 +23,7 @@ use super::{
 pub fn weapon_cooldown_tick_system(
     time: Res<Time>,
     hitstop: Option<Res<Hitstop>>,
-    run: Res<RunState>,
+    _run: Res<RunState>,
     mut query: Query<&mut Weapon>,
 ) {
     if in_hitstop(&hitstop) {
@@ -52,7 +47,7 @@ pub fn weapon_cooldown_tick_system(
 pub fn weapon_switch_system(
     keys: Res<ButtonInput<KeyCode>>,
     hitstop: Option<Res<Hitstop>>,
-    run: Res<RunState>,
+    _run: Res<RunState>,
     mut player_query: Query<&mut Weapon, With<Player>>,
     mut inventory_q: Query<&mut WeaponInventory, With<Player>>,
 ) {
