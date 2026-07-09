@@ -6,13 +6,13 @@ use bevy::sprite::Anchor;
 use log::info;
 
 use crate::components::{
-    AppState, Boss, Breakable, Collider, DeathPuff, Enemy, FloorTransitionText, Health,
-    MainCamera, AimIndicator, Pickup, Player, Projectile, Room, RoomId, RoomKind, Shrine,
+    AimIndicator, AppState, Boss, Breakable, Collider, DeathPuff, Enemy, FloorTransitionText,
+    GameOverReason, Health, MainCamera, Pickup, Player, Projectile, Room, RoomId, RoomKind, Shrine,
     TeleportPad, Velocity, Wall, WaveSpawner,
 };
 use crate::events::RoomClearedEvent;
-use crate::resources::{BossRampTimer, FloorState, GameSettings, RunRng};
 use crate::resources::RunState;
+use crate::resources::{BossRampTimer, FloorState, GameSettings, RunRng};
 
 const PAD_SIZE: f32 = 60.0;
 const ENTRY_INSET: f32 = 50.0;
@@ -22,6 +22,8 @@ const ROOM_SIZE: f32 = 1000.0;
 
 pub fn teleport_transition_system(
     mut commands: Commands,
+    mut next_state: ResMut<NextState<AppState>>,
+    mut run_state: ResMut<RunState>,
     mut floor: ResMut<FloorState>,
     settings: Res<GameSettings>,
     spawners: Query<Entity, With<WaveSpawner>>,
@@ -42,6 +44,14 @@ pub fn teleport_transition_system(
             player_tf.translation.truncate(), Vec2::splat(20.0),
             pad_tf.translation.truncate(), pad_col.half_extents,
         ) { continue; }
+
+        // CHECK FOR EXTRACTION FIRST — don't generate a room
+        if teleport.label == "Extract" {
+            run_state.game_over_reason = GameOverReason::Extracted;
+            next_state.set(AppState::GameOver);
+            info!("Player extracted!");
+            return;
+        }
 
         let next_room_id = RoomId(floor.rooms.len() as u8);
 

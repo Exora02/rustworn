@@ -27,6 +27,10 @@ pub const GAME_OVER_TEXT: &str = "GAME OVER";
 // and bottom — the text rendered, just got clipped/looked huge.
 pub const GAME_OVER_FONT_SIZE: f32 = 48.0;
 
+/// Extraction overlay uses the same dimensions as the game-over
+/// overlay but a golden color scheme instead of red.
+pub const EXTRACT_COLOR: Color = Color::srgba(0.20, 0.80, 0.30, 0.90);
+
 pub const RESTART_PROMPT_COLOR: Color = Color::srgba(0.30, 0.85, 0.30, 0.90);
 pub const RESTART_PROMPT_WIDTH: f32 = 240.0;
 pub const RESTART_PROMPT_HEIGHT: f32 = 40.0;
@@ -91,6 +95,36 @@ pub fn spawn_game_over_overlay(commands: &mut Commands) {
         Visibility::Hidden,
         HudElement {
             kind: HudElementKind::GameOver,
+        },
+    ));
+
+    // \"EXTRACTED!\" overlay — same layout as GameOver but green/gold box.
+    commands.spawn((
+        Sprite {
+            color: EXTRACT_COLOR,
+            custom_size: Some(Vec2::new(GAME_OVER_WIDTH, GAME_OVER_HEIGHT)),
+            anchor: Anchor::Center,
+            ..default()
+        },
+        Transform::from_xyz(0.0, GAME_OVER_OFFSET_Y, HUD_Z + 0.2),
+        Visibility::Hidden,
+        HudElement {
+            kind: HudElementKind::GameOverExtracted,
+        },
+    ));
+    commands.spawn((
+        Text2d::new("EXTRACTED!"),
+        TextFont {
+            font_size: GAME_OVER_FONT_SIZE,
+            ..default()
+        },
+        TextColor(Color::srgb(1.0, 0.95, 0.20)),
+        Anchor::Center,
+        TextLayout::new_with_justify(JustifyText::Center),
+        Transform::from_xyz(0.0, GAME_OVER_OFFSET_Y, HUD_Z + 0.3),
+        Visibility::Hidden,
+        HudElement {
+            kind: HudElementKind::GameOverExtracted,
         },
     ));
 

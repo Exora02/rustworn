@@ -1,3 +1,4 @@
+use crate::components::GameOverReason;
 use bevy::prelude::*;
 
 /// Phase 2 P6 (Crab Champions run): tracks the current floor's
@@ -85,6 +86,11 @@ pub struct RunState {
     /// max(0, raw_damage - armor) per hit. Caps at 4.0 so the
     /// player can never become fully immune.
     pub armor: f32,
+    /// Why the current run ended (or will end). Updated by the
+    /// extraction / death systems; read by the HUD overlay to
+    /// show "GAME OVER" vs "EXTRACTED!" and by (future) meta-
+    /// progression systems.
+    pub game_over_reason: GameOverReason,
 }
 
 impl Default for RunState {
@@ -105,6 +111,19 @@ impl Default for RunState {
             curse: 0,
             gold: 0,
             armor: 0.0,
+            game_over_reason: GameOverReason::Died,
         }
     }
+}
+
+/// Set when the run ends (death or extraction). Consumed by the
+/// HUD overlay and (future) meta-progression systems.
+#[derive(Resource, Default)]
+pub struct RunSummary {
+    pub extracted: bool,
+    pub floor_reached: u32,
+    pub gold_earned: u32,
+    pub xp_earned: u32,
+    pub enemies_killed: u32,
+    pub time_elapsed: f32,
 }

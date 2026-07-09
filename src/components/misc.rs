@@ -145,6 +145,9 @@ pub enum HudElementKind {
     /// (alongside the camera) so the entity is always present and
     /// we just toggle its visibility per state.
     MainMenu,
+    /// Variant of GameOver for extraction runs, so the HUD can
+    /// render "EXTRACTED!" instead of "GAME OVER".
+    GameOverExtracted,
     /// Phase 2 P5: XP counter bar, positioned above the kill bar.
     /// Shows the player's XP-to-10 progress as a thin bar. Color
     /// is a warm gold so it reads as "Cascade progress" rather
@@ -181,6 +184,19 @@ pub struct CascadeTelegraph;
 /// points it along +Y.
 #[derive(Component)]
 pub struct BeamVisual;
+
+// ─── Game Over Reason ─────────────────────────────────────────────────────
+
+/// Why the run ended. Used by the HUD overlay to show different
+/// end-of-run text ("GAME OVER" vs "EXTRACTED!").
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GameOverReason {
+    #[default]
+    /// Player's HP hit 0.
+    Died,
+    /// Player voluntarily used the extraction portal.
+    Extracted,
+}
 
 // ─── AppState (Phase 2) ───────────────────────────────────────────────────
 

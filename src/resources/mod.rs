@@ -7,7 +7,7 @@
 pub use cascade::CascadeState;
 pub use effects::{BossRampTimer, Hitstop, ScreenShake};
 pub use rng::RunRng;
-pub use state::{FloorState, RunState};
+pub use state::{FloorState, RunState, RunSummary};
 pub use tuning::GameSettings;
 
 mod cascade;

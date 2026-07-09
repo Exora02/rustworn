@@ -11,6 +11,7 @@ use crate::events::RoomClearedEvent;
 use crate::resources::{FloorState, RunRng};
 
 const PAD_COLOR_BOSS: Color = Color::srgb(0.85, 0.15, 0.15);
+const PAD_COLOR_EXTRACT: Color = Color::srgb(0.15, 0.90, 0.40); // bright emerald green
 const PAD_COLOR_ELITE: Color = Color::srgb(0.75, 0.25, 0.85);
 const PAD_COLOR_TREASURE: Color = Color::srgb(0.95, 0.75, 0.20);
 const PAD_COLOR_HORDE: Color = Color::srgb(0.20, 0.85, 0.60);
@@ -70,6 +71,14 @@ pub fn pad_spawn_on_clear_system(
             commands.spawn(pad_bundle(boss_pos, "Boss"));
         }
 
+        // Pad 4: Extract — always appears on boss rooms after the
+        // first boss kill (floor > 0). Player can step on it to
+        // end the run with rewards.
+        if next_is_boss && floor.floor_number > 0 {
+            let extract_pos = center + Vec2::new(-PAD_SIZE * 1.2, 0.0);
+            commands.spawn(pad_bundle(extract_pos, "Extract"));
+        }
+
         info!("Teleport pads spawned at room {} center", ev.room_id.0);
     }
 }
@@ -77,6 +86,7 @@ pub fn pad_spawn_on_clear_system(
 pub fn pad_bundle(pos: Vec2, label: &str) -> impl Bundle {
     let color = match label {
         "Boss" => PAD_COLOR_BOSS,
+        "Extract" => PAD_COLOR_EXTRACT,
         "Elite" => PAD_COLOR_ELITE,
         "Treasure" => PAD_COLOR_TREASURE,
         "Horde" => PAD_COLOR_HORDE,

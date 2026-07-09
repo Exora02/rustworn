@@ -355,6 +355,13 @@ pub fn hud_update_system(
                     tf.translation.z,
                 );
             }
+            HudElementKind::GameOverExtracted => {
+                tf.translation = Vec3::new(
+                    player_pos.x,
+                    player_pos.y + super::overlay::GAME_OVER_OFFSET_Y,
+                    tf.translation.z,
+                );
+            }
             HudElementKind::RestartPrompt => {
                 tf.translation = Vec3::new(
                     player_pos.x,

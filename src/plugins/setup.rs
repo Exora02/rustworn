@@ -19,9 +19,10 @@ use bevy::prelude::*;
 use log::info;
 
 use crate::components::{
-    AimIndicator, AppState, BaseVelocity, Collider, DashCooldown, DeathPuff, Enemy, Health,
-    HudElement, HudElementKind, Invulnerable, Knockback, LastMoveDirection, MainCamera, MotionTrail, Pickup,
-    Player, Projectile, Velocity, Weapon, WeaponArchetype, WeaponInventory, PLAYER_COLOR,
+    AimIndicator, AppState, BaseVelocity, Collider, DashCooldown, DeathPuff, Enemy, GameOverReason,
+    Health, HudElement, HudElementKind, Invulnerable, Knockback, LastMoveDirection, MainCamera,
+    MotionTrail, Pickup, Player, Projectile, Velocity, Weapon, WeaponArchetype, WeaponInventory,
+    PLAYER_COLOR,
 };
 use crate::resources::{FloorState, CascadeState, GameSettings, RunRng, RunState, ScreenShake};
 
@@ -298,6 +299,7 @@ fn game_over_input_system(
 // (and children inherit), HUD owns its own, AIM owns its own".
 fn state_visibility_system(
     state: Res<State<AppState>>,
+    run: Option<Res<RunState>>,
     mut player_q: Query<&mut Visibility, (With<Player>, Without<AimIndicator>)>,
     mut aim_q: Query<&mut Visibility, With<AimIndicator>>,
     mut hud_q: Query<(&mut Visibility, &HudElement), (Without<Player>, Without<AimIndicator>)>,
@@ -327,7 +329,15 @@ fn state_visibility_system(
     for (mut v, hud) in &mut hud_q {
         let show = match hud.kind {
             HudElementKind::MainMenu => *state.get() == AppState::MainMenu,
-            HudElementKind::GameOver | HudElementKind::RestartPrompt => {
+            HudElementKind::GameOver => {
+                *state.get() == AppState::GameOver
+                    && run.as_ref().map(|r| r.game_over_reason == GameOverReason::Died).unwrap_or(true)
+            }
+            HudElementKind::GameOverExtracted => {
+                *state.get() == AppState::GameOver
+                    && run.as_ref().map(|r| r.game_over_reason == GameOverReason::Extracted).unwrap_or(false)
+            }
+            HudElementKind::RestartPrompt => {
                 *state.get() == AppState::GameOver
             }
             // HP / fire-rate / kill / time / cascade / boss HP:
