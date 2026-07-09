@@ -6,6 +6,7 @@
 pub mod weapon;
 pub mod projectile;
 pub mod damage;
+pub mod auto_attack;
 
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
@@ -85,6 +86,7 @@ impl Plugin for CombatPlugin {
                 weapon::weapon_switch_system,
                 weapon::weapon_fire_system,
                 damage::beam_damage_system,
+                auto_attack::auto_attack_system,  // auto-attack from non-active slots
                 projectile::projectile_lifetime_system,
                 projectile::projectile_damage_system,
                 // Phase 1 (shooter): mirror of `projectile_damage_system`

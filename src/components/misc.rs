@@ -67,12 +67,31 @@ pub enum PickupKind {
 #[derive(Component, Clone, Debug)]
 pub struct WeaponInventory {
     pub slots: [Option<crate::components::player::WeaponArchetype>; 4],
+    pub active_slot: usize,
 }
 
 impl Default for WeaponInventory {
     fn default() -> Self {
         Self {
             slots: [Some(crate::components::player::WeaponArchetype::Pistol), None, None, None],
+            active_slot: 0,
+        }
+    }
+}
+
+/// Tracks per-slot auto-attack cooldowns. Each slot index (0..3) has
+/// an independent timer. Removed entirely when the player has < 2
+/// weapons (auto-attack disabled).
+#[derive(Component, Clone)]
+pub struct AutoAttackCooldowns {
+    pub cooldowns: [Timer; 4],
+}
+
+impl Default for AutoAttackCooldowns {
+    fn default() -> Self {
+        Self {
+            // All timers start finished (ready to fire immediately).
+            cooldowns: core::array::from_fn(|_| Timer::from_seconds(0.0, TimerMode::Once)),
         }
     }
 }

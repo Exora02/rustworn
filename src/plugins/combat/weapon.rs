@@ -7,6 +7,7 @@ use bevy::prelude::*;
 
 use crate::components::{
     AimDirection, AppState, Collider, Player, Projectile, Team, Velocity, Weapon, WeaponArchetype,
+    WeaponInventory,
     AiBehavior, Beacon, Elite, EnemyAI, Health, HitFlash, PickupKind,
 };
 use crate::events::{DamageEvent, EnemyKilledEvent};
@@ -53,6 +54,7 @@ pub fn weapon_switch_system(
     hitstop: Option<Res<Hitstop>>,
     run: Res<RunState>,
     mut player_query: Query<&mut Weapon, With<Player>>,
+    mut inventory_q: Query<&mut WeaponInventory, With<Player>>,
 ) {
     if in_hitstop(&hitstop) {
         return;
@@ -90,6 +92,15 @@ pub fn weapon_switch_system(
     let (damage, fire_rate, projectile_speed, pellet_count, spread_rad, burst_rounds) =
         weapon_stats_for(target);
     weapon.archetype = target;
+    // Update the active_slot on WeaponInventory so auto_attack_system
+    // knows which slot is the active weapon (and should be skipped).
+    if let Ok(mut inventory) = inventory_q.single_mut() {
+        inventory.active_slot = inventory
+            .slots
+            .iter()
+            .position(|s| *s == Some(target))
+            .unwrap_or(0);
+    }
     weapon.damage = damage;
     weapon.fire_rate = fire_rate;
     weapon.projectile_speed = projectile_speed;

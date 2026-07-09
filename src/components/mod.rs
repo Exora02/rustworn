@@ -17,8 +17,9 @@ pub use enemy::{
     MotionTrail, OrbiterState, ShooterState, SniperState, TrailGhost,
 };
 pub use misc::{
-    AppState, BaseColor, BeamVisual, Breakable, CascadeTelegraph, HudElement, HudElementKind,
-    Pickup, PickupKind, Shrine, ShrineFocus, ShopItem, ShopReward, WeaponInventory,
+    AppState, AutoAttackCooldowns, BaseColor, BeamVisual, Breakable, CascadeTelegraph,
+    HudElement, HudElementKind, Pickup, PickupKind, Shrine, ShrineFocus, ShopItem, ShopReward,
+    WeaponInventory,
 };
 pub use player::{
     AimDirection, AimIndicator, BaseVelocity, CascadeAffected, Collider, DashCooldown, Health,
