@@ -113,6 +113,10 @@ fn pickup_collect_system(
             &mut health_q,
             &mut inventory_q,
         );
+        // Phase 4 HUD juice: spawn a floating pickup popup text
+        // at the pickup's position before it despawns.
+        let pos = tf.translation.truncate();
+        crate::plugins::hud::juice::push_pickup_popup(&mut commands, pickup.kind, pos);
         commands.entity(entity).despawn();
     }
 }

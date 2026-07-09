@@ -323,6 +323,18 @@ pub struct HitSpark {
     pub lifetime: Timer,
 }
 
+/// Phase 4: floating pickup popup. Spawned when the player collects a
+/// pickup (gold, health, weapon, damage-up, etc.). Floats upward while
+/// fading alpha over its lifetime, then despawns. Renders as a Text2d
+/// entity in world space. Uses a queue system: a global resource tracks
+/// how many popups are currently visible, and old popups are despawned
+/// if the count exceeds the max.
+#[derive(Component)]
+pub struct PickupPopup {
+    pub lifetime: Timer,
+    pub drift_speed: f32,
+}
+
 /// Phase 3b: elite enemy variant. When an enemy is spawned as
 /// an elite (via the director budget system), this marker is
 /// attached. Elite enemies have:

@@ -470,6 +470,9 @@ fn state_visibility_system(
             // visible whenever the run is "active or showing
             // the result" (InRun + GameOver). Hidden on the
             // title screen so the menu is clean.
+            HudElementKind::FloorIndicator | HudElementKind::ScoreText => {
+                *state.get() == AppState::InRun
+            }
             _ => matches!(*state.get(), AppState::InRun | AppState::GameOver),
         };
         *v = if show {

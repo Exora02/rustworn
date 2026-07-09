@@ -160,6 +160,12 @@ pub enum HudElementKind {
     CharacterSelect,
     /// Phase 3: pause overlay. Visible only on AppState::Paused.
     PauseOverlay,
+    /// Phase 4: floor/biome indicator at top-center.
+    /// Shows "Floor N — BIOME NAME" text. Visible only during InRun.
+    FloorIndicator,
+    /// Phase 4: XP score text next to the XP bar.
+    /// Shows "Score: N" in small gold text.
+    ScoreText,
 }
 
 /// Phase 1 cascade telegraph: a full-screen overlay sprite that

@@ -5,6 +5,30 @@ use bevy::prelude::*;
 
 use super::enemy::EnemyArchetype;
 
+// ─── Biome enum ────────────────────────────────────────────────────────────
+
+/// Per-floor biome theme that drives wall colors and enemy composition.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Biome {
+    #[default]
+    Catacombs, // Floor 0: dark gray/purple, undead theme
+    Frost,     // Floor 1: ice blue, fast enemies
+    Magma,     // Floor 2: deep red/orange, heavy enemies
+    Verdant,   // Floor 3: green, swarm enemies
+    Void,      // Floor 4+: near-black, all enemies elite+
+}
+
+/// Map a floor number to its biome.
+pub fn biome_from_floor(floor: u32) -> Biome {
+    match floor {
+        0 => Biome::Catacombs,
+        1 => Biome::Frost,
+        2 => Biome::Magma,
+        3 => Biome::Verdant,
+        _ => Biome::Void,
+    }
+}
+
 // ─── Room system (Phase 2) ────────────────────────────────────────────────
 
 /// Unique identifier for a room in a biome. `u8` gives 256 rooms

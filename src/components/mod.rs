@@ -14,7 +14,7 @@ pub mod world;
 pub use enemy::{
     AiBehavior, Beacon, BomberState, Boss, BossPhase, BossState, DamageNumber, DasherPhase,
     DasherState, DeathPuff, Elite, Enemy, EnemyAI, EnemyArchetype, HitFlash, HitSpark,
-    MotionTrail, OrbiterState, ShooterState, SniperState, TrailGhost,
+    MotionTrail, OrbiterState, PickupPopup, ShooterState, SniperState, TrailGhost,
 };
 pub use misc::{
     AppState, AutoAttackCooldowns, BaseColor, BeamVisual, Breakable, CascadeTelegraph,
@@ -27,6 +27,6 @@ pub use player::{
     ReaverDashHit, Team, Velocity, Weapon, WeaponArchetype, PLAYER_COLOR,
 };
 pub use world::{
-    FloorTransitionText, Room, RoomId, RoomKind, TeleportPad, Wall,
+    Biome, biome_from_floor, FloorTransitionText, Room, RoomId, RoomKind, TeleportPad, Wall,
     WaveDefinition, WaveSpawner,
 };

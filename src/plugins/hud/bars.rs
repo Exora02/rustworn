@@ -12,7 +12,7 @@ use bevy::sprite::Anchor;
 use crate::components::{
     Boss, Health, HudElement, HudElementKind, Player, Weapon, WeaponArchetype,
 };
-use crate::resources::{CascadeState, RunState};
+use crate::resources::{CascadeState, FloorState, RunState};
 
 use super::{
     approx_eq_color, lerp_color, FIRE_RATE_OFFSET_Y, HUD_OFFSET, HUD_OFFSET_RIGHT, HUD_Z,
@@ -242,12 +242,14 @@ pub fn spawn_all_bars(commands: &mut Commands) {
 pub fn hud_update_system(
     player_query: Query<(&Transform, &Health, &Weapon), (With<Player>, Without<HudElement>)>,
     run: Res<RunState>,
+    floor_state: Res<FloorState>,
     cascade: Res<CascadeState>,
     mut hud_query: Query<(
         &mut Transform,
         Option<&mut Sprite>,
         &mut Visibility,
         &HudElement,
+        Option<&mut Text2d>,
     )>,
     boss_alive: Query<(), With<Boss>>,
 ) {
@@ -261,7 +263,7 @@ pub fn hud_update_system(
         Visibility::Inherited
     };
 
-    for (mut tf, sprite, mut vis, element) in &mut hud_query {
+    for (mut tf, sprite, mut vis, element, text) in &mut hud_query {
         match element.kind {
             HudElementKind::MainMenu => {
                 let _ = (&mut tf, sprite, &mut vis);
@@ -376,6 +378,29 @@ pub fn hud_update_system(
                     tf.translation.z,
                 );
                 *vis = boss_alive_global_flag;
+            }
+            HudElementKind::FloorIndicator => {
+                tf.translation = Vec3::new(
+                    player_pos.x,
+                    player_pos.y + super::juice::FLOOR_OFFSET_Y,
+                    tf.translation.z,
+                );
+                if let Some(mut text) = text {
+                    let name = super::juice::biome_name(run.biome_index);
+                    text.0 = format!("Floor {} — {}", floor_state.floor_number + 1, name);
+                }
+            }
+            HudElementKind::ScoreText => {
+                let pos = player_pos
+                    + HUD_OFFSET_RIGHT
+                    + Vec2::new(
+                        super::juice::SCORE_TEXT_OFFSET_X,
+                        super::juice::SCORE_TEXT_OFFSET_Y,
+                    );
+                tf.translation = pos.extend(tf.translation.z);
+                if let Some(mut text) = text {
+                    text.0 = format!("Score: {}", run.xp);
+                }
             }
             // Meta shop: screen-stable at fixed offset from player
             // (only visible in MainMenu, where the player is at origin).

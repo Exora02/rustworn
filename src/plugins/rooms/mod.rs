@@ -19,7 +19,7 @@ use bevy::sprite::Anchor;
 use log::info;
 
 use crate::components::{
-    AimIndicator, AppState, Boss, Breakable, Collider, DeathPuff, Enemy, EnemyArchetype,
+    AimIndicator, AppState, Biome, Boss, Breakable, Collider, DeathPuff, Enemy, EnemyArchetype,
     FloorTransitionText, Health, Pickup, Player, Projectile, Room, RoomId, RoomKind,
     Shrine, ShrineFocus, TeleportPad, Velocity, Wall, WaveDefinition, WaveSpawner,
 };
@@ -68,6 +68,28 @@ const FLOOR_COLORS: &[Color] = &[
     Color::srgb(0.35, 0.20, 0.15), // floor 3: rust/red
     Color::srgb(0.10, 0.10, 0.10), // floor 4+: near-black (infinite)
 ];
+
+/// Per-biome accent color for wall glow / decorative elements.
+pub(crate) fn biome_accent(biome: Biome) -> Color {
+    match biome {
+        Biome::Catacombs => Color::srgb(0.40, 0.25, 0.45), // purple
+        Biome::Frost => Color::srgb(0.30, 0.70, 0.90),     // ice blue
+        Biome::Magma => Color::srgb(0.85, 0.30, 0.10),     // fiery
+        Biome::Verdant => Color::srgb(0.30, 0.75, 0.30),   // green
+        Biome::Void => Color::srgb(0.60, 0.10, 0.60),      // deep purple
+    }
+}
+
+/// Human-readable biome name for HUD and floor transition text.
+pub(crate) fn biome_name(biome: Biome) -> &'static str {
+    match biome {
+        Biome::Catacombs => "CATACOMBS",
+        Biome::Frost => "FROST REACH",
+        Biome::Magma => "MAGMA CORE",
+        Biome::Verdant => "VERDANT THICKET",
+        Biome::Void => "VOID",
+    }
+}
 
 pub mod generate;
 pub mod pads;
@@ -574,7 +596,17 @@ fn spawn_walls(commands: &mut Commands, room: &Room, floor_number: u32) {
     let h = room.size().y;
     let half = WALL_THICKNESS * 0.5;
     // Pick wall color from the floor palette.
-    let color = FLOOR_COLORS[(floor_number as usize).min(FLOOR_COLORS.len() - 1)];
+    let base_color = FLOOR_COLORS[(floor_number as usize).min(FLOOR_COLORS.len() - 1)];
+    // Blend in a biome accent for visual variety.
+    let biome = crate::components::biome_from_floor(floor_number);
+    let accent = biome_accent(biome);
+    let base_srgba = base_color.to_srgba();
+    let accent_srgba = accent.to_srgba();
+    let color = Color::srgb(
+        base_srgba.red * 0.75 + accent_srgba.red * 0.25,
+        base_srgba.green * 0.75 + accent_srgba.green * 0.25,
+        base_srgba.blue * 0.75 + accent_srgba.blue * 0.25,
+    );
 
     let walls_data = [
         (Vec3::new(cx, room.bounds_max.y + half, 0.0), Vec2::new(w + WALL_THICKNESS * 2.0, WALL_THICKNESS)),

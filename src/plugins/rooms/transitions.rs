@@ -7,12 +7,14 @@ use log::info;
 
 use crate::components::{
     AimIndicator, AppState, Boss, Breakable, Collider, DeathPuff, Enemy, FloorTransitionText,
-    GameOverReason, Health, Pickup, Player, Projectile, RoomId, RoomKind, Shrine,
-    TeleportPad, Wall, WaveSpawner,
+    GameOverReason, Health, Pickup, Player, Projectile, RoomId, RoomKind, Shrine, TeleportPad,
+    Wall, WaveSpawner,
 };
 use crate::events::RoomClearedEvent;
 use crate::resources::RunState;
 use crate::resources::{BossRampTimer, FloorState, GameSettings};
+use crate::plugins::rooms::biome_name;
+use crate::components::biome_from_floor;
 
 const PAD_SIZE: f32 = 60.0;
 const ENTRY_INSET: f32 = 50.0;
@@ -61,8 +63,13 @@ pub fn teleport_transition_system(
                 floor.floor_number += 1;
 
                 // Spawn floor transition text above the player.
+                let biome = biome_from_floor(floor.floor_number);
                 commands.spawn((
-                    Text2d::new(format!("Floor {}", floor.floor_number)),
+                    Text2d::new(format!(
+                        "--- {} ---\nFloor {}",
+                        biome_name(biome),
+                        floor.floor_number
+                    )),
                     TextFont { font_size: 48.0, ..default() },
                     TextColor(Color::srgb(1.0, 0.8, 0.2)),
                     TextLayout::new_with_justify(JustifyText::Center),

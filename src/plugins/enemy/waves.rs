@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use log::info;
 
 use crate::components::{
-    EnemyArchetype, Player, RoomKind,
+    Biome, EnemyArchetype, Player, RoomKind,
     WaveSpawner,
 };
 use crate::events::RoomClearedEvent;
@@ -41,7 +41,8 @@ pub fn elite_color_tint(base: Color) -> Color {
 /// Director budget pick: spend accumulated credits to buy an
 /// enemy archetype. Returns (archetype, is_elite). If credits
 /// are too low for any enemy, falls back to a free chaser.
-pub fn director_pick(spawner: &mut WaveSpawner, rng: &mut RunRng) -> (EnemyArchetype, bool) {
+/// `biome` adjusts the preference weights for each archetype.
+pub fn director_pick(spawner: &mut WaveSpawner, rng: &mut RunRng, biome: Biome) -> (EnemyArchetype, bool) {
     let candidates = [
         (EnemyArchetype::Chaser, spawn::ENEMY_COST_CHASER),
         (EnemyArchetype::Dasher, spawn::ENEMY_COST_DASHER),
@@ -51,23 +52,52 @@ pub fn director_pick(spawner: &mut WaveSpawner, rng: &mut RunRng) -> (EnemyArche
         (EnemyArchetype::Orbiter, spawn::ENEMY_COST_ORBITER),
     ];
 
-    let affordable: Vec<&(EnemyArchetype, f32)> =
-        candidates.iter().filter(|(_, c)| *c <= spawner.director_credits).collect();
-    if affordable.is_empty() {
+    // Per-biome weight multipliers. Default = 1.0 (balanced).
+    let weights = match biome {
+        Biome::Catacombs => [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+        Biome::Frost => [1.0, 2.0, 2.0, 0.5, 0.5, 1.0],     // Dasher + Shooter favored
+        Biome::Magma => [2.0, 0.5, 0.5, 0.5, 2.0, 0.5],     // Chaser + Bomber favored
+        Biome::Verdant => [2.0, 0.5, 0.5, 0.5, 0.5, 2.0],   // Chaser + Orbiter favored
+        Biome::Void => [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],      // Same weights but all become elite
+    };
+
+    // Build a weighted list of affordable candidates.
+    let mut weighted: Vec<(EnemyArchetype, f32)> = Vec::new();
+    for (i, (archetype, cost)) in candidates.iter().enumerate() {
+        if *cost <= spawner.director_credits {
+            let weight = weights[i];
+            // Add weight copies to the selection pool for weighted random.
+            let copies = (weight * 100.0) as usize; // avoid fractions
+            for _ in 0..copies.max(1) {
+                weighted.push((*archetype, *cost));
+            }
+        }
+    }
+
+    if weighted.is_empty() {
         return (EnemyArchetype::Chaser, false);
     }
 
-    let idx = (rng.next_unit() * affordable.len() as f32) as usize;
-    let (archetype, base_cost) = *affordable[idx.min(affordable.len() - 1)];
+    let idx = (rng.next_unit() * weighted.len() as f32) as usize;
+    let (archetype, base_cost) = weighted[idx.min(weighted.len() - 1)];
 
-    let is_elite = spawner.director_credits >= base_cost * spawn::ELITE_COST_MULTIPLIER
-        && rng.next_unit() < spawn::ELITE_CHANCE;
+    let is_elite = if biome == Biome::Void {
+        // Void: all enemies are elite
+        true
+    } else {
+        spawner.director_credits >= base_cost * spawn::ELITE_COST_MULTIPLIER
+            && rng.next_unit() < spawn::ELITE_CHANCE
+    };
 
-    let cost = if is_elite {
+    let mut cost = if is_elite {
         base_cost * spawn::ELITE_COST_MULTIPLIER
     } else {
         base_cost
     };
+    // Void bonus: 50% more HP for elite enemies, cost adjusted
+    if biome == Biome::Void {
+        cost *= spawn::ELITE_COST_MULTIPLIER;
+    }
     spawner.director_credits = (spawner.director_credits - cost).max(0.0);
 
     (archetype, is_elite)
@@ -213,7 +243,8 @@ pub fn wave_spawner_tick_system(
             .unwrap_or(RoomKind::Fight);
         let credit_rate = director_credit_rate(room_kind);
         spawner.director_credits = (spawner.director_credits + credit_rate * dt).min(spawn::CREDITS_MAX);
-        let (archetype, is_elite) = director_pick(&mut spawner, &mut rng);
+        let current_biome = crate::components::biome_from_floor(run.biome_index);
+        let (archetype, is_elite) = director_pick(&mut spawner, &mut rng, current_biome);
 
         spawn_wave_enemy(
             &mut commands,

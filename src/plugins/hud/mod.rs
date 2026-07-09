@@ -22,6 +22,7 @@
 mod bars;
 mod timer;
 mod overlay;
+pub mod juice;
 
 use bevy::prelude::*;
 
@@ -76,6 +77,11 @@ impl Plugin for HudPlugin {
                     // current before the HUD bars get re-sorted.
                     bars::hud_update_system
                         .run_if(in_state(AppState::InRun).or(in_state(AppState::GameOver))),
+                    // Phase 4: pickup popup animation update. Runs
+                    // during InRun only (no need to float popups
+                    // while the world is frozen on death).
+                    juice::pickup_popup_update
+                        .run_if(in_state(AppState::InRun)),
                 )
                     .chain(),
             );
@@ -85,6 +91,8 @@ impl Plugin for HudPlugin {
 fn spawn_hud(mut commands: Commands) {
     bars::spawn_all_bars(&mut commands);
     overlay::spawn_game_over_overlay(&mut commands);
+    juice::spawn_floor_indicator(&mut commands);
+    juice::spawn_score_text(&mut commands);
 }
 
 // Linear color interpolation in sRGB. Both inputs are srgb; we
