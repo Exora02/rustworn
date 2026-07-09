@@ -270,6 +270,11 @@ pub struct GameSettings {
     /// Breakable/health drop chance: flat 15% roll on every
     /// enemy/breakable kill to spawn a Heal orb.
     pub health_drop_chance: f32,
+    /// Spectre teleport settings.
+    /// Distance the Spectre teleports in the aim direction (default 300).
+    pub spectre_teleport_distance: f32,
+    /// Cooldown in seconds between Spectre teleports (default 1.5).
+    pub spectre_teleport_cooldown_s: f32,
 }
 
 impl Default for GameSettings {
@@ -532,6 +537,10 @@ impl Default for GameSettings {
             beacon_flee_speed: 100.0,
             // Breakable/health drop: 15% flat chance.
             health_drop_chance: 0.15,
+            // Spectre class teleport: 300 units in aim direction,
+            // 1.5s cooldown.
+            spectre_teleport_distance: 300.0,
+            spectre_teleport_cooldown_s: 1.5,
         }
     }
 }

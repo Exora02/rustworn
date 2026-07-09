@@ -94,6 +94,16 @@ pub struct RunState {
     pub game_over_reason: GameOverReason,
     /// Character class selected on the main menu. Applied on run start.
     pub selected_class: PlayerClass,
+    /// Marauder ability cooldown timer for the grenade throw (3s).
+    /// A finished timer = ready to fire; ticking = ability on cooldown.
+    pub marauder_ability_cooldown: Timer,
+    /// Engineer ability: cooldown timer for turret deploy/recall.
+    pub engineer_turret_cooldown: Timer,
+    /// Engineer ability: whether a turret is currently deployed.
+    pub engineer_turret_deployed: bool,
+    /// Spectre teleport cooldown timer. Starts finished (ready to use).
+    /// Reset to 1.5s on teleport, ticked each frame.
+    pub spectre_teleport_cooldown: Timer,
 }
 
 impl Default for RunState {
@@ -116,6 +126,13 @@ impl Default for RunState {
             armor: 0.0,
             game_over_reason: GameOverReason::Died,
             selected_class: PlayerClass::Marauder,
+            // Starts finished (0s), so the first grenade is available immediately.
+            marauder_ability_cooldown: Timer::from_seconds(0.0, TimerMode::Once),
+            // Starts finished (0s), so the first turret deploy is available immediately.
+            engineer_turret_cooldown: Timer::from_seconds(0.0, TimerMode::Once),
+            engineer_turret_deployed: false,
+            // Starts finished (0s), so the first teleport is available immediately.
+            spectre_teleport_cooldown: Timer::from_seconds(0.0, TimerMode::Once),
         }
     }
 }

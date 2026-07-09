@@ -6,9 +6,9 @@
 use bevy::prelude::*;
 
 use crate::components::{
-    AimDirection, AimIndicator, AppState, BaseVelocity, Boss, CascadeAffected, DashCooldown,
-    Health, Invulnerable, Knockback, LastMoveDirection, MainCamera, Player, RoomKind, Velocity,
-    PLAYER_COLOR,
+    AimDirection, AimIndicator, AppState, BaseVelocity, Boss, CascadeAffected, Collider,
+    DashCooldown, Enemy, Health, HitFlash, Invulnerable, Knockback, LastMoveDirection, MainCamera,
+    Player, PlayerClass, ReaverDashHit, RoomKind, Velocity, PLAYER_COLOR,
 };
 use crate::plugins::enemy::{spawn_beacon, spawn_boss};
 use crate::resources::{CascadeState, FloorState, GameSettings, Hitstop, RunState, ScreenShake};
@@ -53,6 +53,7 @@ impl Plugin for PlayerPlugin {
                 player_input_system,
                 aim_input_system,
                 dash_input_system,
+                spectre_teleport_system,
                 dash_state_system,
                 cooldown_tick_system,
                 knockback_system,
@@ -275,7 +276,7 @@ fn dash_input_system(
     settings: Res<GameSettings>,
     aim: Res<AimDirection>,
     hitstop: Option<Res<Hitstop>>,
-    _run: Res<RunState>,
+    run: Res<RunState>,
     mut commands: Commands,
     query: Query<Entity, ReadyPlayer>,
 ) {
@@ -291,6 +292,12 @@ fn dash_input_system(
 
     let duration = Timer::from_seconds(settings.player_dash_duration_s, TimerMode::Once);
     commands.entity(player).insert(Invulnerable(duration));
+
+    // Reaver: attach dash-hit tracker so dash_state_system can
+    // credit damage to enemies passed through during the dash.
+    if run.selected_class == PlayerClass::Reaver {
+        commands.entity(player).insert(ReaverDashHit::default());
+    }
 
     // Default dash direction if the player hasn't aimed yet.
     let _ = aim.0; // AimDirection is consumed in dash_state_system below.
@@ -310,26 +317,30 @@ fn dash_state_system(
     aim: Res<AimDirection>,
     settings: Res<GameSettings>,
     hitstop: Option<Res<Hitstop>>,
-    _run: Res<RunState>,
+    run: Res<RunState>,
     mut commands: Commands,
     mut query: Query<
         (
             Entity,
+            &Transform,
             &mut BaseVelocity,
             &mut Invulnerable,
             &LastMoveDirection,
+            Option<&mut ReaverDashHit>,
         ),
         With<Player>,
     >,
+    mut enemies: Query<(Entity, &Transform, &mut Health), With<Enemy>>,
 ) {
     if in_hitstop(&hitstop) {
         return;
     }
-    for (entity, mut base, mut inv, last_move) in &mut query {
+    for (entity, tf, mut base, mut inv, last_move, reaver_hit) in &mut query {
         inv.0.tick(time.delta());
         if inv.0.finished() {
             base.0 = Vec2::ZERO;
             commands.entity(entity).remove::<Invulnerable>();
+            commands.entity(entity).remove::<ReaverDashHit>();
             let cd = Timer::from_seconds(settings.player_dash_cooldown_s, TimerMode::Once);
             commands.entity(entity).insert(DashCooldown(cd));
         } else {
@@ -346,8 +357,120 @@ fn dash_state_system(
                 Vec2::Y
             };
             base.0 = dir * settings.player_dash_speed;
+
+            // Reaver dash-strike: each frame during the dash, damage
+            // any enemy whose AABB overlaps the player's AABB.
+            if let Some(mut reaver_hit) = reaver_hit {
+                let player_pos = tf.translation.truncate();
+                let player_half = Vec2::splat(20.0);
+                let base_damage = 2.0 + run.damage_stacks as f32;
+
+                for (enemy_entity, enemy_tf, mut health) in &mut enemies {
+                    if reaver_hit.hit_enemies.contains(&enemy_entity) {
+                        continue;
+                    }
+                    let enemy_pos = enemy_tf.translation.truncate();
+                    let enemy_half = Vec2::splat(15.0); // enemy half-extent (CHASER_SIZE/2 = 15)
+                    let delta = (player_pos - enemy_pos).abs();
+                    if delta.x < player_half.x + enemy_half.x
+                        && delta.y < player_half.y + enemy_half.y
+                    {
+                        health.current = (health.current - base_damage).max(0.0);
+                        reaver_hit.hit_enemies.push(enemy_entity);
+                    }
+                }
+            }
         }
     }
+}
+
+// Spectre class active ability: teleport in the aim direction on KeyE.
+// The player is moved from current position to current + aim * 300.0,
+// clamped within room bounds. Works once per 1.5s cooldown (tracked on
+// RunState.spectre_teleport_cooldown). Does not consume a dash iframe
+// — it's a separate ability that supplements movement rather than
+// replacing it.
+fn spectre_teleport_system(
+    keys: Res<ButtonInput<KeyCode>>,
+    aim: Res<AimDirection>,
+    settings: Res<GameSettings>,
+    mut run: ResMut<RunState>,
+    hitstop: Option<Res<Hitstop>>,
+    floor: Res<FloorState>,
+    mut commands: Commands,
+    mut player_query: Query<(Entity, &mut Transform), With<Player>>,
+) {
+    if in_hitstop(&hitstop) {
+        return;
+    }
+    // Only the Spectre class can teleport.
+    if run.selected_class != PlayerClass::Spectre {
+        return;
+    }
+    // Respect the global cooldown on RunState.
+    if !run.spectre_teleport_cooldown.finished() {
+        return;
+    }
+    if !keys.just_pressed(KeyCode::KeyE) {
+        return;
+    }
+    let Ok((player, mut transform)) = player_query.single_mut() else {
+        return;
+    };
+
+    let current_pos = transform.translation.truncate();
+
+    // Teleport direction: use aim if available, fall back to up.
+    let dir = if aim.0 != Vec2::ZERO {
+        aim.0
+    } else {
+        Vec2::Y
+    };
+
+    let target = current_pos + dir * settings.spectre_teleport_distance;
+
+    // Clamp to room bounds (with a small margin from walls).
+    let clamped = floor
+        .rooms
+        .iter()
+        .find(|r| r.id == floor.current_room)
+        .map(|room| {
+            let margin = 20.0;
+            target.clamp(
+                room.bounds_min + Vec2::splat(margin),
+                room.bounds_max - Vec2::splat(margin),
+            )
+        })
+        .unwrap_or(target);
+
+    transform.translation = clamped.extend(transform.translation.z);
+
+    // Reset the cooldown timer.
+    run.spectre_teleport_cooldown =
+        Timer::from_seconds(settings.spectre_teleport_cooldown_s, TimerMode::Once);
+
+    // Brief flash effect at origin and destination (purple sprite, 0.1s).
+    let flash_color = Color::srgb(0.4, 0.0, 0.8);
+    let flash_size = Vec2::new(12.0, 12.0);
+    let z = transform.translation.z + 5.0;
+
+    commands.spawn((
+        Sprite::from_color(flash_color, flash_size),
+        Transform::from_translation(current_pos.extend(z)),
+    ));
+
+    commands.spawn((
+        Sprite::from_color(flash_color, flash_size),
+        Transform::from_translation(clamped.extend(z)),
+    ));
+
+    log::info!(
+        "Spectre teleport: ({:.1}, {:.1}) → ({:.1}, {:.1})",
+        current_pos.x,
+        current_pos.y,
+        clamped.x,
+        clamped.y
+    );
 }
 
 fn cooldown_tick_system(
@@ -566,6 +689,9 @@ fn player_death_check_system(
 // Reset by `enter_in_run_system` on each InRun entry.
 fn time_tick_system(time: Res<Time>, mut run: ResMut<RunState>) {
     run.time_elapsed += time.delta_secs();
+    // Tick the Spectre teleport cooldown every frame so it's always
+    // current when spectre_teleport_system reads it.
+    run.spectre_teleport_cooldown.tick(time.delta());
 }
 
 // Phase 1 mini-boss: spawn the boss the frame `time_elapsed`

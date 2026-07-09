@@ -310,3 +310,15 @@ pub enum ShopReward {
 pub struct Breakable {
     pub hp: u32,
 }
+
+/// A Marauder grenade in flight. Travels in a direction, then
+/// explodes on enemy contact or after `timer` runs out.
+/// Explosion damages all enemies within `range`.
+#[derive(Component)]
+pub struct Grenade {
+    pub timer: Timer,
+    pub range: f32,
+    pub damage: f32,
+    pub direction: Vec2,
+    pub speed: f32,
+}

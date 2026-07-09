@@ -218,6 +218,14 @@ pub struct Collider {
     pub half_extents: Vec2,
 }
 
+/// Tracks which enemies have been hit by the Reaver's dash-strike
+/// during the current dash. Removed when the dash ends (Invulnerable
+/// removed). Cleared on each new dash.
+#[derive(Component, Default)]
+pub struct ReaverDashHit {
+    pub hit_enemies: Vec<Entity>,
+}
+
 /// Brief knockback window after taking a hit. While present, the
 /// player's `BaseVelocity` is overridden to the knockback direction.
 /// Removed when the timer elapses. Hit i-frames are attached as a

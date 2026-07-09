@@ -709,5 +709,8 @@ fn enter_in_run_system(
     run.speed_stacks = 0;
     run.regen_per_sec = 0.0;
 
+    // Reset ability cooldowns so they're ready on fresh run.
+    run.marauder_ability_cooldown = Timer::from_seconds(0.0, TimerMode::Once);
+
     info!("RUSTWORN — InRun entered: world reset, run-long stats cleared");
 }

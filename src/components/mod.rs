@@ -18,13 +18,13 @@ pub use enemy::{
 };
 pub use misc::{
     AppState, AutoAttackCooldowns, BaseColor, BeamVisual, Breakable, CascadeTelegraph,
-    GameOverReason, HudElement, HudElementKind, Pickup, PickupKind, Shrine, ShrineFocus, ShopItem,
-    ShopReward, WeaponInventory,
+    GameOverReason, Grenade, HudElement, HudElementKind, Pickup, PickupKind, Shrine, ShrineFocus,
+    ShopItem, ShopReward, WeaponInventory,
 };
 pub use player::{
     AimDirection, AimIndicator, BaseVelocity, CascadeAffected, Collider, DashCooldown, Health,
-    Invulnerable, Knockback, LastMoveDirection, MainCamera, Player, PlayerClass, Projectile, Team,
-    Velocity, Weapon, WeaponArchetype, PLAYER_COLOR,
+    Invulnerable, Knockback, LastMoveDirection, MainCamera, Player, PlayerClass, Projectile,
+    ReaverDashHit, Team, Velocity, Weapon, WeaponArchetype, PLAYER_COLOR,
 };
 pub use world::{
     FloorTransitionText, Room, RoomId, RoomKind, TeleportPad, Wall,

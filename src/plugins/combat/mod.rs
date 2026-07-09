@@ -7,6 +7,8 @@ pub mod weapon;
 pub mod projectile;
 pub mod damage;
 pub mod auto_attack;
+pub mod abilities;
+pub mod turret;
 
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
@@ -44,6 +46,9 @@ pub struct CombatPlugin;
 
 impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
+        // Register ability events.
+        app.add_event::<abilities::GrenadeExplosionEvent>();
+
         // Phase 1 (beam): the beam visual entity is spawned once
         // at startup alongside the player. A single persistent
         // sprite (not a per-frame spawn/despawn) so the
@@ -75,12 +80,25 @@ impl Plugin for CombatPlugin {
         app.add_systems(
             Update,
             (
+                // Ability cooldown tick must run before the ability input
+                // system so the cooldown is current when we check it.
+                abilities::ability_cooldown_tick_system,
                 weapon::weapon_cooldown_tick_system,
+                turret::engineer_turret_cooldown_system,
+                // Marauder grenade: input first, then movement, then
+                // impact check, then explosion damage resolution.
+                abilities::marauder_grenade_system,
+                abilities::marauder_grenade_movement_system,
+                abilities::marauder_grenade_impact_system,
+                abilities::marauder_grenade_explosion_system,
                 weapon::weapon_switch_system,
                 weapon::weapon_fire_system,
                 damage::beam_damage_system,
                 auto_attack::auto_attack_system,  // auto-attack from non-active slots
+                turret::engineer_turret_deploy_system,
+                turret::turret_auto_fire_system,
                 projectile::projectile_lifetime_system,
+                turret::turret_lifetime_system,
                 projectile::projectile_damage_system,
                 // Phase 1 (shooter): mirror of `projectile_damage_system`
                 // for `Team::Enemy` projectiles hitting the player.
