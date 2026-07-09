@@ -17,7 +17,7 @@ use crate::plugins::fx::spawn_hit_spark;
 use crate::plugins::pickups::{
     roll_gold_drop, roll_health_drop, roll_pickup_drop, roll_weapon_drop, spawn_pickup,
 };
-use crate::resources::{CascadeState, GameSettings, Hitstop, RunRng, RunState, ScreenShake};
+use crate::resources::{CascadeState, CrownSave, GameSettings, Hitstop, RunRng, RunState, ScreenShake};
 
 use super::{aabb_overlap, in_hitstop, on_enemy_killed};
 
@@ -60,6 +60,7 @@ pub fn projectile_lifetime_system(
 /// sits on a still frame.
 #[allow(clippy::too_many_arguments)]
 pub fn projectile_damage_system(
+    save: Res<CrownSave>,
     settings: Res<GameSettings>,
     hitstop: Option<Res<Hitstop>>,
     mut run: ResMut<RunState>,
@@ -140,7 +141,7 @@ pub fn projectile_damage_system(
                 }
                 // Phase 2.4 (P4): independent weapon-drop roll.
                 if let Some(weapon_kind) =
-                    roll_weapon_drop(enemy_ai.behavior, &settings, cascade.active, run.curse, &mut rng)
+                    roll_weapon_drop(enemy_ai.behavior, &settings, cascade.active, run.curse, &save.unlocks, &mut rng)
                 {
                     spawn_pickup(
                         &mut commands,

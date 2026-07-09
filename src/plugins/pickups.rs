@@ -15,7 +15,7 @@ use crate::components::{
     WeaponInventory,
 };
 use crate::events::PickupCollectedEvent;
-use crate::resources::{GameSettings, RunState};
+use crate::resources::{GameSettings, RunState, UnlockableKind};
 
 const PICKUP_SIZE: f32 = 14.0;
 
@@ -307,6 +307,7 @@ pub fn roll_weapon_drop(
     settings: &GameSettings,
     cascade_active: bool,
     curse: u32,
+    unlocks: &[bool; 8],
     rng: &mut impl FnMut() -> f32,
 ) -> Option<WeaponArchetype> {
     let chance = match behavior {
@@ -333,18 +334,31 @@ pub fn roll_weapon_drop(
     if rng() >= (chance * cascade_mult * curse_mult).min(1.0) {
         return None;
     }
-    // Roll uniformly across the 4 player weapon
-    // archetypes. `as u32` truncates, so 0.9999 → 3
-    // (Beam), giving the roll a tiny upward bias toward
-    // Beam but it's a 4-way uniform for practical
-    // purposes.
-    let r = (rng() * 4.0) as u32;
-    Some(match r {
-        0 => WeaponArchetype::Pistol,
-        1 => WeaponArchetype::Shotgun,
-        2 => WeaponArchetype::Burst,
-        _ => WeaponArchetype::Beam,
-    })
+    // Build the pool of available weapon archetypes.
+    // Pistol and Shotgun are always available.
+    // Beam, Burst, and RocketLauncher require the corresponding unlock.
+    // Note: the old 4-way roll (Pistol/Shotgun/Burst/Beam) is updated
+    // to include Rocket Launcher when unlocked.
+    let mut available: Vec<WeaponArchetype> = vec![
+        WeaponArchetype::Pistol,
+        WeaponArchetype::Shotgun,
+    ];
+    if unlocks[UnlockableKind::Burst as usize] {
+        available.push(WeaponArchetype::Burst);
+    }
+    if unlocks[UnlockableKind::Beam as usize] {
+        available.push(WeaponArchetype::Beam);
+    }
+    if unlocks[UnlockableKind::RocketLauncher as usize] {
+        // RocketLauncher is a WeaponArchetype variant.
+        available.push(WeaponArchetype::RocketLauncher);
+    }
+    // If no weapons are unlocked beyond Pistol/Shotgun, just Pistol.
+    if available.is_empty() {
+        available.push(WeaponArchetype::Pistol);
+    }
+    let idx = (rng() * available.len() as f32) as usize;
+    Some(available[idx.min(available.len() - 1)])
 }
 
 /// Roll a flat `health_drop_chance` to drop a Heal orb.
@@ -473,7 +487,7 @@ mod tests {
     fn roll_weapon_drop_returns_some_when_chance_is_one() {
         let s = settings();
         let mut rng = || 0.0_f32; // first rng() < 1.0 → drop
-        let result = roll_weapon_drop(AiBehavior::Chaser, &s, false, 0, &mut rng);
+        let result = roll_weapon_drop(AiBehavior::Chaser, &s, false, 0, &[true; 8], &mut rng);
         assert!(result.is_some(), "chance=1.0 must always drop");
         assert!(matches!(
             result.unwrap(),

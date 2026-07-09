@@ -20,7 +20,7 @@ use crate::plugins::pickups::{
 };
 
 use super::aabb_overlap;
-use crate::resources::{CascadeState, GameSettings, Hitstop, RunRng, RunState};
+use crate::resources::{CascadeState, CrownSave, GameSettings, Hitstop, RunRng, RunState};
 
 use super::{in_hitstop, on_enemy_killed, point_to_segment_distance};
 
@@ -50,6 +50,7 @@ pub fn beam_damage_system(
     hitstop: Option<Res<Hitstop>>,
     mut run_state: ResMut<RunState>,
     mut rng: ResMut<RunRng>,
+    save: Res<CrownSave>,
     mut cascade: ResMut<CascadeState>,
     mut commands: Commands,
     mut weapons: Query<&mut Weapon, With<Player>>,
@@ -161,7 +162,7 @@ pub fn beam_damage_system(
             // the two rolls are independent (a single kill
             // can drop a stat-stick AND a weapon).
             if let Some(weapon_kind) =
-                roll_weapon_drop(enemy_ai.behavior, &settings, cascade.active, run_state.curse, &mut rng)
+                roll_weapon_drop(enemy_ai.behavior, &settings, cascade.active, run_state.curse, &save.unlocks, &mut rng)
             {
                 spawn_pickup(
                     &mut commands,
@@ -272,7 +273,7 @@ pub fn breakable_damage_system(
                 }
                 // Roll weapon drop (same stand-in).
                 if let Some(weapon_kind) =
-                    roll_weapon_drop(AiBehavior::Chaser, &settings, cascade.active, run.curse, &mut rng)
+                                roll_weapon_drop(AiBehavior::Chaser, &settings, cascade.active, run.curse, &[true; 8], &mut rng)
                 {
                     spawn_pickup(
                         &mut commands,

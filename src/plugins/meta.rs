@@ -28,7 +28,7 @@ fn save_path() -> PathBuf {
 
 fn load_save(mut commands: Commands) {
     let path = save_path();
-    let save = if path.exists() {
+    let mut save = if path.exists() {
         match fs::read_to_string(&path) {
             Ok(data) => ron::from_str(&data).unwrap_or_else(|e| {
                 info!("Failed to parse Crown save ({}): starting fresh", e);
@@ -43,7 +43,9 @@ fn load_save(mut commands: Commands) {
         info!("No Crown save found — starting fresh.");
         CrownSave::default()
     };
-    info!("Crown save loaded: {} Crown, upgrades: {:?}", save.crown, save.upgrades);
+    // Backward compatibility: migrate legacy `upgrades` to `unlocks`.
+    save.migrate();
+    info!("Crown save loaded: {} Crown, unlocks: {:?}", save.crown, save.unlocks);
     commands.insert_resource(save);
 }
 

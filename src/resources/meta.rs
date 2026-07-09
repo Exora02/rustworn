@@ -1,31 +1,111 @@
-//! Meta-progression: Crown currency, upgrade tree, and persistence.
+//! Meta-progression: Crown currency, unlockable items/weapons, and persistence.
 //! 
 //! `CrownSave` is the persistent data saved between runs (loaded from
-//! `crown_save.ron` on boot, saved on extraction and on upgrade purchases).
-//! `MetaConfig` provides the in-memory lookup of upgrade costs/effects.
+//! `crown_save.ron` on boot, saved on extraction and on unlockable purchases).
+//! `MetaConfig` provides the in-memory lookup of unlockable costs/descriptions.
+//!
+//! ## Backward compatibility
+//!
+//! Old save files with `upgrades: [u32; 8]` are detected and converted to the
+//! new `unlocks: [bool; 8]` format on load. A level > 0 in any old upgrade
+//! slot becomes `true` (unlocked) in the new field.
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
+
+/// Which unlockable slot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum UnlockableKind {
+    #[default]
+    Beam = 0,
+    Burst = 1,
+    RocketLauncher = 2,
+    CrownOfGreed = 3,
+    GlassCannon = 4,
+    ExplosiveRounds = 5,
+    Thorns = 6,
+    Vampire = 7,
+}
+
+/// Static definition of an unlockable — name, base cost, and description.
+pub struct UnlockableDef {
+    pub name: &'static str,
+    pub base_cost: u32,
+    pub description: &'static str,
+}
+
+/// Lookup table for unlockable costs and descriptions.
+#[derive(Resource)]
+pub struct MetaConfig {
+    pub unlockables: [UnlockableDef; 8],
+}
+
+impl Default for MetaConfig {
+    fn default() -> Self {
+        Self {
+            unlockables: [
+                UnlockableDef { name: "Beam",             base_cost: 10, description: "Unlock Beam weapon" },
+                UnlockableDef { name: "Burst",            base_cost: 10, description: "Unlock Burst weapon" },
+                UnlockableDef { name: "Rocket Launcher",   base_cost: 15, description: "Unlock Rocket Launcher" },
+                UnlockableDef { name: "Crown of Greed",   base_cost: 20, description: "+50% gold" },
+                UnlockableDef { name: "Glass Cannon",     base_cost: 25, description: "+2 DMG, 2 HP" },
+                UnlockableDef { name: "Explosive Rounds", base_cost: 20, description: "AoE projectiles" },
+                UnlockableDef { name: "Thorns",           base_cost: 15, description: "Reflect damage" },
+                UnlockableDef { name: "Vampire",          base_cost: 30, description: "Heal on kill" },
+            ],
+        }
+    }
+}
 
 /// Persistent Crown data: saved between runs, loaded on boot.
 #[derive(Resource, Serialize, Deserialize, Clone, Debug)]
 pub struct CrownSave {
     /// Total Crown currency the player has saved up.
     pub crown: u32,
-    /// Purchased upgrades. Index = MetaUpgradeKind discriminant.
-    pub upgrades: [u32; 8],
+    /// Purchased unlocks. Index = UnlockableKind discriminant.
+    #[serde(default = "default_unlocks")]
+    pub unlocks: [bool; 8],
+    /// Legacy field: kept for backward-compatible deserialization.
+    /// If present and `unlocks` was not serialized, the field is
+    /// converted on load. Never written back.
+    #[serde(default)]
+    pub upgrades: Option<[u32; 8]>,
+}
+
+fn default_unlocks() -> [bool; 8] {
+    [false; 8]
 }
 
 impl Default for CrownSave {
     fn default() -> Self {
         Self {
             crown: 0,
-            upgrades: [0; 8],
+            unlocks: [false; 8],
+            upgrades: None,
         }
     }
 }
 
-/// Which upgrade slot.
+impl CrownSave {
+    /// Migrate legacy `upgrades` into `unlocks` if present.
+    /// Called after deserialization to keep the rest of the
+    /// codebase on the new `unlocks` field.
+    pub fn migrate(&mut self) {
+        if let Some(upgrades) = self.upgrades.take() {
+            if upgrades.len() == 8 && self.unlocks == [false; 8] {
+                for (i, &level) in upgrades.iter().enumerate() {
+                    if level > 0 {
+                        self.unlocks[i] = true;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The old upgrade kind enum — kept for reference but no longer used.
+/// Remains in the crate to avoid breaking old imports that may
+/// reference it elsewhere.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum MetaUpgradeKind {
     #[default]
@@ -37,36 +117,4 @@ pub enum MetaUpgradeKind {
     CascadeDuration = 5,
     Damage = 6,
     Regen = 7,
-}
-
-/// Lookup table for upgrade costs and effects.
-#[derive(Resource)]
-pub struct MetaConfig {
-    pub upgrades: [MetaUpgradeDef; 8],
-}
-
-pub struct MetaUpgradeDef {
-    pub kind: MetaUpgradeKind,
-    pub name: &'static str,
-    pub description: &'static str,
-    pub base_cost: u32,
-    pub cost_per_level: u32,
-    pub max_level: u32,
-}
-
-impl Default for MetaConfig {
-    fn default() -> Self {
-        Self {
-            upgrades: [
-                MetaUpgradeDef { kind: MetaUpgradeKind::MaxHp, name: "Max HP", description: "+1 max HP", base_cost: 15, cost_per_level: 0, max_level: 3 },
-                MetaUpgradeDef { kind: MetaUpgradeKind::MoveSpeed, name: "Move Speed", description: "+10% move speed", base_cost: 20, cost_per_level: 0, max_level: 3 },
-                MetaUpgradeDef { kind: MetaUpgradeKind::DashCooldown, name: "Dash Cd", description: "-0.2s cooldown", base_cost: 15, cost_per_level: 0, max_level: 3 },
-                MetaUpgradeDef { kind: MetaUpgradeKind::StartingGold, name: "Starting Gold", description: "Start with 10g", base_cost: 10, cost_per_level: 0, max_level: 2 },
-                MetaUpgradeDef { kind: MetaUpgradeKind::ExtraSlot, name: "Extra Slot", description: "5th weapon slot", base_cost: 50, cost_per_level: 0, max_level: 1 },
-                MetaUpgradeDef { kind: MetaUpgradeKind::CascadeDuration, name: "Cascade Dur", description: "+3s per level", base_cost: 25, cost_per_level: 0, max_level: 2 },
-                MetaUpgradeDef { kind: MetaUpgradeKind::Damage, name: "Damage", description: "+5% damage", base_cost: 30, cost_per_level: 0, max_level: 3 },
-                MetaUpgradeDef { kind: MetaUpgradeKind::Regen, name: "Regen", description: "+0.5 HP/s", base_cost: 25, cost_per_level: 0, max_level: 2 },
-            ],
-        }
-    }
 }

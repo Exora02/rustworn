@@ -25,7 +25,7 @@ use crate::components::{
     MotionTrail, Pickup, Player, PlayerClass, Projectile, Velocity, Weapon, WeaponArchetype,
     WeaponInventory, PLAYER_COLOR,
 };
-use crate::resources::{CascadeState, CrownSave, FloorState, GameSettings, MetaConfig, MetaUpgradeKind, RunRng, RunState, ScreenShake};
+use crate::resources::{CascadeState, CrownSave, FloorState, GameSettings, MetaConfig, RunRng, RunState, ScreenShake, UnlockableKind};
 
 /// Color of the aim indicator line — high-contrast white so it stays
 /// readable against any background we'll add later.
@@ -235,24 +235,26 @@ fn spawn_world(mut commands: Commands, settings: Res<GameSettings>, meta: Res<Me
     ));
 
     // Phase 3 meta-progression: shop overlay. Spawned once at startup,
-    // visible only on MainMenu (toggled by state_visibility_system).
-    // Shows Crown balance + 8 upgrade rows. Each row shows key, name,
-    // level/cost. The Crown balance entity updates dynamically via a
-    // small update system.
-    //
-    // The shop text is a single large multi-line Text2d entity.
-    // Positioned in the top-left quarter of the screen.
-    let shop_text = format!(
-        "=== CROWN SHOP ===\n\nCrown: {{}}\n\n1: {:<12} {}/3 (15 Cr)\n2: {:<12} {}/3 (20 Cr)\n3: {:<12} {}/3 (15 Cr)\n4: {:<12} {}/2 (10 Cr)\n5: {:<12} {}/1 (50 Cr)\n6: {:<12} {}/2 (25 Cr)\n7: {:<12} {}/3 (30 Cr)\n8: {:<12} {}/2 (25 Cr)\n\nPress 1-8 to buy  |  ESC to exit",
-        meta.upgrades[0].name, meta.upgrades[0].max_level,
-        meta.upgrades[1].name, meta.upgrades[1].max_level,
-        meta.upgrades[2].name, meta.upgrades[2].max_level,
-        meta.upgrades[3].name, meta.upgrades[3].max_level,
-        meta.upgrades[4].name, meta.upgrades[4].max_level,
-        meta.upgrades[5].name, meta.upgrades[5].max_level,
-        meta.upgrades[6].name, meta.upgrades[6].max_level,
-        meta.upgrades[7].name, meta.upgrades[7].max_level,
-    );
+        // visible only on MainMenu (toggled by state_visibility_system).
+        // Shows Crown balance + 8 unlockable rows. Each row shows key, name,
+        // locked/unlocked status and cost.
+        //
+        // The shop text is a single large multi-line Text2d entity.
+        // Positioned in the top-left quarter of the screen.
+        //
+        // Build the unlockable shop text dynamically from MetaConfig.
+        let mut shop_lines = String::from("=== CROWN SHOP ===\n\nCrown: {}\n\n");
+        for (i, def) in meta.unlockables.iter().enumerate() {
+            let line = format!(
+                "{}: {:<16} — {:>3} Cr\n",
+                i + 1,
+                def.name,
+                def.base_cost,
+            );
+            shop_lines.push_str(&line);
+        }
+        shop_lines.push_str("\nPress 1-8 to buy  |  ESC to exit");
+        let shop_text = shop_lines;
     commands.spawn((
         Text2d::new(shop_text),
         TextFont { font_size: 16.0, ..default() },
@@ -318,58 +320,60 @@ fn menu_input_system(
     }
 }
 
-/// Returns true if a key was consumed as an upgrade purchase.
+/// Returns true if a key was consumed as an unlockable purchase.
 fn handle_upgrade_purchases(
     keys: &Res<ButtonInput<KeyCode>>,
     meta: &Res<MetaConfig>,
     save: &mut ResMut<CrownSave>,
 ) -> bool {
-        for (key_idx, key) in [
-            KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4,
-            KeyCode::Digit5, KeyCode::Digit6, KeyCode::Digit7, KeyCode::Digit8,
-        ].iter().enumerate() {
-            if keys.just_pressed(*key) {
-                let def = &meta.upgrades[key_idx];
-                let current_level = save.upgrades[key_idx];
-                if current_level < def.max_level {
-                    let cost = def.base_cost;
-                    if save.crown >= cost {
-                        save.crown -= cost;
-                        save.upgrades[key_idx] = current_level + 1;
-                        crate::plugins::meta::write_save(&save);
-                        info!(
-                            "Bought {} (level {}/{}) for {} Crown",
-                            def.name, current_level + 1, def.max_level, cost
-                        );
-                    } else {
-                        info!(
-                            "Not enough Crown for {} (need {}, have {})",
-                            def.name, cost, save.crown
-                        );
-                    }
-                }
+    for (key_idx, key) in [
+        KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4,
+        KeyCode::Digit5, KeyCode::Digit6, KeyCode::Digit7, KeyCode::Digit8,
+    ].iter().enumerate() {
+        if keys.just_pressed(*key) {
+            let def = &meta.unlockables[key_idx];
+            if save.unlocks[key_idx] {
+                // Already unlocked — no-op.
+                info!("{} is already unlocked", def.name);
                 return true;
             }
+            let cost = def.base_cost;
+            if save.crown >= cost {
+                save.crown -= cost;
+                save.unlocks[key_idx] = true;
+                crate::plugins::meta::write_save(&save);
+                info!(
+                    "Unlocked {} for {} Crown",
+                    def.name, cost,
+                );
+            } else {
+                info!(
+                    "Not enough Crown for {} (need {}, have {})",
+                    def.name, cost, save.crown
+                );
+            }
+            return true;
         }
-        false
     }
+    false
+}
 
-    /// Handle character select keys (1-4 on the MainMenu).
-    fn handle_character_select(keys: &Res<ButtonInput<KeyCode>>, mut run: ResMut<RunState>) {
-        if keys.just_pressed(KeyCode::Digit1) {
-            run.selected_class = PlayerClass::Marauder;
-            info!("Selected character: Marauder");
-        } else if keys.just_pressed(KeyCode::Digit2) {
-            run.selected_class = PlayerClass::Reaver;
-            info!("Selected character: Reaver");
-        } else if keys.just_pressed(KeyCode::Digit3) {
-            run.selected_class = PlayerClass::Spectre;
-            info!("Selected character: Spectre");
-        } else if keys.just_pressed(KeyCode::Digit4) {
-            run.selected_class = PlayerClass::Engineer;
-            info!("Selected character: Engineer");
-        }
+/// Handle character select keys (1-4 on the MainMenu).
+fn handle_character_select(keys: &Res<ButtonInput<KeyCode>>, mut run: ResMut<RunState>) {
+    if keys.just_pressed(KeyCode::Digit1) {
+        run.selected_class = PlayerClass::Marauder;
+        info!("Selected character: Marauder");
+    } else if keys.just_pressed(KeyCode::Digit2) {
+        run.selected_class = PlayerClass::Reaver;
+        info!("Selected character: Reaver");
+    } else if keys.just_pressed(KeyCode::Digit3) {
+        run.selected_class = PlayerClass::Spectre;
+        info!("Selected character: Spectre");
+    } else if keys.just_pressed(KeyCode::Digit4) {
+        run.selected_class = PlayerClass::Engineer;
+        info!("Selected character: Engineer");
     }
+}
 // Paused: ESC resumes (→ InRun).
 fn paused_esc_system(keys: Res<ButtonInput<KeyCode>>, mut next_state: ResMut<NextState<AppState>>) {
     if keys.just_pressed(KeyCode::Escape) {
@@ -505,7 +509,7 @@ fn state_visibility_system(
 #[allow(clippy::too_many_arguments)]
 fn enter_in_run_system(
     mut settings: ResMut<GameSettings>,
-    _meta: Res<MetaConfig>,
+    meta: Res<MetaConfig>,
     save: Res<CrownSave>,
     mut run: ResMut<RunState>,
     mut rng: ResMut<RunRng>,
@@ -573,23 +577,28 @@ fn enter_in_run_system(
             half_extents: Vec2::splat(20.0),
         });
 
-        // Apply meta-progression upgrades.
-        // Max HP
-        let max_hp_level = save.upgrades[MetaUpgradeKind::MaxHp as usize];
-        h.max += max_hp_level as f32;
-        h.current = h.max;
-
-        // Starting gold
-        let start_gold = save.upgrades[MetaUpgradeKind::StartingGold as usize];
-        run.gold = start_gold * 10;
-
-        // Extra slot: expand inventory to 5 if at level 1
-        let extra_slot = save.upgrades[MetaUpgradeKind::ExtraSlot as usize];
-        if extra_slot > 0 && inventory.slots.len() < 5 {
-            // Tried to add a 5th slot — but slots is [Option<WeaponArchetype>; 4]
-            // This requires changing the type. For now: skip — we handle this
-            // separately in a future refactor if needed.
+        // Apply unlockable-based effects.
+        //
+        // Crown of Greed: +50% gold from all sources.
+        if save.unlocks[UnlockableKind::CrownOfGreed as usize] {
+            run.gold_mult = 1.5;
         }
+        // Glass Cannon: +2 damage stacks, cap max HP at 2.
+        if save.unlocks[UnlockableKind::GlassCannon as usize] {
+            run.damage_stacks += 2;
+            h.max = 2.0;
+            h.current = 2.0;
+        }
+        // Thorns: reflect 1 damage to attackers.
+        if save.unlocks[UnlockableKind::Thorns as usize] {
+            run.thorns_damage = 1.0;
+        }
+        // Vampire: heal 0.5 HP on kill.
+        if save.unlocks[UnlockableKind::Vampire as usize] {
+            run.vampire_heal = 0.5;
+        }
+        // Explosive Rounds: placeholders for future AoE effect.
+        // if save.unlocks[UnlockableKind::ExplosiveRounds as usize] { ... }
 
         // Apply character-specific starting stats.
         match run.selected_class {
@@ -611,39 +620,6 @@ fn enter_in_run_system(
                 h.current = 5.0;
             }
         }
-    }
-
-    // Apply meta-progression upgrades (game-level, not player-entity-level).
-    // Move speed
-    let spd_level = save.upgrades[MetaUpgradeKind::MoveSpeed as usize];
-    if spd_level > 0 {
-        // Apply to GameSettings — player_move_speed is the base
-        // and the run stat uses this value
-        settings.player_move_speed *= 1.0 + spd_level as f32 * 0.10;
-    }
-
-    // Dash cooldown
-    let dash_cd = save.upgrades[MetaUpgradeKind::DashCooldown as usize];
-    if dash_cd > 0 {
-        settings.player_dash_cooldown_s -= dash_cd as f32 * 0.2;
-    }
-
-    // Cascade duration
-    let cas_level = save.upgrades[MetaUpgradeKind::CascadeDuration as usize];
-    if cas_level > 0 {
-        settings.cascade_duration_s += cas_level as f32 * 3.0;
-    }
-
-    // Damage: store as a base multiplier in RunState
-    let dmg_level = save.upgrades[MetaUpgradeKind::Damage as usize];
-    if dmg_level > 0 {
-        run.damage_stacks += dmg_level;
-    }
-
-    // Regen
-    let regen_level = save.upgrades[MetaUpgradeKind::Regen as usize];
-    if regen_level > 0 {
-        run.regen_per_sec += regen_level as f32 * 0.5;
     }
 
     // Apply character-specific speed modifiers.
@@ -720,6 +696,10 @@ fn enter_in_run_system(
     run.fire_rate_stacks = 0;
     run.speed_stacks = 0;
     run.regen_per_sec = 0.0;
+    // Reset unlockable run-state fields.
+    run.gold_mult = 1.0;
+    run.vampire_heal = 0.0;
+    run.thorns_damage = 0.0;
 
     // Reset ability cooldowns so they're ready on fresh run.
     run.marauder_ability_cooldown = Timer::from_seconds(0.0, TimerMode::Once);

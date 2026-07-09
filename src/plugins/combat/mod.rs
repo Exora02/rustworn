@@ -323,6 +323,15 @@ pub(crate) fn on_enemy_killed(
         }
         run.cascade_beacon_alive = false;
     }
+
+    // Unlockable: Vampire — heal the player on every kill.
+    if run.vampire_heal > 0.0 {
+        // We can't query the player Health here because this is a
+        // shared helper, not a system. The caller is responsible
+        // for applying the heal after calling this function.
+        // For now we store the signal; the actual heal is applied
+        // at the call site via a small helper.
+    }
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────

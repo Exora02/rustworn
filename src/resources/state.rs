@@ -104,6 +104,12 @@ pub struct RunState {
     /// Spectre teleport cooldown timer. Starts finished (ready to use).
     /// Reset to 1.5s on teleport, ticked each frame.
     pub spectre_teleport_cooldown: Timer,
+    /// Unlockable: Crown of Greed — multiplies all gold income.
+    pub gold_mult: f32,
+    /// Unlockable: Vampire — heal HP on every enemy kill.
+    pub vampire_heal: f32,
+    /// Unlockable: Thorns — reflect damage back to attackers.
+    pub thorns_damage: f32,
 }
 
 impl Default for RunState {
@@ -133,6 +139,9 @@ impl Default for RunState {
             engineer_turret_deployed: false,
             // Starts finished (0s), so the first teleport is available immediately.
             spectre_teleport_cooldown: Timer::from_seconds(0.0, TimerMode::Once),
+            gold_mult: 1.0,
+            vampire_heal: 0.0,
+            thorns_damage: 0.0,
         }
     }
 }
