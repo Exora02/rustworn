@@ -8,8 +8,8 @@ use bevy::prelude::*;
 use log::warn;
 
 use crate::components::{
-    Beacon, Boss, Collider, Elite, Enemy, EnemyAI, Health, HitFlash, Invulnerable, Knockback,
-    PickupKind, Player, Projectile, Team,
+    ArcGunProjectile, Beacon, Boss, Collider, Elite, Enemy, EnemyAI, Health, HitFlash, Invulnerable,
+    Knockback, PickupKind, Player, Projectile, Team,
 };
 use crate::events::{DamageEvent, EnemyKilledEvent};
 use crate::plugins::enemy::spawn_death_puff;
@@ -71,7 +71,7 @@ pub fn projectile_damage_system(
     mut cascade: ResMut<CascadeState>,
     mut commands: Commands,
     mut shake: ResMut<ScreenShake>,
-    projectiles: Query<(Entity, &Transform, &Collider, &Projectile)>,
+    projectiles: Query<(Entity, &Transform, &Collider, &Projectile, Has<ArcGunProjectile>)>,
     mut enemies: Query<
         (
             Entity,
@@ -91,7 +91,7 @@ pub fn projectile_damage_system(
     if in_hitstop(&hitstop) {
         return;
     }
-    for (proj_entity, proj_tf, proj_col, proj) in &projectiles {
+    for (proj_entity, proj_tf, proj_col, proj, is_arc) in &projectiles {
         // Projectiles are Player team today; the team check is in
         // place so enemy projectiles (Phase 1+) can co-exist without
         // damaging their own faction.
@@ -101,6 +101,9 @@ pub fn projectile_damage_system(
         let proj_pos = proj_tf.translation.truncate();
 
         let mut hit = false;
+        // Store data for Arc Gun chain (needs to survive the enemies iter scope).
+        let mut hit_enemy_entity = Entity::PLACEHOLDER;
+        let mut hit_enemy_pos = Vec2::ZERO;
         for (enemy_entity, enemy_tf, enemy_col, mut health, enemy_ai, is_beacon, is_elite, is_boss) in
             &mut enemies
         {
@@ -124,6 +127,8 @@ pub fn projectile_damage_system(
             }
             health.current = (health.current - proj.damage).max(0.0);
             hit = true;
+            hit_enemy_entity = enemy_entity;
+            hit_enemy_pos = enemy_tf.translation.truncate();
             // Day 13-14: white pulse on every hit (kill or not).
             commands.entity(enemy_entity).insert(HitFlash {
                 timer: Timer::from_seconds(settings.hit_flash_duration_s, TimerMode::Once),
@@ -215,7 +220,124 @@ pub fn projectile_damage_system(
         if hit {
             commands.entity(proj_entity).despawn();
         }
+        // Arc Gun chain: after the projectile hits and before we finish
+        // processing this projectile, chain to nearby enemies. We do it
+        // here (after the enemies iterator drops) so there's no borrow
+        // conflict. The chain uses its own query iteration.
+        if is_arc {
+            chain_to_nearby_enemies(
+                &mut commands,
+                &settings,
+                &mut enemies,
+                hit_enemy_entity,
+                hit_enemy_pos,
+            );
+        }
     }
+}
+
+/// After an Arc Gun primary hit at `hit_pos`, find the nearest living enemy
+/// within 100px and chain lightning to it. Chains up to `MAX_CHAIN` targets
+/// (2 in addition to the primary), dealing `CHAIN_DAMAGE` (0.8) each.
+/// Must be called OUTSIDE the enemies iterator scope to avoid borrow conflicts.
+fn chain_to_nearby_enemies(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    enemies: &mut Query<
+        (
+            Entity,
+            &Transform,
+            &Collider,
+            &mut Health,
+            &EnemyAI,
+            Has<Beacon>,
+            Has<Elite>,
+            Has<Boss>,
+        ),
+        With<Enemy>,
+    >,
+    hit_enemy: Entity,
+    hit_pos: Vec2,
+) {
+    const CHAIN_RANGE: f32 = 100.0;
+    const CHAIN_DAMAGE: f32 = 0.8;
+    const MAX_CHAIN: u32 = 2;
+
+    let mut current_pos = hit_pos;
+    let mut chain_exclude = vec![hit_enemy];
+
+    for _chain_idx in 0..MAX_CHAIN {
+        // Find the nearest living enemy (not already chained) within range.
+        let mut nearest: Option<(Entity, Vec2)> = None;
+        let mut nearest_dist = CHAIN_RANGE;
+
+        for (enemy_entity, enemy_tf, _enemy_col, health, _enemy_ai, _is_beacon, _is_elite, _is_boss) in
+            enemies.iter_mut()
+        {
+            if chain_exclude.contains(&enemy_entity) {
+                continue;
+            }
+            if health.current <= 0.0 {
+                continue;
+            }
+            let pos = enemy_tf.translation.truncate();
+            let dist = pos.distance(current_pos);
+            if dist <= nearest_dist {
+                nearest_dist = dist;
+                nearest = Some((enemy_entity, pos));
+            }
+        }
+
+        if let Some((target, target_pos)) = nearest {
+            // Apply damage to the chained enemy.
+            if let Ok((_, _, _, mut health, _, _, _, _)) = enemies.get_mut(target) {
+                health.current = (health.current - CHAIN_DAMAGE).max(0.0);
+            }
+            // Spawn a small yellow lightning visual (a thin line).
+            spawn_chain_lightning(commands, settings, current_pos, target_pos);
+            // Mark as excluded so we don't chain to it again.
+            chain_exclude.push(target);
+            current_pos = target_pos;
+        } else {
+            break; // No more enemies in range to chain to.
+        }
+    }
+}
+
+/// Spawn a small yellow line from `from` to `to` representing a chain
+/// lightning bolt. Lives for 0.15s then despawns. Uses a stretched
+/// thin sprite aligned along the from→to axis.
+fn spawn_chain_lightning(
+    commands: &mut Commands,
+    _settings: &GameSettings,
+    from: Vec2,
+    to: Vec2,
+) {
+    use crate::components::HitSpark;
+    use crate::plugins::fx::spawn_hit_spark;
+
+    let midpoint = (from + to) * 0.5;
+    let diff = to - from;
+    let length = diff.length();
+    let angle = diff.y.atan2(diff.x);
+
+    // Lightning bolt visual: a thin yellow rectangle connecting the two points.
+    commands.spawn((
+        HitSpark {
+            lifetime: Timer::from_seconds(0.15, TimerMode::Once),
+        },
+        Sprite {
+            color: Color::srgb(1.0, 0.95, 0.20),
+            custom_size: Some(Vec2::new(length, 3.0)),
+            ..default()
+        },
+        Transform::from_xyz(midpoint.x, midpoint.y, 0.55)
+            .with_rotation(Quat::from_rotation_z(angle)),
+        Visibility::Inherited,
+    ));
+
+    // Also spawn a hit spark at the chained target for visual feedback.
+    spawn_hit_spark(commands, _settings, to);
 }
 
 /// Mirror of `projectile_damage_system` but for `Team::Enemy`

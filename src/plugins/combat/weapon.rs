@@ -6,7 +6,7 @@
 use bevy::prelude::*;
 
 use crate::components::{
-    AimDirection, Collider, Player, Projectile, Team, Velocity, Weapon, WeaponArchetype,
+    AimDirection, ArcGunProjectile, Collider, Player, Projectile, Team, Velocity, Weapon, WeaponArchetype,
     WeaponInventory,
 };
 use crate::events::WeaponFiredEvent;
@@ -280,7 +280,7 @@ pub fn weapon_fire_system(
 
         let proj_sprite = weapon_sprite_for(weapon.archetype, &sprites);
 
-        commands.spawn((
+        let mut proj_entity = commands.spawn((
             Sprite {
                 image: proj_sprite,
                 color: PROJECTILE_COLOR,
@@ -312,6 +312,10 @@ pub fn weapon_fire_system(
                 team: Team::Player,
             },
         ));
+        // Arc Gun marker: enables chain-lightning behavior on hit.
+        if weapon.archetype == WeaponArchetype::ArcGun {
+            proj_entity.insert(ArcGunProjectile);
+        }
     }
 
     // Emit weapon-fire event for audio system — once per shot regardless

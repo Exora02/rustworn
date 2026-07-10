@@ -171,6 +171,13 @@ pub struct RunState {
     pub healing_aura_unlocked: bool,
     /// Time Warp: 50% slow for 2s.
     pub time_warp_unlocked: bool,
+
+    // ─── Phase 6 game feel ────────────────────────────────────────────
+    /// Combo counter: increments on each kill, resets to 0 when
+    /// `combo_timer` expires (3s). Displayed as "x{N} COMBO" on the HUD.
+    pub combo: u32,
+    /// Combo timer: reset to 3s on each kill; if it finishes, combo resets to 0.
+    pub combo_timer: Timer,
 }
 
 impl Default for RunState {
@@ -234,6 +241,10 @@ impl Default for RunState {
             rage_mode_unlocked: false,
             healing_aura_unlocked: false,
             time_warp_unlocked: false,
+
+            // Phase 6 game feel
+            combo: 0,
+            combo_timer: Timer::from_seconds(3.0, TimerMode::Once),
         }
     }
 }

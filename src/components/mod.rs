@@ -3,6 +3,7 @@
 //! Usage: `use crate::components::{Player, Health, Enemy, Room, ...};`
 //! still works — everything is re-exported from this root.
 
+pub mod arcgun; // marker for Arc Gun chain-lightning projectiles
 pub mod enemy;
 pub mod misc;
 pub mod player;
@@ -11,6 +12,7 @@ pub mod world;
 // Re-exports from each sub-module so that existing `crate::components::*`
 // imports continue to compile without changes.
 
+pub use arcgun::ArcGunProjectile;
 pub use enemy::{
     AiBehavior, Beacon, BomberState, Boss, BossPhase, BossProjectile, BossState, DamageNumber, DasherPhase,
     DasherState, DeathParticle, DeathPuff, Elite, Enemy, EnemyAI, EnemyArchetype, HitFlash, HitSpark,

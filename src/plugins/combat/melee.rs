@@ -7,7 +7,7 @@
 use bevy::prelude::*;
 
 use crate::components::{
-    AimDirection, Collider, Enemy, Health, Knockback, MeleeWeapon, Player,
+    AimDirection, Collider, Enemy, Health, HitFlash, Knockback, MeleeWeapon, Player,
 };
 use crate::events::{DamageEvent, EnemyKilledEvent};
 use crate::resources::{GameSettings, Hitstop, RunState};
@@ -135,6 +135,11 @@ pub fn melee_swing_system(
         damage_events.write(DamageEvent {
             victim: enemy_entity,
             amount: final_damage,
+        });
+
+        // Hit flash on every hit.
+        commands.entity(enemy_entity).insert(HitFlash {
+            timer: Timer::from_seconds(settings.hit_flash_duration_s, TimerMode::Once),
         });
 
         // Apply knockback.

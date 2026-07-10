@@ -297,6 +297,14 @@ pub(crate) fn on_enemy_killed(
     cascade: &mut CascadeState,
     is_beacon: bool,
 ) {
+    // 0) Combo: increment on every kill, reset timer to 3s.
+    run.combo = run.combo.saturating_add(1);
+    run.combo_timer = Timer::from_seconds(3.0, TimerMode::Once);
+    log::info!(
+        "Combo: {} — timer reset to 3s",
+        run.combo
+    );
+
     // 1) XP — base × cascade multiplier (or × 1.0 outside Cascade).
     let xp_mult = if cascade.active {
         settings.cascade_xp_multiplier

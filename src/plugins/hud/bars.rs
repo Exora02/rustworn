@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use bevy::sprite::Anchor;
 
 use crate::components::{
-    Boss, Health, HudElement, HudElementKind, Player, Weapon, WeaponArchetype,
+    Boss, Health, HudElement, HudElementKind, Player, Weapon, WeaponArchetype, WeaponInventory,
 };
 use crate::resources::{CascadeState, FloorState, RunState};
 
@@ -275,12 +275,18 @@ pub fn spawn_all_bars(commands: &mut Commands) {
     // sits ABOVE the player (y > HUD_OFFSET_Y) so it reads as
     // a "boss is here" indicator, not a player stat.
     spawn_boss_hp_bar(commands);
+    // Phase 6: weapon swap UI overlay. Hidden by default; shown
+    // by the ShowWeaponUI resource state in hud_update_system.
+    spawn_weapon_swap_ui(commands);
+    // Phase 6: combo text. Hidden by default; shown by
+    // hud_update_system when combo > 1.
+    spawn_combo_text(commands);
 }
 
 /// Update all HUD bar elements each frame. Positions each bar
 /// relative to the player (camera follows player → screen-stable).
 pub fn hud_update_system(
-    player_query: Query<(&Transform, &Health, &Weapon), (With<Player>, Without<HudElement>)>,
+    player_query: Query<(&Transform, &Health, &Weapon, &WeaponInventory), (With<Player>, Without<HudElement>)>,
     run: Res<RunState>,
     floor_state: Res<FloorState>,
     cascade: Res<CascadeState>,
@@ -294,7 +300,7 @@ pub fn hud_update_system(
     boss_alive: Query<(), With<Boss>>,
     boss_health: Query<&Health, With<Boss>>,
 ) {
-    let Ok((player_tf, health, weapon)) = player_query.single() else {
+    let Ok((player_tf, health, weapon, inventory)) = player_query.single() else {
         return;
     };
     let player_pos = player_tf.translation.truncate();
@@ -480,6 +486,94 @@ pub fn hud_update_system(
             HudElementKind::PauseOverlay => {
                 tf.translation = Vec3::new(player_pos.x, player_pos.y, tf.translation.z);
             }
+            // Phase 6: weapon swap UI overlay. Shows inventory text at
+            // bottom-center for 1.5s after a weapon switch keypress.
+            HudElementKind::WeaponSwapUi => {
+                tf.translation = Vec3::new(player_pos.x, player_pos.y - 280.0, tf.translation.z);
+                if let Some(mut text) = text {
+                    text.0 = format_weapon_inventory(&inventory);
+                }
+            }
+            // Phase 6: combo text at top-left. Shows "x{N} COMBO"
+            // when combo > 1, hidden otherwise.
+            HudElementKind::ComboText => {
+                tf.translation = Vec3::new(
+                    player_pos.x + HUD_OFFSET.x,
+                    player_pos.y + HUD_OFFSET.y - 60.0,
+                    tf.translation.z,
+                );
+                if let Some(mut text) = text {
+                    if run.combo > 1 {
+                        *vis = Visibility::Inherited;
+                        text.0 = format!("x{} COMBO", run.combo);
+                    } else {
+                        *vis = Visibility::Hidden;
+                    }
+                }
+            }
         }
     }
+}
+
+/// Format the weapon inventory as a multi-line string for the swap UI.
+/// Example: "1: Pistol [ACTIVE]\n2: Shotgun\n3: [empty]\n4: [empty]"
+fn format_weapon_inventory(inv: &WeaponInventory) -> String {
+    let slot_names: [&str; 8] = [
+        "Pistol", "Shotgun", "Burst", "Beam", "Rocket", "Sniper", "SMG", "ArcGun",
+    ];
+    let mut lines = Vec::new();
+    for (i, slot) in inv.slots.iter().enumerate() {
+        let prefix = format!("{}:", i + 1);
+        match slot {
+            Some(archetype) => {
+                let idx = *archetype as usize;
+                let name = slot_names.get(idx).copied().unwrap_or("???");
+                if i == inv.active_slot {
+                    lines.push(format!("{prefix} {name} [ACTIVE]"));
+                } else {
+                    lines.push(format!("{prefix} {name}"));
+                }
+            }
+            None => {
+                lines.push(format!("{prefix} [empty]"));
+            }
+        }
+    }
+    lines.join("\n")
+}
+
+/// Spawn the weapon swap UI overlay (hidden by default).
+pub fn spawn_weapon_swap_ui(commands: &mut Commands) {
+    commands.spawn((
+        Text2d::new("1: Pistol [ACTIVE]\n2: [empty]\n3: [empty]\n4: [empty]"),
+        TextFont {
+            font_size: 14.0,
+            ..default()
+        },
+        TextColor(Color::srgb(1.0, 1.0, 1.0)),
+        TextLayout::new_with_justify(JustifyText::Center),
+        Transform::from_xyz(0.0, 0.0, HUD_Z + 0.5),
+        Visibility::Hidden,
+        HudElement {
+            kind: HudElementKind::WeaponSwapUi,
+        },
+    ));
+}
+
+/// Spawn the combo text element (hidden by default, shown when combo > 1).
+pub fn spawn_combo_text(commands: &mut Commands) {
+    commands.spawn((
+        Text2d::new("x0 COMBO"),
+        TextFont {
+            font_size: 16.0,
+            ..default()
+        },
+        TextColor(Color::srgb(1.0, 1.0, 1.0)),
+        TextLayout::new_with_justify(JustifyText::Left),
+        Transform::from_xyz(0.0, 0.0, HUD_Z + 0.5),
+        Visibility::Hidden,
+        HudElement {
+            kind: HudElementKind::ComboText,
+        },
+    ));
 }

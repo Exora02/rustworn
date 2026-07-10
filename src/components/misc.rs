@@ -111,6 +111,24 @@ impl Default for WeaponInventory {
     }
 }
 
+/// Phase 6: weapon swap UI state. `visible` is set to true when
+/// the player presses a weapon-swap key; the HUD overlay shows
+/// the current inventory for `timer` duration, then hides.
+#[derive(Resource)]
+pub struct ShowWeaponUI {
+    pub timer: Timer,
+    pub visible: bool,
+}
+
+impl Default for ShowWeaponUI {
+    fn default() -> Self {
+        Self {
+            timer: Timer::from_seconds(1.5, TimerMode::Once),
+            visible: false,
+        }
+    }
+}
+
 /// Tracks per-slot auto-attack cooldowns. Each slot index (0..3) has
 /// an independent timer. Removed entirely when the player has < 2
 /// weapons (auto-attack disabled).
@@ -198,6 +216,13 @@ pub enum HudElementKind {
     /// Phase 4: XP score text next to the XP bar.
     /// Shows "Score: N" in small gold text.
     ScoreText,
+    /// Phase 6: weapon swap UI overlay. Shows the current weapon
+    /// inventory as a translucent text block at bottom-center.
+    /// Visible for 1.5s after a weapon switch keypress.
+    WeaponSwapUi,
+    /// Phase 6: combo text at top-left. Shows "x{N} COMBO"
+    /// when combo > 1, with color shifting white → yellow → red.
+    ComboText,
 }
 
 /// Phase 1 cascade telegraph: a full-screen overlay sprite that

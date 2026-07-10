@@ -93,6 +93,7 @@ pub(crate) fn biome_name(biome: Biome) -> &'static str {
 
 pub mod pads;
 pub mod shop;
+pub mod shop_overlay;
 pub mod transitions;
 
 pub struct RoomsPlugin;
