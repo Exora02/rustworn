@@ -458,6 +458,7 @@ fn state_visibility_system(
             }
             // Meta shop & character select: visible only in MainMenu.
             HudElementKind::MetaShop | HudElementKind::CharacterSelect => *state.get() == AppState::MainMenu,
+            HudElementKind::SettingsOverlay => *state.get() == AppState::MainMenu,
             // HP / fire-rate / kill / time / cascade / boss HP:
             // visible whenever the run is "active or showing
             // the result" (InRun + GameOver). Hidden on the

@@ -315,6 +315,7 @@ pub fn hud_update_system(
             HudElementKind::MainMenu => {
                 let _ = (&mut tf, sprite, &mut vis);
             }
+            HudElementKind::SettingsOverlay => {}
             HudElementKind::HpBar => {
                 let pos = player_pos + HUD_OFFSET;
                 tf.translation = pos.extend(tf.translation.z);

@@ -7,8 +7,12 @@ use bevy::prelude::*;
 
 use crate::components::{
     AiBehavior, BaseColor, BaseVelocity, Beacon, Biome, BomberState, Boss, BossPhase, BossState,
-    CascadeAffected, Collider, DasherPhase, DasherState, DeathPuff, Elite, Enemy, EnemyAI, Health,
-    HitFlash, MotionTrail, OrbiterState, Projectile, Room, ShooterState, SniperState, Team, Velocity,
+    CascadeAffected, CinderWispState, Collider, CorruptionOrbState, DasherPhase, DasherState,
+    DeathPuff, Elite, Enemy, EnemyAI, FireMageState, GhostState, Health,
+    HitFlash, IceGolemState, LavaElemental, MotionTrail, OrbiterState, PenguinBomberState,
+    Projectile, Room, ShadowCloneState, ShooterState, SkeletonArcherState, SkullSwarmState,
+    SniperState, SnowDrifterState, SporePodState, Team, TreantState,
+    Velocity, VineCreeperState, VoidWalkerState,
 };
 use crate::resources::{FloorState, GameSettings, RunRng};
 
@@ -518,6 +522,695 @@ pub fn spawn_orbiter(
             orbit_radius: settings.orbiter_orbit_radius,
             angular_speed: settings.orbiter_move_speed / settings.orbiter_orbit_radius,
             fire_timer: Timer::from_seconds(1.0 / settings.orbiter_fire_rate, TimerMode::Repeating),
+        },
+    ));
+    if is_elite {
+        spawn.insert(Elite);
+    }
+}
+
+// ─── Biome-specific enemy colors ──────────────────────────────────────────
+
+/// Catacombs biome colors
+pub const SKELETON_ARCHER_COLOR: Color = Color::srgb(0.75, 0.70, 0.60); // bone white
+pub const GHOST_COLOR: Color = Color::srgb(0.50, 0.40, 0.65); // translucent purple
+pub const SKULL_SWARM_COLOR: Color = Color::srgb(0.65, 0.55, 0.45); // skull tan
+
+/// Frost biome colors
+pub const ICE_GOLEM_COLOR: Color = Color::srgb(0.35, 0.70, 0.90); // ice blue
+pub const SNOW_DRIFTER_COLOR: Color = Color::srgb(0.80, 0.85, 0.95); // white-blue
+pub const PENGUIN_BOMBER_COLOR: Color = Color::srgb(0.10, 0.10, 0.30); // dark navy
+
+/// Magma biome colors
+pub const FIRE_MAGE_COLOR: Color = Color::srgb(0.90, 0.40, 0.10); // orange-red
+pub const LAVA_ELEMENTAL_COLOR: Color = Color::srgb(0.95, 0.60, 0.05); // bright orange
+pub const CINDER_WISP_COLOR: Color = Color::srgb(1.0, 0.70, 0.15); // gold/orange
+
+/// Verdant biome colors
+pub const TREANT_ENEMY_COLOR: Color = Color::srgb(0.25, 0.55, 0.15); // deep green
+pub const VINE_CREEPER_COLOR: Color = Color::srgb(0.30, 0.70, 0.20); // bright green
+pub const SPORE_POD_COLOR: Color = Color::srgb(0.60, 0.75, 0.20); // yellow-green
+
+/// Void biome colors
+pub const VOID_WALKER_ENEMY_COLOR: Color = Color::srgb(0.10, 0.02, 0.20); // near-black purple
+pub const CORRUPTION_ORB_COLOR: Color = Color::srgb(0.50, 0.10, 0.50); // deep purple
+pub const SHADOW_CLONE_COLOR: Color = Color::srgb(0.08, 0.05, 0.12); // near-black
+
+// ─── Biome-specific enemy sizes ───────────────────────────────────────────
+
+pub const SKELETON_ARCHER_SIZE: f32 = 28.0;
+pub const GHOST_SIZE: f32 = 26.0;
+pub const SKULL_SWARM_SIZE: f32 = 12.0; // each skull is small
+pub const ICE_GOLEM_SIZE: f32 = 36.0;
+pub const SNOW_DRIFTER_SIZE: f32 = 22.0;
+pub const PENGUIN_BOMBER_SIZE: f32 = 18.0;
+pub const FIRE_MAGE_SIZE: f32 = 28.0;
+pub const LAVA_ELEMENTAL_SIZE: f32 = 30.0;
+pub const CINDER_WISP_SIZE: f32 = 14.0;
+pub const TREANT_ENEMY_SIZE: f32 = 32.0;
+pub const VINE_CREEPER_SIZE: f32 = 20.0;
+pub const SPORE_POD_SIZE: f32 = 22.0;
+pub const VOID_WALKER_ENEMY_SIZE: f32 = 28.0;
+pub const CORRUPTION_ORB_SIZE: f32 = 24.0;
+pub const SHADOW_CLONE_SIZE: f32 = 26.0;
+
+// ─── Biome-specific enemy costs ───────────────────────────────────────────
+
+pub const ENEMY_COST_SKELETON_ARCHER: f32 = 9.0;
+pub const ENEMY_COST_GHOST: f32 = 10.0;
+pub const ENEMY_COST_SKULL_SWARM: f32 = 12.0;
+pub const ENEMY_COST_ICE_GOLEM: f32 = 14.0;
+pub const ENEMY_COST_SNOW_DRIFTER: f32 = 8.0;
+pub const ENEMY_COST_PENGUIN_BOMBER: f32 = 8.0;
+pub const ENEMY_COST_FIRE_MAGE: f32 = 11.0;
+pub const ENEMY_COST_LAVA_ELEMENTAL: f32 = 12.0;
+pub const ENEMY_COST_CINDER_WISP: f32 = 7.0;
+pub const ENEMY_COST_TREANT: f32 = 13.0;
+pub const ENEMY_COST_VINE_CREEPER: f32 = 9.0;
+pub const ENEMY_COST_SPORE_POD: f32 = 6.0;
+pub const ENEMY_COST_VOID_WALKER: f32 = 12.0;
+pub const ENEMY_COST_CORRUPTION_ORB: f32 = 10.0;
+pub const ENEMY_COST_SHADOW_CLONE: f32 = 10.0;
+
+// ─── Biome-specific enemy spawn functions ─────────────────────────────────
+
+/// Catacombs: SkeletonArcher — stands at mid-range, shoots bone arrows.
+pub fn spawn_skeleton_archer(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    _room: &Room,
+    spawn_pos: Vec2,
+    floor: &FloorState,
+    is_elite: bool,
+) {
+    let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
+    let hp = settings.shooter_max_hp * hp_mult * if is_elite { 2.0 } else { 1.0 };
+    let base_color = if is_elite {
+        elite_color_tint(SKELETON_ARCHER_COLOR)
+    } else {
+        SKELETON_ARCHER_COLOR
+    };
+
+    let mut spawn = commands.spawn((
+        Sprite {
+            color: base_color,
+            custom_size: Some(Vec2::splat(SKELETON_ARCHER_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.0),
+        Enemy,
+        EnemyAI { behavior: AiBehavior::SkeletonArcher },
+        Collider { half_extents: Vec2::splat(SKELETON_ARCHER_SIZE * 0.5) },
+        Health::new(hp),
+        Velocity::default(),
+        BaseVelocity::default(),
+        CascadeAffected,
+        BaseColor(base_color),
+        SkeletonArcherState {
+            fire_timer: Timer::from_seconds(1.5, TimerMode::Repeating),
+        },
+    ));
+    if is_elite {
+        spawn.insert(Elite);
+    }
+}
+
+/// Catacombs: Ghost — phases through walls (periodic semi-transparent).
+pub fn spawn_ghost(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    _room: &Room,
+    spawn_pos: Vec2,
+    floor: &FloorState,
+    is_elite: bool,
+) {
+    let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
+    let hp = settings.enemy_max_hp * 0.75 * hp_mult * if is_elite { 2.0 } else { 1.0 };
+    let base_color = if is_elite {
+        elite_color_tint(GHOST_COLOR)
+    } else {
+        GHOST_COLOR
+    };
+
+    let mut spawn = commands.spawn((
+        Sprite {
+            color: base_color,
+            custom_size: Some(Vec2::splat(GHOST_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.0),
+        Enemy,
+        EnemyAI { behavior: AiBehavior::Ghost },
+        Collider { half_extents: Vec2::splat(GHOST_SIZE * 0.5) },
+        Health::new(hp),
+        Velocity::default(),
+        BaseVelocity::default(),
+        CascadeAffected,
+        BaseColor(base_color),
+        GhostState {
+            phase_timer: Timer::from_seconds(2.0, TimerMode::Repeating),
+            is_phasing: false,
+        },
+    ));
+    if is_elite {
+        spawn.insert(Elite);
+    }
+}
+
+/// Catacombs: SkullSwarm — small orbiting skull that lunges.
+pub fn spawn_skull_swarm(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    _room: &Room,
+    spawn_pos: Vec2,
+    floor: &FloorState,
+    is_elite: bool,
+) {
+    let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
+    let hp = 3.0 * hp_mult * if is_elite { 2.0 } else { 1.0 };
+    let base_color = if is_elite {
+        elite_color_tint(SKULL_SWARM_COLOR)
+    } else {
+        SKULL_SWARM_COLOR
+    };
+
+    let mut spawn = commands.spawn((
+        Sprite {
+            color: base_color,
+            custom_size: Some(Vec2::splat(SKULL_SWARM_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.0),
+        Enemy,
+        EnemyAI { behavior: AiBehavior::SkullSwarm },
+        Collider { half_extents: Vec2::splat(SKULL_SWARM_SIZE * 0.5) },
+        Health::new(hp),
+        Velocity::default(),
+        BaseVelocity::default(),
+        CascadeAffected,
+        BaseColor(base_color),
+        SkullSwarmState {
+            orbit_angle: spawn_pos.x * 0.5 + spawn_pos.y * 0.3, // deterministic offset
+            orbit_radius: 40.0,
+            lunge_timer: Timer::from_seconds(2.5, TimerMode::Once),
+            is_lunging: false,
+            lunge_target: Vec2::ZERO,
+        },
+    ));
+    if is_elite {
+        spawn.insert(Elite);
+    }
+}
+
+/// Frost: IceGolem — slow, high HP, AOE slam every 3s.
+pub fn spawn_ice_golem(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    _room: &Room,
+    spawn_pos: Vec2,
+    floor: &FloorState,
+    is_elite: bool,
+) {
+    let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
+    let hp = settings.enemy_max_hp * 3.0 * hp_mult * if is_elite { 2.0 } else { 1.0 };
+    let base_color = if is_elite {
+        elite_color_tint(ICE_GOLEM_COLOR)
+    } else {
+        ICE_GOLEM_COLOR
+    };
+
+    let mut spawn = commands.spawn((
+        Sprite {
+            color: base_color,
+            custom_size: Some(Vec2::splat(ICE_GOLEM_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.0),
+        Enemy,
+        EnemyAI { behavior: AiBehavior::IceGolem },
+        Collider { half_extents: Vec2::splat(ICE_GOLEM_SIZE * 0.5) },
+        Health::new(hp),
+        Velocity::default(),
+        BaseVelocity::default(),
+        CascadeAffected,
+        BaseColor(base_color),
+        IceGolemState {
+            slam_timer: Timer::from_seconds(3.0, TimerMode::Repeating),
+        },
+    ));
+    if is_elite {
+        spawn.insert(Elite);
+    }
+}
+
+/// Frost: SnowDrifter — fast zigzag, slowing trail.
+pub fn spawn_snow_drifter(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    _room: &Room,
+    spawn_pos: Vec2,
+    floor: &FloorState,
+    is_elite: bool,
+) {
+    let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
+    let hp = settings.enemy_max_hp * 0.6 * hp_mult * if is_elite { 2.0 } else { 1.0 };
+    let base_color = if is_elite {
+        elite_color_tint(SNOW_DRIFTER_COLOR)
+    } else {
+        SNOW_DRIFTER_COLOR
+    };
+
+    let mut spawn = commands.spawn((
+        Sprite {
+            color: base_color,
+            custom_size: Some(Vec2::splat(SNOW_DRIFTER_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.0),
+        Enemy,
+        EnemyAI { behavior: AiBehavior::SnowDrifter },
+        Collider { half_extents: Vec2::splat(SNOW_DRIFTER_SIZE * 0.5) },
+        Health::new(hp),
+        Velocity::default(),
+        BaseVelocity::default(),
+        CascadeAffected,
+        BaseColor(base_color),
+        SnowDrifterState {
+            zigzag_timer: Timer::from_seconds(0.4, TimerMode::Repeating),
+            zig_direction: 1.0,
+            trail_timer: Timer::from_seconds(0.5, TimerMode::Repeating),
+        },
+    ));
+    if is_elite {
+        spawn.insert(Elite);
+    }
+}
+
+/// Frost: PenguinBomber — fast, explosion on death.
+pub fn spawn_penguin_bomber(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    _room: &Room,
+    spawn_pos: Vec2,
+    floor: &FloorState,
+    is_elite: bool,
+) {
+    let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
+    let hp = settings.bomber_max_hp * hp_mult * if is_elite { 2.0 } else { 1.0 };
+    let base_color = if is_elite {
+        elite_color_tint(PENGUIN_BOMBER_COLOR)
+    } else {
+        PENGUIN_BOMBER_COLOR
+    };
+
+    let mut spawn = commands.spawn((
+        Sprite {
+            color: base_color,
+            custom_size: Some(Vec2::splat(PENGUIN_BOMBER_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.0),
+        Enemy,
+        EnemyAI { behavior: AiBehavior::PenguinBomber },
+        Collider { half_extents: Vec2::splat(PENGUIN_BOMBER_SIZE * 0.5) },
+        Health::new(hp),
+        Velocity::default(),
+        BaseVelocity::default(),
+        CascadeAffected,
+        BaseColor(base_color),
+        PenguinBomberState {
+            explosion_radius: settings.bomber_explosion_radius,
+        },
+    ));
+    if is_elite {
+        spawn.insert(Elite);
+    }
+}
+
+/// Magma: FireMage — teleports every 2s, shoots 3 fireballs in a spread.
+pub fn spawn_fire_mage(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    _room: &Room,
+    spawn_pos: Vec2,
+    floor: &FloorState,
+    is_elite: bool,
+) {
+    let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
+    let hp = settings.shooter_max_hp * hp_mult * if is_elite { 2.0 } else { 1.0 };
+    let base_color = if is_elite {
+        elite_color_tint(FIRE_MAGE_COLOR)
+    } else {
+        FIRE_MAGE_COLOR
+    };
+
+    let mut spawn = commands.spawn((
+        Sprite {
+            color: base_color,
+            custom_size: Some(Vec2::splat(FIRE_MAGE_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.0),
+        Enemy,
+        EnemyAI { behavior: AiBehavior::FireMage },
+        Collider { half_extents: Vec2::splat(FIRE_MAGE_SIZE * 0.5) },
+        Health::new(hp),
+        Velocity::default(),
+        BaseVelocity::default(),
+        CascadeAffected,
+        BaseColor(base_color),
+        FireMageState {
+            teleport_timer: Timer::from_seconds(2.0, TimerMode::Once),
+            fire_timer: Timer::from_seconds(1.0, TimerMode::Once),
+        },
+    ));
+    if is_elite {
+        spawn.insert(Elite);
+    }
+}
+
+/// Magma: LavaElemental — splits into 2 smaller versions on death.
+pub fn spawn_lava_elemental(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    _room: &Room,
+    spawn_pos: Vec2,
+    floor: &FloorState,
+    is_elite: bool,
+) {
+    let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
+    let hp = settings.enemy_max_hp * 2.0 * hp_mult * if is_elite { 2.0 } else { 1.0 };
+    let base_color = if is_elite {
+        elite_color_tint(LAVA_ELEMENTAL_COLOR)
+    } else {
+        LAVA_ELEMENTAL_COLOR
+    };
+
+    let mut spawn = commands.spawn((
+        Sprite {
+            color: base_color,
+            custom_size: Some(Vec2::splat(LAVA_ELEMENTAL_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.0),
+        Enemy,
+        EnemyAI { behavior: AiBehavior::LavaElemental },
+        Collider { half_extents: Vec2::splat(LAVA_ELEMENTAL_SIZE * 0.5) },
+        Health::new(hp),
+        Velocity::default(),
+        BaseVelocity::default(),
+        CascadeAffected,
+        BaseColor(base_color),
+        LavaElemental { split_count: 2 },
+    ));
+    if is_elite {
+        spawn.insert(Elite);
+    }
+}
+
+/// Magma: CinderWisp — fast, leaves fire trail.
+pub fn spawn_cinder_wisp(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    _room: &Room,
+    spawn_pos: Vec2,
+    floor: &FloorState,
+    is_elite: bool,
+) {
+    let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
+    let hp = settings.enemy_max_hp * 0.5 * hp_mult * if is_elite { 2.0 } else { 1.0 };
+    let base_color = if is_elite {
+        elite_color_tint(CINDER_WISP_COLOR)
+    } else {
+        CINDER_WISP_COLOR
+    };
+
+    let mut spawn = commands.spawn((
+        Sprite {
+            color: base_color,
+            custom_size: Some(Vec2::splat(CINDER_WISP_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.0),
+        Enemy,
+        EnemyAI { behavior: AiBehavior::CinderWisp },
+        Collider { half_extents: Vec2::splat(CINDER_WISP_SIZE * 0.5) },
+        Health::new(hp),
+        Velocity::default(),
+        BaseVelocity::default(),
+        CascadeAffected,
+        BaseColor(base_color),
+        CinderWispState {
+            trail_timer: Timer::from_seconds(0.3, TimerMode::Repeating),
+        },
+    ));
+    if is_elite {
+        spawn.insert(Elite);
+    }
+}
+
+/// Verdant: Treant — slow, roots player (slow zone).
+pub fn spawn_treant_enemy(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    _room: &Room,
+    spawn_pos: Vec2,
+    floor: &FloorState,
+    is_elite: bool,
+) {
+    let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
+    let hp = settings.enemy_max_hp * 2.5 * hp_mult * if is_elite { 2.0 } else { 1.0 };
+    let base_color = if is_elite {
+        elite_color_tint(TREANT_ENEMY_COLOR)
+    } else {
+        TREANT_ENEMY_COLOR
+    };
+
+    let mut spawn = commands.spawn((
+        Sprite {
+            color: base_color,
+            custom_size: Some(Vec2::splat(TREANT_ENEMY_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.0),
+        Enemy,
+        EnemyAI { behavior: AiBehavior::Treant },
+        Collider { half_extents: Vec2::splat(TREANT_ENEMY_SIZE * 0.5) },
+        Health::new(hp),
+        Velocity::default(),
+        BaseVelocity::default(),
+        CascadeAffected,
+        BaseColor(base_color),
+        TreantState {
+            root_timer: Timer::from_seconds(2.5, TimerMode::Repeating),
+        },
+    ));
+    if is_elite {
+        spawn.insert(Elite);
+    }
+}
+
+/// Verdant: VineCreeper — wall-edge movement, dive attack.
+pub fn spawn_vine_creeper(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    _room: &Room,
+    spawn_pos: Vec2,
+    floor: &FloorState,
+    is_elite: bool,
+) {
+    let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
+    let hp = settings.enemy_max_hp * 0.8 * hp_mult * if is_elite { 2.0 } else { 1.0 };
+    let base_color = if is_elite {
+        elite_color_tint(VINE_CREEPER_COLOR)
+    } else {
+        VINE_CREEPER_COLOR
+    };
+
+    let mut spawn = commands.spawn((
+        Sprite {
+            color: base_color,
+            custom_size: Some(Vec2::splat(VINE_CREEPER_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.0),
+        Enemy,
+        EnemyAI { behavior: AiBehavior::VineCreeper },
+        Collider { half_extents: Vec2::splat(VINE_CREEPER_SIZE * 0.5) },
+        Health::new(hp),
+        Velocity::default(),
+        BaseVelocity::default(),
+        CascadeAffected,
+        BaseColor(base_color),
+        VineCreeperState {
+            is_diving: false,
+            dive_timer: Timer::from_seconds(0.5, TimerMode::Once),
+            dive_cooldown: Timer::from_seconds(3.0, TimerMode::Once),
+        },
+    ));
+    if is_elite {
+        spawn.insert(Elite);
+    }
+}
+
+/// Verdant: SporePod — stationary, poison clouds.
+pub fn spawn_spore_pod(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    _room: &Room,
+    spawn_pos: Vec2,
+    floor: &FloorState,
+    is_elite: bool,
+) {
+    let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
+    let hp = settings.enemy_max_hp * 1.5 * hp_mult * if is_elite { 2.0 } else { 1.0 };
+    let base_color = if is_elite {
+        elite_color_tint(SPORE_POD_COLOR)
+    } else {
+        SPORE_POD_COLOR
+    };
+
+    let mut spawn = commands.spawn((
+        Sprite {
+            color: base_color,
+            custom_size: Some(Vec2::splat(SPORE_POD_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.0),
+        Enemy,
+        EnemyAI { behavior: AiBehavior::SporePod },
+        Collider { half_extents: Vec2::splat(SPORE_POD_SIZE * 0.5) },
+        Health::new(hp),
+        Velocity::default(),
+        BaseVelocity::default(),
+        CascadeAffected,
+        BaseColor(base_color),
+        SporePodState {
+            emit_timer: Timer::from_seconds(2.0, TimerMode::Repeating),
+        },
+    ));
+    if is_elite {
+        spawn.insert(Elite);
+    }
+}
+
+/// Void: VoidWalker — teleports behind player, melee slash.
+pub fn spawn_void_walker_enemy(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    _room: &Room,
+    spawn_pos: Vec2,
+    floor: &FloorState,
+    is_elite: bool,
+) {
+    let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
+    let hp = settings.enemy_max_hp * 1.5 * hp_mult * if is_elite { 2.0 } else { 1.0 };
+    let base_color = if is_elite {
+        elite_color_tint(VOID_WALKER_ENEMY_COLOR)
+    } else {
+        VOID_WALKER_ENEMY_COLOR
+    };
+
+    let mut spawn = commands.spawn((
+        Sprite {
+            color: base_color,
+            custom_size: Some(Vec2::splat(VOID_WALKER_ENEMY_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.0),
+        Enemy,
+        EnemyAI { behavior: AiBehavior::VoidWalker },
+        Collider { half_extents: Vec2::splat(VOID_WALKER_ENEMY_SIZE * 0.5) },
+        Health::new(hp),
+        Velocity::default(),
+        BaseVelocity::default(),
+        CascadeAffected,
+        BaseColor(base_color),
+        VoidWalkerState {
+            teleport_timer: Timer::from_seconds(2.5, TimerMode::Once),
+            attack_timer: Timer::from_seconds(0.3, TimerMode::Once),
+        },
+    ));
+    if is_elite {
+        spawn.insert(Elite);
+    }
+}
+
+/// Void: CorruptionOrb — floating, homing projectiles.
+pub fn spawn_corruption_orb(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    _room: &Room,
+    spawn_pos: Vec2,
+    floor: &FloorState,
+    is_elite: bool,
+) {
+    let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
+    let hp = settings.shooter_max_hp * 0.8 * hp_mult * if is_elite { 2.0 } else { 1.0 };
+    let base_color = if is_elite {
+        elite_color_tint(CORRUPTION_ORB_COLOR)
+    } else {
+        CORRUPTION_ORB_COLOR
+    };
+
+    let mut spawn = commands.spawn((
+        Sprite {
+            color: base_color,
+            custom_size: Some(Vec2::splat(CORRUPTION_ORB_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.0),
+        Enemy,
+        EnemyAI { behavior: AiBehavior::CorruptionOrb },
+        Collider { half_extents: Vec2::splat(CORRUPTION_ORB_SIZE * 0.5) },
+        Health::new(hp),
+        Velocity::default(),
+        BaseVelocity::default(),
+        CascadeAffected,
+        BaseColor(base_color),
+        CorruptionOrbState {
+            fire_timer: Timer::from_seconds(2.0, TimerMode::Repeating),
+        },
+    ));
+    if is_elite {
+        spawn.insert(Elite);
+    }
+}
+
+/// Void: ShadowClone — mirrors player position.
+pub fn spawn_shadow_clone(
+    commands: &mut Commands,
+    settings: &GameSettings,
+    _room: &Room,
+    spawn_pos: Vec2,
+    floor: &FloorState,
+    is_elite: bool,
+) {
+    let (hp_mult, _dmg_mult) = floor_difficulty_mult(floor.floor_number);
+    let hp = settings.enemy_max_hp * 0.7 * hp_mult * if is_elite { 2.0 } else { 1.0 };
+    let base_color = if is_elite {
+        elite_color_tint(SHADOW_CLONE_COLOR)
+    } else {
+        SHADOW_CLONE_COLOR
+    };
+
+    let mut spawn = commands.spawn((
+        Sprite {
+            color: base_color,
+            custom_size: Some(Vec2::splat(SHADOW_CLONE_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(spawn_pos.x, spawn_pos.y, 0.0),
+        Enemy,
+        EnemyAI { behavior: AiBehavior::ShadowClone },
+        Collider { half_extents: Vec2::splat(SHADOW_CLONE_SIZE * 0.5) },
+        Health::new(hp),
+        Velocity::default(),
+        BaseVelocity::default(),
+        CascadeAffected,
+        BaseColor(base_color),
+        ShadowCloneState {
+            mirror_offset: spawn_pos,
         },
     ));
     if is_elite {

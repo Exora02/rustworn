@@ -83,6 +83,40 @@ pub enum AiBehavior {
     /// create layered bullet rings the player must
     /// navigate.
     Orbiter,
+    // ─── Biome-specific enemies (Phase 3f) ──────────────────────
+    /// Catacombs: SkeletonArcher — shoots bone arrows (piercing
+    /// projectile every 1.5s). Stands at mid-range and fires.
+    SkeletonArcher,
+    /// Catacombs: Ghost — phases through walls (periodic
+    /// semi-transparent). Moves through obstacles.
+    Ghost,
+    /// Catacombs: SkullSwarm — 3 small orbiting skulls that
+    /// lunge at the player. Uses orbit + timed lunge.
+    SkullSwarm,
+    /// Frost: IceGolem — slow, high HP, AOE slam every 3s.
+    IceGolem,
+    /// Frost: SnowDrifter — fast zigzag, slowing trail.
+    SnowDrifter,
+    /// Frost: PenguinBomber — fast, explosion on death.
+    PenguinBomber,
+    /// Magma: FireMage — teleports every 2s, shoots 3 fireballs.
+    FireMage,
+    /// Magma: LavaElemental — splits into 2 on death.
+    LavaElemental,
+    /// Magma: CinderWisp — fast, leaves fire trail.
+    CinderWisp,
+    /// Verdant: Treant — slow, roots player (slow zone).
+    Treant,
+    /// Verdant: VineCreeper — wall-edge movement, dive attack.
+    VineCreeper,
+    /// Verdant: SporePod — stationary, poison clouds.
+    SporePod,
+    /// Void: VoidWalker — teleports behind player, melee slash.
+    VoidWalker,
+    /// Void: CorruptionOrb — floating, homing projectiles.
+    CorruptionOrb,
+    /// Void: ShadowClone — mirrors player position.
+    ShadowClone,
 }
 
 /// Phase 1 dasher state. Tracks which phase of the
@@ -193,6 +227,22 @@ pub enum EnemyArchetype {
     Bomber,
     /// Phase 3d Orbiter: circles the player, fires tangent projectiles.
     Orbiter,
+    // ─── Biome-specific archetypes ────────────────────────────
+    SkeletonArcher,
+    Ghost,
+    SkullSwarm,
+    IceGolem,
+    SnowDrifter,
+    PenguinBomber,
+    FireMage,
+    LavaElemental,
+    CinderWisp,
+    Treant,
+    VineCreeper,
+    SporePod,
+    VoidWalker,
+    CorruptionOrb,
+    ShadowClone,
 }
 
 // ─── Mini-boss (Phase 1) ─────────────────────────────────────────────────
@@ -388,4 +438,109 @@ pub struct Elite;
 #[derive(Component)]
 pub struct BossProjectile {
     pub lifetime: Timer,
+}
+
+// ─── Biome-specific enemy state components ────────────────────────────────
+
+/// SkeletonArcher state: bone arrow fire cooldown.
+#[derive(Component)]
+pub struct SkeletonArcherState {
+    pub fire_timer: Timer,
+}
+
+/// Ghost state: phasing timer (periodic semi-transparent).
+#[derive(Component)]
+pub struct GhostState {
+    pub phase_timer: Timer,
+    pub is_phasing: bool,
+}
+
+/// SkullSwarm state: each skull in the swarm has an orbit offset + lunge timer.
+#[derive(Component)]
+pub struct SkullSwarmState {
+    pub orbit_angle: f32,
+    pub orbit_radius: f32,
+    pub lunge_timer: Timer,
+    pub is_lunging: bool,
+    pub lunge_target: Vec2,
+}
+
+/// IceGolem state: AOE slam cooldown.
+#[derive(Component)]
+pub struct IceGolemState {
+    pub slam_timer: Timer,
+}
+
+/// SnowDrifter state: zigzag timer + trail timer.
+#[derive(Component)]
+pub struct SnowDrifterState {
+    pub zigzag_timer: Timer,
+    pub zig_direction: f32,
+    pub trail_timer: Timer,
+}
+
+/// PenguinBomber state: movement timer (waddles toward player, explodes on death).
+/// No extra state beyond Bomber-like behavior; the explosion is handled on death.
+#[derive(Component)]
+pub struct PenguinBomberState {
+    pub explosion_radius: f32,
+}
+
+/// FireMage state: teleport timer + fire timer.
+#[derive(Component)]
+pub struct FireMageState {
+    pub teleport_timer: Timer,
+    pub fire_timer: Timer,
+}
+
+/// LavaElemental state: nothing special — split on death is handled by the death handler.
+/// This marker ensures we can query for it.
+#[derive(Component)]
+pub struct LavaElemental {
+    pub split_count: u32,
+}
+
+/// CinderWisp state: fast movement + fire trail timer.
+#[derive(Component)]
+pub struct CinderWispState {
+    pub trail_timer: Timer,
+}
+
+/// Treant state: root/slow zone pulse timer.
+#[derive(Component)]
+pub struct TreantState {
+    pub root_timer: Timer,
+}
+
+/// VineCreeper state: wall-edge movement with dive timer.
+#[derive(Component)]
+pub struct VineCreeperState {
+    pub is_diving: bool,
+    pub dive_timer: Timer,
+    pub dive_cooldown: Timer,
+}
+
+/// SporePod state: stationary — poison cloud emission timer.
+#[derive(Component)]
+pub struct SporePodState {
+    pub emit_timer: Timer,
+}
+
+/// VoidWalker state: teleport behind player on cooldown.
+#[derive(Component)]
+pub struct VoidWalkerState {
+    pub teleport_timer: Timer,
+    pub attack_timer: Timer,
+}
+
+/// CorruptionOrb state: floating, homing projectile cooldown.
+#[derive(Component)]
+pub struct CorruptionOrbState {
+    pub fire_timer: Timer,
+}
+
+/// ShadowClone state: mirrors player position.
+#[derive(Component)]
+pub struct ShadowCloneState {
+    pub mirror_offset: Vec2,
 }

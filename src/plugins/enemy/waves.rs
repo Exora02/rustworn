@@ -50,15 +50,35 @@ pub fn director_pick(spawner: &mut WaveSpawner, rng: &mut RunRng, biome: Biome) 
         (EnemyArchetype::Sniper, spawn::ENEMY_COST_SNIPER),
         (EnemyArchetype::Bomber, spawn::ENEMY_COST_BOMBER),
         (EnemyArchetype::Orbiter, spawn::ENEMY_COST_ORBITER),
+        // Biome-specific enemies
+        (EnemyArchetype::SkeletonArcher, spawn::ENEMY_COST_SKELETON_ARCHER),
+        (EnemyArchetype::Ghost, spawn::ENEMY_COST_GHOST),
+        (EnemyArchetype::SkullSwarm, spawn::ENEMY_COST_SKULL_SWARM),
+        (EnemyArchetype::IceGolem, spawn::ENEMY_COST_ICE_GOLEM),
+        (EnemyArchetype::SnowDrifter, spawn::ENEMY_COST_SNOW_DRIFTER),
+        (EnemyArchetype::PenguinBomber, spawn::ENEMY_COST_PENGUIN_BOMBER),
+        (EnemyArchetype::FireMage, spawn::ENEMY_COST_FIRE_MAGE),
+        (EnemyArchetype::LavaElemental, spawn::ENEMY_COST_LAVA_ELEMENTAL),
+        (EnemyArchetype::CinderWisp, spawn::ENEMY_COST_CINDER_WISP),
+        (EnemyArchetype::Treant, spawn::ENEMY_COST_TREANT),
+        (EnemyArchetype::VineCreeper, spawn::ENEMY_COST_VINE_CREEPER),
+        (EnemyArchetype::SporePod, spawn::ENEMY_COST_SPORE_POD),
+        (EnemyArchetype::VoidWalker, spawn::ENEMY_COST_VOID_WALKER),
+        (EnemyArchetype::CorruptionOrb, spawn::ENEMY_COST_CORRUPTION_ORB),
+        (EnemyArchetype::ShadowClone, spawn::ENEMY_COST_SHADOW_CLONE),
     ];
 
     // Per-biome weight multipliers. Default = 1.0 (balanced).
+    // Weights for: Chaser, Dasher, Shooter, Sniper, Bomber, Orbiter,
+    //              SkeletonArcher, Ghost, SkullSwarm, IceGolem, SnowDrifter, PenguinBomber,
+    //              FireMage, LavaElemental, CinderWisp, Treant, VineCreeper, SporePod,
+    //              VoidWalker, CorruptionOrb, ShadowClone
     let weights = match biome {
-        Biome::Catacombs => [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
-        Biome::Frost => [1.0, 2.0, 2.0, 0.5, 0.5, 1.0],     // Dasher + Shooter favored
-        Biome::Magma => [2.0, 0.5, 0.5, 0.5, 2.0, 0.5],     // Chaser + Bomber favored
-        Biome::Verdant => [2.0, 0.5, 0.5, 0.5, 0.5, 2.0],   // Chaser + Orbiter favored
-        Biome::Void => [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],      // Same weights but all become elite
+        Biome::Catacombs => [0.5, 0.5, 0.5, 1.0, 0.5, 0.5, 2.0, 2.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        Biome::Frost => [0.5, 1.0, 1.0, 0.3, 0.3, 0.5, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        Biome::Magma => [1.0, 0.3, 0.3, 0.3, 1.0, 0.3, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        Biome::Verdant => [1.0, 0.3, 0.3, 0.3, 0.3, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0, 0.0, 0.0],
+        Biome::Void => [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0],
     };
 
     // Build a weighted list of affordable candidates.
@@ -128,6 +148,21 @@ pub fn spawn_wave_enemy(
         EnemyArchetype::Sniper => spawn::spawn_sniper(commands, settings, room, spawn_pos, biome, is_elite),
         EnemyArchetype::Bomber => spawn::spawn_bomber(commands, settings, room, spawn_pos, biome, is_elite),
         EnemyArchetype::Orbiter => spawn::spawn_orbiter(commands, settings, room, spawn_pos, biome, is_elite),
+        EnemyArchetype::SkeletonArcher => spawn::spawn_skeleton_archer(commands, settings, room, spawn_pos, biome, is_elite),
+        EnemyArchetype::Ghost => spawn::spawn_ghost(commands, settings, room, spawn_pos, biome, is_elite),
+        EnemyArchetype::SkullSwarm => spawn::spawn_skull_swarm(commands, settings, room, spawn_pos, biome, is_elite),
+        EnemyArchetype::IceGolem => spawn::spawn_ice_golem(commands, settings, room, spawn_pos, biome, is_elite),
+        EnemyArchetype::SnowDrifter => spawn::spawn_snow_drifter(commands, settings, room, spawn_pos, biome, is_elite),
+        EnemyArchetype::PenguinBomber => spawn::spawn_penguin_bomber(commands, settings, room, spawn_pos, biome, is_elite),
+        EnemyArchetype::FireMage => spawn::spawn_fire_mage(commands, settings, room, spawn_pos, biome, is_elite),
+        EnemyArchetype::LavaElemental => spawn::spawn_lava_elemental(commands, settings, room, spawn_pos, biome, is_elite),
+        EnemyArchetype::CinderWisp => spawn::spawn_cinder_wisp(commands, settings, room, spawn_pos, biome, is_elite),
+        EnemyArchetype::Treant => spawn::spawn_treant_enemy(commands, settings, room, spawn_pos, biome, is_elite),
+        EnemyArchetype::VineCreeper => spawn::spawn_vine_creeper(commands, settings, room, spawn_pos, biome, is_elite),
+        EnemyArchetype::SporePod => spawn::spawn_spore_pod(commands, settings, room, spawn_pos, biome, is_elite),
+        EnemyArchetype::VoidWalker => spawn::spawn_void_walker_enemy(commands, settings, room, spawn_pos, biome, is_elite),
+        EnemyArchetype::CorruptionOrb => spawn::spawn_corruption_orb(commands, settings, room, spawn_pos, biome, is_elite),
+        EnemyArchetype::ShadowClone => spawn::spawn_shadow_clone(commands, settings, room, spawn_pos, biome, is_elite),
         EnemyArchetype::Boss | EnemyArchetype::Beacon => {}
     }
 }
@@ -153,6 +188,21 @@ pub fn spawn_enemy(
         EnemyArchetype::Sniper => spawn::spawn_sniper(commands, settings, room, player_pos, biome, false),
         EnemyArchetype::Bomber => spawn::spawn_bomber(commands, settings, room, player_pos, biome, false),
         EnemyArchetype::Orbiter => spawn::spawn_orbiter(commands, settings, room, player_pos, biome, false),
+        EnemyArchetype::SkeletonArcher => spawn::spawn_skeleton_archer(commands, settings, room, player_pos, biome, false),
+        EnemyArchetype::Ghost => spawn::spawn_ghost(commands, settings, room, player_pos, biome, false),
+        EnemyArchetype::SkullSwarm => spawn::spawn_skull_swarm(commands, settings, room, player_pos, biome, false),
+        EnemyArchetype::IceGolem => spawn::spawn_ice_golem(commands, settings, room, player_pos, biome, false),
+        EnemyArchetype::SnowDrifter => spawn::spawn_snow_drifter(commands, settings, room, player_pos, biome, false),
+        EnemyArchetype::PenguinBomber => spawn::spawn_penguin_bomber(commands, settings, room, player_pos, biome, false),
+        EnemyArchetype::FireMage => spawn::spawn_fire_mage(commands, settings, room, player_pos, biome, false),
+        EnemyArchetype::LavaElemental => spawn::spawn_lava_elemental(commands, settings, room, player_pos, biome, false),
+        EnemyArchetype::CinderWisp => spawn::spawn_cinder_wisp(commands, settings, room, player_pos, biome, false),
+        EnemyArchetype::Treant => spawn::spawn_treant_enemy(commands, settings, room, player_pos, biome, false),
+        EnemyArchetype::VineCreeper => spawn::spawn_vine_creeper(commands, settings, room, player_pos, biome, false),
+        EnemyArchetype::SporePod => spawn::spawn_spore_pod(commands, settings, room, player_pos, biome, false),
+        EnemyArchetype::VoidWalker => spawn::spawn_void_walker_enemy(commands, settings, room, player_pos, biome, false),
+        EnemyArchetype::CorruptionOrb => spawn::spawn_corruption_orb(commands, settings, room, player_pos, biome, false),
+        EnemyArchetype::ShadowClone => spawn::spawn_shadow_clone(commands, settings, room, player_pos, biome, false),
         EnemyArchetype::Boss | EnemyArchetype::Beacon => {}
     }
 }

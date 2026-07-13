@@ -15,6 +15,7 @@ pub mod meta;
 pub mod pickups;
 pub mod player;
 pub mod rooms;
+pub mod settings;
 pub mod setup;
 
 pub use audio::AudioPlugin;
@@ -27,4 +28,5 @@ pub use meta::MetaPlugin;
 pub use pickups::PickupsPlugin;
 pub use player::PlayerPlugin;
 pub use rooms::RoomsPlugin;
+pub use settings::SettingsPlugin;
 pub use setup::SetupPlugin;

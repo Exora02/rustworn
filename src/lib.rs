@@ -28,7 +28,7 @@ use bevy::window::WindowResolution;
 
 use crate::plugins::{
     AudioPlugin, CombatPlugin, EnemyPlugin, FxPlugin, HubPlugin, HudPlugin, MetaPlugin,
-    PickupsPlugin, PlayerPlugin, RoomsPlugin, SetupPlugin,
+    PickupsPlugin, PlayerPlugin, RoomsPlugin, SettingsPlugin, SetupPlugin,
 };
 
 /// Boot the Bevy app. Called from `main.rs` and (eventually) from tests.
@@ -85,6 +85,7 @@ pub fn run() {
         .add_plugins(PickupsPlugin)
         .add_plugins(HubPlugin)
         .add_plugins(HudPlugin)
+        .add_plugins(SettingsPlugin)
         // Phase 2: ESC handling moved into the per-state input
         // systems in `setup.rs`:
         //   - MainMenu: ESC quits the binary

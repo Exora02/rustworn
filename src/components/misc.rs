@@ -223,6 +223,9 @@ pub enum HudElementKind {
     /// Phase 6: combo text at top-left. Shows "x{N} COMBO"
     /// when combo > 1, with color shifting white → yellow → red.
     ComboText,
+    /// Settings overlay — volume sliders and fullscreen toggle.
+    /// Visible only in MainMenu when settings are open.
+    SettingsOverlay,
 }
 
 /// Phase 1 cascade telegraph: a full-screen overlay sprite that

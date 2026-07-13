@@ -14,6 +14,11 @@ use bevy::prelude::*;
 
 pub use spawn::{
     spawn_beacon, spawn_boss, spawn_death_puff, GameSprites,
+    spawn_skeleton_archer, spawn_ghost, spawn_skull_swarm,
+    spawn_ice_golem, spawn_snow_drifter, spawn_penguin_bomber,
+    spawn_fire_mage, spawn_lava_elemental, spawn_cinder_wisp,
+    spawn_treant_enemy, spawn_vine_creeper, spawn_spore_pod,
+    spawn_void_walker_enemy, spawn_corruption_orb, spawn_shadow_clone,
 };
 
 use crate::components::AppState;

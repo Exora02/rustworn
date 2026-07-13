@@ -278,6 +278,8 @@ pub fn roll_pickup_drop(
         // tables yet. Phase 4 will differentiate.
         AiBehavior::Bomber => settings.pickup_drop_chance_chaser,
         AiBehavior::Orbiter => settings.pickup_drop_chance_sniper,
+        // Biome-specific enemies use generic drop chances
+        _ => settings.pickup_drop_chance_chaser,
     };
     let cascade_mult = if cascade_active {
         settings.cascade_loot_multiplier
@@ -350,6 +352,8 @@ pub fn roll_weapon_drop(
         // Bomber uses chaser rate, Orbiter uses sniper rate.
         AiBehavior::Bomber => settings.pickup_drop_chance_weapon_chaser,
         AiBehavior::Orbiter => settings.pickup_drop_chance_weapon_sniper,
+        // Biome-specific enemies use generic weapon drop chances
+        _ => settings.pickup_drop_chance_weapon_chaser,
     };
     let cascade_mult = if cascade_active {
         settings.cascade_loot_multiplier

@@ -18,7 +18,8 @@ use log::info;
 use crate::components::AppState;
 use crate::resources::{CrownSave, MetaConfig, RunState};
 
-use super::hud::HUD_Z;
+use crate::plugins::settings::SettingsOpen;
+use crate::plugins::hud::HUD_Z;
 
 /// Z-offset for hub entities — just below the HUD.
 const HUB_Z: f32 = HUD_Z - 0.5;
@@ -58,6 +59,30 @@ pub struct HubZoneBorder {
 #[derive(Component)]
 pub struct HubZoneGlow;
 
+/// Marker for the "RUSTWORN" title text entity.
+#[derive(Component)]
+pub struct HubTitle;
+
+/// Marker for floating background ember particles.
+#[derive(Component)]
+pub struct HubParticle {
+    /// Horizontal drift speed (can be negative for leftward drift).
+    pub drift_x: f32,
+    /// Upward drift speed.
+    pub drift_y: f32,
+    /// Intensity offset for color phase.
+    pub phase: f32,
+}
+
+/// Marker for small sparkle dots near the portal.
+#[derive(Component)]
+pub struct PortalSparkle {
+    /// Timer controlling visibility toggling.
+    pub timer: Timer,
+    /// Base position relative to the portal center.
+    pub offset: Vec2,
+}
+
 /// Marker component identifying a hub overlay entity (shop, unlockables, etc.).
 /// Used so ESC can despawn overlays without despawning the hub itself.
 #[derive(Component)]
@@ -80,6 +105,10 @@ impl Plugin for HubPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(OnEnter(AppState::MainMenu), spawn_hub_menu)
             .add_systems(OnExit(AppState::MainMenu), despawn_hub_menu)
+            .add_systems(
+                Update,
+                hub_title_animation_system.run_if(in_state(AppState::MainMenu)),
+            )
             .add_systems(
                 Update,
                 hub_interaction_system.run_if(in_state(AppState::MainMenu)),
@@ -307,13 +336,92 @@ fn spawn_hub_menu(mut commands: Commands) {
         HubBackground,
     ));
 
-    info!("Hub world spawned — 5 zones + floor");
+    // ── "RUSTWORN" title text ─────────────────────────────────────────
+    // Large rust/gold-colored title at the top-center of the screen.
+    // Animated by hub_title_animation_system (sin-based pulsing scale).
+    commands.spawn((
+        HubTitle,
+        Text2d::new("RUSTWORN"),
+        TextFont {
+            font_size: 48.0,
+            ..default()
+        },
+        TextColor(Color::srgb(0.85, 0.55, 0.15)),
+        Anchor::Center,
+        TextLayout::new_with_justify(JustifyText::Center),
+        Transform::from_xyz(0.0, 200.0, HUB_TEXT_Z + 0.05),
+    ));
+
+    // ── Floating ember particles ──────────────────────────────────────
+    // 24 small colored circles drifting upward in the background.
+    // Colours: oranges, golds, warm yellows. Respawn at bottom when
+    // they drift off the top of the screen.
+    let ember_colors = [
+        Color::srgb(0.9, 0.5, 0.1),   // deep orange
+        Color::srgb(0.95, 0.65, 0.2), // golden orange
+        Color::srgb(0.8, 0.4, 0.2),   // rust
+        Color::srgb(1.0, 0.8, 0.3),   // warm gold
+        Color::srgb(0.85, 0.6, 0.15), // amber
+    ];
+    for i in 0..24 {
+        let phase = i as f32 * 0.73;
+        let px = (i as f32 * 97.3) % FLOOR_W - FLOOR_W / 2.0;
+        let py = (i as f32 * 53.7) % FLOOR_H - FLOOR_H / 2.0;
+        let drift_x = (phase * 1.7).sin() * 8.0; // slight horizontal wobble
+        let drift_y = 12.0 + (i as f32 * 3.7) % 10.0; // upward speed 12-22
+        let color = ember_colors[i % ember_colors.len()];
+        commands.spawn((
+            HubParticle {
+                drift_x,
+                drift_y,
+                phase,
+            },
+            Sprite {
+                color,
+                custom_size: Some(Vec2::splat(4.0)),
+                ..default()
+            },
+            Transform::from_xyz(px, py, HUB_Z - 0.08),
+            Visibility::Inherited,
+        ));
+    }
+
+    // ── Portal sparkles ───────────────────────────────────────────────
+    // Small glowing dots near the ENTER THE DEPTHS zone that fade
+    // in/out randomly.
+    let sparkle_offsets = [
+        Vec2::new(-160.0, -40.0),
+        Vec2::new(160.0, -40.0),
+        Vec2::new(-140.0, 0.0),
+        Vec2::new(140.0, 0.0),
+        Vec2::new(-100.0, 35.0),
+        Vec2::new(100.0, 35.0),
+        Vec2::new(0.0, -50.0),
+    ];
+    for (i, offset) in sparkle_offsets.iter().enumerate() {
+        let t = i as f32 * 0.9;
+        commands.spawn((
+            PortalSparkle {
+                timer: Timer::from_seconds(0.6 + (i as f32 * 0.15), TimerMode::Repeating),
+                offset: *offset,
+            },
+            Sprite {
+                color: Color::srgba(0.4, 0.95, 0.9, 0.0), // teal/white, starts invisible
+                custom_size: Some(Vec2::splat(3.0)),
+                ..default()
+            },
+            Transform::from_xyz(offset.x, offset.y, HUB_Z - 0.07),
+            Visibility::Inherited,
+        ));
+    }
+
+    info!("Hub world spawned — 5 zones + floor + title + particles");
 }
 
 /// Despawn all hub entities when leaving MainMenu.
 fn despawn_hub_menu(
     mut commands: Commands,
-    zones: Query<Entity, Or<(With<HubZone>, With<HubBackground>, With<HubOverlay>, With<HubZoneBorder>, With<HubZoneGlow>)>>,
+    zones: Query<Entity, Or<(With<HubZone>, With<HubBackground>, With<HubOverlay>, With<HubZoneBorder>, With<HubZoneGlow>, With<HubTitle>, With<HubParticle>, With<PortalSparkle>)>>,
 ) {
     for entity in &zones {
         commands.entity(entity).despawn();
@@ -418,6 +526,66 @@ fn spawn_overlay(commands: &mut Commands, text: String) {
     ));
 }
 
+// ─── Title animation system ────────────────────────────────────────────
+
+/// Animates hub title particles, title pulsing, and portal sparkles.
+/// Runs every frame during MainMenu.
+fn hub_title_animation_system(
+    time: Res<Time>,
+    mut title_q: Query<&mut Transform, With<HubTitle>>,
+    mut particle_q: Query<(&mut HubParticle, &mut Transform, &mut Sprite)>,
+    mut sparkle_q: Query<(&mut PortalSparkle, &mut Sprite)>,
+) {
+    // ── Title pulsing ───────────────────────────────────────────────
+    // Subtle breathing: scale oscillates 1.0 ↔ 1.05 using sin(time).
+    if let Ok(mut title_tf) = title_q.single_mut() {
+        let pulse = 1.0 + (time.elapsed_secs() * 2.0).sin() * 0.025;
+        title_tf.scale = Vec3::splat(pulse);
+    }
+
+    // ── Floating ember particles ────────────────────────────────────
+    let half_w = FLOOR_W / 2.0;
+    let half_h = FLOOR_H / 2.0;
+    for (mut particle, mut tf, mut sprite) in &mut particle_q {
+        // Drift upward + horizontal wobble
+        tf.translation.x += particle.drift_x * time.delta_secs();
+        tf.translation.y += particle.drift_y * time.delta_secs();
+
+        // Subtle alpha pulse per particle
+        let alpha = 0.5 + ((time.elapsed_secs() * 1.5 + particle.phase) * 1.3).sin() * 0.3;
+        sprite.color.set_alpha(alpha.clamp(0.2, 0.8));
+
+        // Respawn at bottom when off-screen top
+        if tf.translation.y > half_h {
+            tf.translation.y = -half_h;
+            // Randomize x slightly for variety
+            tf.translation.x = ((particle.phase + time.elapsed_secs() * 0.1) * 97.3) % half_w - half_w / 2.0;
+        }
+        // If drifted too far left or right, wrap
+        if tf.translation.x > half_w {
+            tf.translation.x = -half_w;
+        } else if tf.translation.x < -half_w {
+            tf.translation.x = half_w;
+        }
+    }
+
+    // ── Portal sparkles ────────────────────────────────────────────
+    for (mut sparkle, mut sprite) in &mut sparkle_q {
+        sparkle.timer.tick(time.delta());
+        if sparkle.timer.just_finished() {
+            // Toggle visibility: random fade-in/out
+            let current_alpha = sprite.color.alpha();
+            if current_alpha < 0.1 {
+                // Fade in
+                sprite.color = sprite.color.with_alpha(0.6 + (sparkle.offset.x.abs() % 0.3));
+            } else {
+                // Fade out
+                sprite.color = sprite.color.with_alpha(0.0);
+            }
+        }
+    }
+}
+
 // ─── Interaction system ─────────────────────────────────────────────────
 
 /// Handle mouse click on hub zones and keyboard Enter/Escape.
@@ -441,6 +609,7 @@ fn hub_interaction_system(
     save: Res<CrownSave>,
     mut next_state: ResMut<NextState<AppState>>,
     mut commands: Commands,
+    mut settings_open: ResMut<SettingsOpen>,
 ) {
     let overlay_open = !overlays.is_empty();
 
@@ -508,8 +677,14 @@ fn hub_interaction_system(
         }
     }
 
-    // ESC: if an overlay is open, close it. Otherwise quit.
+    // ESC: if settings are open, close them. If another overlay is open,
+    // close it. Otherwise open the settings menu.
     if keys.just_pressed(KeyCode::Escape) {
+        if settings_open.0 {
+            settings_open.0 = false;
+            info!("Settings overlay closed");
+            return;
+        }
         if overlay_open {
             for entity in &overlays {
                 commands.entity(entity).despawn();
@@ -517,7 +692,9 @@ fn hub_interaction_system(
             info!("Hub overlay closed");
             return;
         } else {
-            std::process::exit(0);
+            settings_open.0 = true;
+            info!("Settings overlay opened");
+            return;
         }
     }
 
