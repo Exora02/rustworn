@@ -30,23 +30,36 @@ use crate::resources::{BossRampTimer, FloorState, GameSettings, Hitstop, RunRng,
 
 const ROOM_SIZE: f32 = 1000.0;
 const WALL_THICKNESS: f32 = 20.0;
+#[allow(dead_code)]
 const WALL_COLOR: Color = Color::srgb(0.30, 0.30, 0.35);
+#[allow(dead_code)]
 const PAD_COLOR: Color = Color::srgb(0.20, 0.75, 0.95);
+#[allow(dead_code)]
 const PAD_COLOR_FIGHT: Color = Color::srgb(0.20, 0.75, 0.95); // blue
+#[allow(dead_code)]
 const PAD_COLOR_ELITE: Color = Color::srgb(0.75, 0.25, 0.85); // purple
+#[allow(dead_code)]
 const PAD_COLOR_BOSS: Color = Color::srgb(0.85, 0.15, 0.15);  // red
+#[allow(dead_code)]
 const PAD_COLOR_TREASURE: Color = Color::srgb(0.95, 0.75, 0.20); // gold
+#[allow(dead_code)]
 const PAD_COLOR_HORDE: Color = Color::srgb(0.20, 0.85, 0.60); // teal
+#[allow(dead_code)]
 const PAD_COLOR_ENTER: Color = Color::srgb(0.30, 0.85, 0.30); // green
+#[allow(dead_code)]
 const PAD_COLOR_SHOP: Color = Color::srgb(0.95, 0.85, 0.10); // bright gold
 const PAD_SIZE: f32 = 60.0;
+#[allow(dead_code)]
 const ROOMS_PER_BOSS: u32 = 6;
 const ENTRY_INSET: f32 = 50.0;
 const SHRINE_COLOR: Color = Color::srgb(0.30, 0.85, 0.30);
 const SHRINE_DMG: Color = Color::srgb(0.85, 0.20, 0.20);
+#[allow(dead_code)]
 const SHRINE_FR: Color = Color::srgb(0.95, 0.55, 0.20);
 const SHRINE_SPD: Color = Color::srgb(0.95, 0.85, 0.30);
+#[allow(dead_code)]
 const SHRINE_CURSE: Color = Color::srgb(0.62, 0.20, 0.85);
+#[allow(dead_code)]
 const SHRINE_GOLD: Color = Color::srgb(0.95, 0.75, 0.20);
 const SHRINE_SIZE: f32 = 32.0;
 const CURSED_SHRINE_SIZE: f32 = 40.0;
@@ -81,6 +94,7 @@ pub(crate) fn biome_accent(biome: Biome) -> Color {
 }
 
 /// Human-readable biome name for HUD and floor transition text.
+#[allow(dead_code)]
 pub(crate) fn biome_name(biome: Biome) -> &'static str {
     match biome {
         Biome::Catacombs => "CATACOMBS",

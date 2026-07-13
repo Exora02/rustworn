@@ -127,6 +127,7 @@ pub enum AiBehavior {
 #[derive(Component)]
 pub struct DasherState {
     pub phase: DasherPhase,
+    /// Uses get_single_mut which is deprecated — we use single_mut instead on player queries
     pub phase_timer: Timer,
 }
 
@@ -178,6 +179,7 @@ pub struct SniperState {
 /// read by the death-AoE handler in combat.rs.
 #[derive(Component)]
 pub struct BomberState {
+    #[allow(dead_code)]
     pub explosion_radius: f32,
 }
 
@@ -217,11 +219,13 @@ pub enum EnemyArchetype {
     /// so the enum stays exhaustive over the full set of
     /// possible enemy types — the spawner dispatch (in
     /// `enemy.rs::spawn_enemy`) is a no-op for Boss.
+    #[allow(dead_code)]
     Boss,
     /// Phase 2 P5: see `AiBehavior::Beacon` for the full
     /// design. Same no-op dispatch as Boss — the beacon is
     /// spawned by the Cascade-start handler, not by the
     /// wave system.
+    #[allow(dead_code)]
     Beacon,
     /// Phase 3d Bomber: walks toward the player, explodes on death.
     Bomber,
@@ -310,10 +314,13 @@ pub enum BossPhase {
     /// (2s).
     Phase2,
     /// Spawning minions (Lich death behavior).
+    #[allow(dead_code)]
     Summoning,
     /// Wind-up for charge attack (Yeti).
+    #[allow(dead_code)]
     Charging,
     /// Teleporting around the room (Void Walker).
+    #[allow(dead_code)]
     Teleporting,
 }
 
@@ -395,6 +402,7 @@ pub struct TrailGhost {
 /// bundled with the `default_font` bevy feature (see Cargo.toml).
 #[derive(Component)]
 pub struct DamageNumber {
+    #[allow(dead_code)]
     pub value: i32,
     pub lifetime: Timer,
     pub drift_speed: f32,
@@ -437,6 +445,7 @@ pub struct Elite;
 /// Carries a lifetime after which the projectile despawns.
 #[derive(Component)]
 pub struct BossProjectile {
+    #[allow(dead_code)]
     pub lifetime: Timer,
 }
 
@@ -445,37 +454,49 @@ pub struct BossProjectile {
 /// SkeletonArcher state: bone arrow fire cooldown.
 #[derive(Component)]
 pub struct SkeletonArcherState {
+    #[allow(dead_code)]
     pub fire_timer: Timer,
 }
 
 /// Ghost state: phasing timer (periodic semi-transparent).
 #[derive(Component)]
 pub struct GhostState {
+    #[allow(dead_code)]
     pub phase_timer: Timer,
+    #[allow(dead_code)]
     pub is_phasing: bool,
 }
 
 /// SkullSwarm state: each skull in the swarm has an orbit offset + lunge timer.
 #[derive(Component)]
 pub struct SkullSwarmState {
+    #[allow(dead_code)]
     pub orbit_angle: f32,
+    #[allow(dead_code)]
     pub orbit_radius: f32,
+    #[allow(dead_code)]
     pub lunge_timer: Timer,
+    #[allow(dead_code)]
     pub is_lunging: bool,
+    #[allow(dead_code)]
     pub lunge_target: Vec2,
 }
 
 /// IceGolem state: AOE slam cooldown.
 #[derive(Component)]
 pub struct IceGolemState {
+    #[allow(dead_code)]
     pub slam_timer: Timer,
 }
 
 /// SnowDrifter state: zigzag timer + trail timer.
 #[derive(Component)]
 pub struct SnowDrifterState {
+    #[allow(dead_code)]
     pub zigzag_timer: Timer,
+    #[allow(dead_code)]
     pub zig_direction: f32,
+    #[allow(dead_code)]
     pub trail_timer: Timer,
 }
 
@@ -483,13 +504,16 @@ pub struct SnowDrifterState {
 /// No extra state beyond Bomber-like behavior; the explosion is handled on death.
 #[derive(Component)]
 pub struct PenguinBomberState {
+    #[allow(dead_code)]
     pub explosion_radius: f32,
 }
 
 /// FireMage state: teleport timer + fire timer.
 #[derive(Component)]
 pub struct FireMageState {
+    #[allow(dead_code)]
     pub teleport_timer: Timer,
+    #[allow(dead_code)]
     pub fire_timer: Timer,
 }
 
@@ -497,50 +521,61 @@ pub struct FireMageState {
 /// This marker ensures we can query for it.
 #[derive(Component)]
 pub struct LavaElemental {
+    #[allow(dead_code)]
     pub split_count: u32,
 }
 
 /// CinderWisp state: fast movement + fire trail timer.
 #[derive(Component)]
 pub struct CinderWispState {
+    #[allow(dead_code)]
     pub trail_timer: Timer,
 }
 
 /// Treant state: root/slow zone pulse timer.
 #[derive(Component)]
 pub struct TreantState {
+    #[allow(dead_code)]
     pub root_timer: Timer,
 }
 
 /// VineCreeper state: wall-edge movement with dive timer.
 #[derive(Component)]
 pub struct VineCreeperState {
+    #[allow(dead_code)]
     pub is_diving: bool,
+    #[allow(dead_code)]
     pub dive_timer: Timer,
+    #[allow(dead_code)]
     pub dive_cooldown: Timer,
 }
 
 /// SporePod state: stationary — poison cloud emission timer.
 #[derive(Component)]
 pub struct SporePodState {
+    #[allow(dead_code)]
     pub emit_timer: Timer,
 }
 
 /// VoidWalker state: teleport behind player on cooldown.
 #[derive(Component)]
 pub struct VoidWalkerState {
+    #[allow(dead_code)]
     pub teleport_timer: Timer,
+    #[allow(dead_code)]
     pub attack_timer: Timer,
 }
 
 /// CorruptionOrb state: floating, homing projectile cooldown.
 #[derive(Component)]
 pub struct CorruptionOrbState {
+    #[allow(dead_code)]
     pub fire_timer: Timer,
 }
 
 /// ShadowClone state: mirrors player position.
 #[derive(Component)]
 pub struct ShadowCloneState {
+    #[allow(dead_code)]
     pub mirror_offset: Vec2,
 }

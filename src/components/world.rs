@@ -109,6 +109,7 @@ pub enum RoomKind {
     Challenge,
     /// Secret room: hidden behind a wall segment. Small room with
     /// free loot (gold, items, heal). No enemies.
+    #[allow(dead_code)]
     Secret,
 }
 
@@ -141,6 +142,7 @@ pub enum RoomKind {
 ///   Backward doors (`forward = false`) are never locked:
 ///   the player can always retreat to a previous room.
 #[derive(Component, Clone, Copy, Debug)]
+#[allow(dead_code)]
 pub struct Door {
     pub from_room: RoomId,
     pub to_room: RoomId,
@@ -160,6 +162,7 @@ pub struct Door {
 /// don't need it — they're spawned in the current room and
 /// despawned on transition.
 #[derive(Component, Clone, Copy, Debug)]
+#[allow(dead_code)]
 pub struct RoomScope {
     pub room_id: RoomId,
 }
@@ -196,7 +199,9 @@ pub struct TeleportPad {
 /// (and all remaining pedestals) despawn after a delay.
 #[derive(Component, Clone, Debug)]
 pub struct TreasurePedestal {
+    #[allow(dead_code)]
     pub item: PickupKind,
+    #[allow(dead_code)]
     pub taken: bool,
 }
 
@@ -205,7 +210,9 @@ pub struct TreasurePedestal {
 /// enemies directly rather than using the director-based WaveSpawner.
 #[derive(Component, Clone, Debug)]
 pub struct ChallengeState {
+    #[allow(dead_code)]
     pub wave: u32,
+    #[allow(dead_code)]
     pub enemies_spawned: bool,
 }
 
@@ -224,6 +231,7 @@ pub struct ChallengeWall;
 /// Marker on wall entities that serve as hidden secret-room entrances.
 /// Transparency toggles when the player walks near them.
 #[derive(Component, Clone, Debug)]
+#[allow(dead_code)]
 pub struct SecretWall {
     pub revealed: bool,
     pub room_id: RoomId,
@@ -231,6 +239,7 @@ pub struct SecretWall {
 
 /// Resource tracking an active challenge run in the current room.
 #[derive(Resource, Clone, Debug)]
+#[allow(dead_code)]
 pub struct ChallengeRun {
     pub wave: u32,
     pub room_entity: Entity,
@@ -253,8 +262,11 @@ pub struct ChallengeRun {
 /// advance immediately).
 #[derive(Clone, Copy, Debug)]
 pub struct WaveDefinition {
+    #[allow(dead_code)]
     pub archetype: EnemyArchetype,
+    #[allow(dead_code)]
     pub count: u32,
+    #[allow(dead_code)]
     pub interval_s: f32,
 }
 

@@ -1,60 +1,35 @@
-# Rustworn — Post-Session Assessment & Roadmap
+# Rustworn — Session Roadmap (Updated)
 
-## Current State (25 commits, ~9,000+ lines, 0 errors)
+## Current State (28 commits this session, ~12,300+ lines, 0 errors)
 
-### ✅ Solid
-- Extraction + death screen loop
-- 5 biomes + room generation + transitions
-- 7 weapons (Pistol, Shotgun, Burst, Beam, Rocket, Sniper, SMG, Arc Gun)
-- 4 playable characters with unique abilities
-- 25 unlockables (meta-progression)
-- Boss health bar + 5 bosses with phase 2 attacks
-- Status effects (Burn, Slow, Stun)
-- Horde density scaling per floor
-- Melee combat system
-- 12 in-run items + 3 weapon types
-- Hub world with 5 interactive zones + overlays
-- Combo system + damage numbers
-- Pixel art sprites (14 assets)
-- Audio infrastructure (8 event types)
-- In-run shop rooms + chests
-- Arc Gun chain lightning
+### ✅ Delivered This Session
+- **Audio** — 21 procedural .ogg sounds wired into all game events (weapons, hits, pickups, dash, cascade, rooms, UI)
+- **Settings menu** — volume sliders (master/SFX/music), fullscreen toggle, ESC from hub
+- **Title screen polish** — floating ember particles, pulsing title text, portal sparkles
+- **15 biome-specific enemies** — 3 per biome with unique attack patterns (skeleton archers, ghosts, ice golems, fire mages, void walkers, etc.)
+- **Item synergies** — 12 pair combos (SuperPierce, EchoChain, ExplosiveRetaliation, DoubleEdge, etc.)
+- **More room types** — Treasure rooms (pick 1 of 3 items), Challenge rooms (3 locked waves), Secret rooms (hidden, free loot)
+- **Game feel** — damage numbers, combo system, weapon swap UI, hit flash
+- **Arc Gun chain lightning** — chains to 2 nearby enemies
+- **Chests in rooms** — breakable replacements with loot
+- **In-run shop rooms** — 4 items for sale with gold
 
-### 🟡 Polished but needs work
-- Audio: infrastructure exists but no actual .ogg sound files
-- Pixel art: sprites exist but need refinement (colored-entity fallback for 4 enemy types)
-- Controller support: not wired
-- Settings menu: not implemented
-- Tutorial/onboarding: missing
+### ✅ Solid (pre-session)
+- Hub world + 25 unlockables + meta-progression
+- 8 weapons + 4 characters + 5 bosses
+- Extraction loop + death screen
+- Status effects, horde scaling, melee
+- 12 run items + 3 weapon unlocks
 
-### ❌ Missing for marketability
+### ❌ Still Missing
 
-#### Tier 1 — Player-facing (biggest impact)
-1. **Real audio** — placeholder-free sounds for weapons, hits, pickups, boss roar, death/win
-2. **Settings menu** — volume sliders, resolution, key rebinding
-3. **More enemy variety** — 2-3 biome-specific enemy types per biome (currently 4 generic types)
-4. **Title screen polish** — animated background, particle effects, game title
-5. **Weapon/item synergies** — Isaac-style combos between items
-
-#### Tier 2 — Depth
-6. **Daily challenge mode** — fixed seed, leaderboard potential
-7. **Achievements** — Steam integration prep
-8. **Controller support** — gamepad inputs
-9. **More room types** — challenge rooms, sacrifice rooms, secret rooms
-10. **Item synergy system** — specific 2-item combos unlock bonus effects
-
-#### Tier 3 — Content
-11. **More bosses per biome** — 2-3 per biome instead of 1
-12. **Enemy scaling** — enemy HP/damage scales with floor + curse
-13. **Visual novel / lore** — NPC dialogue, backstory
-14. **Steam integration** — achievements, cloud saves
-
-## What I'd do next (highest impact per effort)
-
-| Priority | Feature | Effort | Impact |
-|----------|---------|--------|--------|
-| **1** | **Audio** — generate/buy placeholder .ogg files | Medium | **Huge** — silent game feels broken |
-| **2** | **Settings menu** — volume + key rebinds | Medium | **High** — basic UX requirement |
-| **3** | **Biome-specific enemies** — 2-3 per biome | High | **High** — variety = replayability |
-| **4** | **Synergies** — item interactions | High | **Very high** — the game-defining feature |
-| **5** | **Daily challenge** — fixed seed runs | Medium | **High** — community engagement |
+| Priority | Feature | Effort | Why |
+|----------|---------|--------|-----|
+| **1** | **Code audit + refactor** | Medium | Warnings are at 114, code quality is the enabler for everything else |
+| **2** | **Daily challenge mode** | Medium | Fixed seed runs, leaderboard potential |
+| **3** | **Controller support** | Medium | Gamepad inputs for Steam/console |
+| **4** | **More bosses per biome** | High | 2-3 per biome instead of 1 |
+| **5** | **Enemy scaling (floor+curse)** | Low | HP/damage scaling for depth |
+| **6** | **Tutorial / onboarding** | High | First-run flow |
+| **7** | **Lore / NPC dialogue** | High | World-building |
+| **8** | **Achievements (Steam)** | Medium | Steam integration |

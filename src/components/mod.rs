@@ -29,7 +29,6 @@ pub use misc::{
     GameOverReason, Grenade, HudElement, HudElementKind, ItemKind, Pickup, PickupKind, Shrine,
     ShrineFocus, ShopItem, ShopReward, WeaponInventory,
 };
-pub use synergy::{check_new_synergies, synergy_name, SynergyEffect, SYNERGIES};
 pub use player::{
     AimDirection, AimIndicator, BaseVelocity, CascadeAffected, Collider, DashCooldown, Health,
     Invulnerable, Knockback, LastMoveDirection, MainCamera, MeleeWeapon, Player, PlayerClass, Projectile,

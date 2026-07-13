@@ -7,15 +7,17 @@
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
 
-use crate::components::{AppState, Health, Player, RoomKind, ShopItem, AimIndicator};
-use crate::resources::{FloorState, RunState};
+use crate::components::{Health, Player, AimIndicator};
+use crate::resources::RunState;
 
 /// Marker component for the in-run shop overlay Text2d entity.
 #[derive(Component)]
+#[allow(dead_code)]
 pub struct ShopOverlay;
 
 /// The shop overlay item entries, mirrored from the spawned ShopItem entities.
 /// Generated once when the player enters a shop room.
+#[allow(dead_code)]
 const SHOP_ITEM_DEFS: &[(u32, &str)] = &[
     (5, "Damage Up (+0.5 base_damage)"),
     (8, "Crit Up (+5% crit_chance)"),
@@ -25,6 +27,7 @@ const SHOP_ITEM_DEFS: &[(u32, &str)] = &[
 ];
 
 /// Spawn the shop overlay Text2d. Called when entering a shop room.
+#[allow(dead_code)]
 pub fn spawn_shop_overlay(commands: &mut Commands, room_center: Vec2) {
     let mut lines = String::from("=== SHOP ===\n\n");
     for (i, (cost, desc)) in SHOP_ITEM_DEFS.iter().enumerate() {
@@ -50,6 +53,7 @@ pub fn spawn_shop_overlay(commands: &mut Commands, room_center: Vec2) {
 /// Handle key presses for the shop overlay.
 /// 1-4: buy the corresponding item (if enough gold)
 /// ESC: despawn the overlay
+#[allow(dead_code)]
 pub fn shop_overlay_input_system(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,

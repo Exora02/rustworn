@@ -11,25 +11,28 @@ use bevy::sprite::Anchor;
 use log::info;
 
 use crate::components::{
-    AiBehavior, BaseVelocity, Biome, CascadeAffected, ChallengeElite, ChallengeRun,
+    AiBehavior, BaseVelocity, Biome, CascadeAffected, ChallengeElite,
     ChallengeState, ChallengeWall, Collider, Enemy, EnemyAI, EnemyArchetype, Health, ItemKind,
     Pickup, PickupKind, Player, Room, RoomId, RoomKind, SecretWall, TreasurePedestal, Velocity,
     Wall, WeaponArchetype,
 };
-use crate::resources::{FloorState, GameSettings, RunRng, RunState};
+use crate::resources::{FloorState, GameSettings, RunRng};
 
-use super::pads::pad_bundle;
 use super::spawn_breakables;
 
 // ─── Constants ────────────────────────────────────────────────────────────
 
 const PEDESTAL_SIZE: f32 = 28.0;
 const PEDESTAL_COLOR: Color = Color::srgb(0.60, 0.50, 0.30);
+#[allow(dead_code)]
 const PEDESTAL_ACTIVE_COLOR: Color = Color::srgb(1.0, 0.85, 0.50);
 const TREASURE_ITEM_COLOR: Color = Color::srgb(0.70, 0.40, 0.95);
 const CHALLENGE_BLOCK_WALL_COLOR: Color = Color::srgb(0.85, 0.25, 0.15);
+#[allow(dead_code)]
 const SECRET_REVEAL_DIST: f32 = 60.0;
+#[allow(dead_code)]
 const SECRET_WALL_OPAQUE: f32 = 1.0;
+#[allow(dead_code)]
 const SECRET_WALL_REVEALED: f32 = 0.30;
 
 // ─── Treasure room spawning ───────────────────────────────────────────────
@@ -125,7 +128,7 @@ pub(crate) fn treasure_collect_system(
     let player_pos = player_tf.translation.truncate();
     let player_half = Vec2::splat(20.0);
 
-    for (entity, tf, pedestal) in &pedestals {
+    for (_entity, tf, pedestal) in &pedestals {
         if pedestal.taken {
             continue;
         }
@@ -160,8 +163,8 @@ pub(crate) fn treasure_collect_system(
 /// Spawn wall entities blocking the exits in a Challenge room.
 pub(crate) fn spawn_challenge_blocking_walls(commands: &mut Commands, room: &Room) {
     let half = 10.0;
-    let w = room.size().x;
-    let h = room.size().y;
+    let _w = room.size().x;
+    let _h = room.size().y;
     let cx = (room.bounds_min.x + room.bounds_max.x) * 0.5;
     let cy = (room.bounds_min.y + room.bounds_max.y) * 0.5;
 
@@ -243,7 +246,7 @@ fn spawn_challenge_wave(
     commands: &mut Commands,
     settings: &GameSettings,
     floor: &FloorState,
-    rng: &mut RunRng,
+    _rng: &mut RunRng,
     room: &Room,
     wave: u32,
 ) -> bool {
@@ -370,12 +373,12 @@ fn spawn_generic_enemy(
 /// the state.wave is set to 4 and challenge_complete_system handles rewards.
 pub(crate) fn challenge_tick_system(
     mut commands: Commands,
-    time: Res<Time>,
+    _time: Res<Time>,
     settings: Res<GameSettings>,
     floor: Res<FloorState>,
     mut rng: ResMut<RunRng>,
     enemy_query: Query<Entity, With<Enemy>>,
-    challenge_elite_query: Query<&ChallengeElite>,
+    _challenge_elite_query: Query<&ChallengeElite>,
     mut challenge_states: Query<(Entity, &mut ChallengeState)>,
     player_query: Query<&Transform, (With<Player>, Without<Enemy>)>,
 ) {
@@ -437,7 +440,7 @@ pub(crate) fn challenge_tick_system(
 pub(crate) fn challenge_complete_system(
     mut commands: Commands,
     floor: Res<FloorState>,
-    settings: Res<GameSettings>,
+    _settings: Res<GameSettings>,
     challenge_states: Query<&ChallengeState>,
     challenge_walls: Query<Entity, With<ChallengeWall>>,
     player_query: Query<&Transform, (With<Player>, Without<Enemy>)>,

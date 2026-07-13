@@ -16,12 +16,16 @@ use crate::resources::{BossRampTimer, FloorState, GameSettings};
 use crate::plugins::rooms::biome_name;
 use crate::components::biome_from_floor;
 
+#[allow(dead_code)]
 const PAD_SIZE: f32 = 60.0;
+#[allow(dead_code)]
 const ENTRY_INSET: f32 = 50.0;
+#[allow(dead_code)]
 const ROOM_SIZE: f32 = 1000.0;
 
 // ─── Teleport transition ─────────────────────────────────────────────────
 
+#[allow(dead_code)]
 pub fn teleport_transition_system(
     mut commands: Commands,
     mut next_state: ResMut<NextState<AppState>>,
@@ -151,6 +155,7 @@ pub fn teleport_transition_system(
 
 // ─── Boss room clear (boss death gates room cleared) ───────────────────
 
+#[allow(dead_code)]
 pub fn boss_death_room_clear_system(
     mut commands: Commands,
     floor: Res<FloorState>,
@@ -196,6 +201,7 @@ pub fn boss_death_room_clear_system(
 
 // ─── Floor transition fade ────────────────────────────────────────────────
 
+#[allow(dead_code)]
 pub fn floor_transition_fade_system(
     mut commands: Commands,
     time: Res<Time>,
@@ -223,6 +229,7 @@ pub fn floor_transition_fade_system(
     }
 }
 
+#[allow(dead_code)]
 fn aabb_overlap(a_center: Vec2, a_half: Vec2, b_center: Vec2, b_half: Vec2) -> bool {
     let a = a_center - b_center;
     a.x.abs() < a_half.x + b_half.x && a.y.abs() < a_half.y + b_half.y

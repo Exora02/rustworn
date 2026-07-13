@@ -680,7 +680,7 @@ pub fn spawn_ghost(
 /// Catacombs: SkullSwarm — small orbiting skull that lunges.
 pub fn spawn_skull_swarm(
     commands: &mut Commands,
-    settings: &GameSettings,
+    _settings: &GameSettings,
     _room: &Room,
     spawn_pos: Vec2,
     floor: &FloorState,

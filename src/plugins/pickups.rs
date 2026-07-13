@@ -14,7 +14,7 @@ use crate::components::{
     AiBehavior, AppState, Health, ItemKind, Pickup, PickupKind, Player, Velocity,
     WeaponArchetype, WeaponInventory,
 };
-use crate::components::synergy::{check_new_synergies, synergy_name, SynergyEffect};
+use crate::components::synergy::{check_new_synergies, SynergyEffect};
 use crate::events::PickupCollectedEvent;
 use crate::resources::{GameSettings, RunState, UnlockableKind, UNLOCKABLE_COUNT};
 
@@ -109,7 +109,7 @@ fn pickup_collect_system(
         if pos.distance(player_pos) > settings.pickup_collect_radius {
             continue;
         }
-        let new_synergies = apply_pickup(
+        let _new_synergies = apply_pickup(
             pickup.kind,
             &mut run,
             &settings,

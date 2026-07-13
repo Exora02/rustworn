@@ -23,7 +23,7 @@ use crate::plugins::pickups::{
 };
 
 use super::aabb_overlap;
-use crate::resources::{CascadeState, CrownSave, GameSettings, Hitstop, RunRng, RunState, ScreenShake, UNLOCKABLE_COUNT};
+use crate::resources::{CascadeState, CrownSave, GameSettings, Hitstop, RunRng, RunState, UNLOCKABLE_COUNT};
 
 use super::{in_hitstop, on_enemy_killed, point_to_segment_distance};
 

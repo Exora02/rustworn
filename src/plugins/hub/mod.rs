@@ -399,7 +399,7 @@ fn spawn_hub_menu(mut commands: Commands) {
         Vec2::new(0.0, -50.0),
     ];
     for (i, offset) in sparkle_offsets.iter().enumerate() {
-        let t = i as f32 * 0.9;
+        let _t = i as f32 * 0.9;
         commands.spawn((
             PortalSparkle {
                 timer: Timer::from_seconds(0.6 + (i as f32 * 0.15), TimerMode::Repeating),
@@ -546,7 +546,7 @@ fn hub_title_animation_system(
     // ── Floating ember particles ────────────────────────────────────
     let half_w = FLOOR_W / 2.0;
     let half_h = FLOOR_H / 2.0;
-    for (mut particle, mut tf, mut sprite) in &mut particle_q {
+    for (particle, mut tf, mut sprite) in &mut particle_q {
         // Drift upward + horizontal wobble
         tf.translation.x += particle.drift_x * time.delta_secs();
         tf.translation.y += particle.drift_y * time.delta_secs();
