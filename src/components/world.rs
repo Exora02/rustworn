@@ -4,6 +4,7 @@
 use bevy::prelude::*;
 
 use super::enemy::EnemyArchetype;
+use crate::components::PickupKind;
 
 // ─── Biome enum ────────────────────────────────────────────────────────────
 
@@ -100,6 +101,15 @@ pub enum RoomKind {
     /// next combat room. Always appears one room before the boss
     /// (cycle position 5 → boss at position 0).
     Shop,
+    /// Treasure room: displays 2-3 items on pedestals. Player can
+    /// take ONE for free. No enemies.
+    Treasure,
+    /// Challenge room: locked arena with 3 waves. Clear all waves
+    /// to earn a weapon + gold reward.
+    Challenge,
+    /// Secret room: hidden behind a wall segment. Small room with
+    /// free loot (gold, items, heal). No enemies.
+    Secret,
 }
 
 /// Door trigger: a small AABB on the floor in front of a wall.
@@ -177,6 +187,53 @@ pub struct FloorTransitionText(pub Timer);
 #[derive(Component, Clone, Debug)]
 pub struct TeleportPad {
     pub label: String,
+}
+
+// ─── More-room types (Treasure, Challenge, Secret) ──────────────────────
+
+/// Marker on a treasure pedestal entity. Each pedestal holds an item;
+/// when the player walks over it, they receive the item and the pedestal
+/// (and all remaining pedestals) despawn after a delay.
+#[derive(Component, Clone, Debug)]
+pub struct TreasurePedestal {
+    pub item: PickupKind,
+    pub taken: bool,
+}
+
+/// Tracked per challenge room: which wave is active and whether enemies
+/// have been spawned for the current wave. The challenge system spawns
+/// enemies directly rather than using the director-based WaveSpawner.
+#[derive(Component, Clone, Debug)]
+pub struct ChallengeState {
+    pub wave: u32,
+    pub enemies_spawned: bool,
+}
+
+/// Entity id of the last wave's elite enemy (if any). Used by the
+/// challenge clear system to gate reward on wave 3 elite death.
+#[derive(Component, Clone, Debug)]
+pub struct ChallengeElite {
+    pub elite_entity: Entity,
+}
+
+/// Marker on wall entities that block the exit doors during a challenge
+/// room. Despawned when the challenge is completed.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct ChallengeWall;
+
+/// Marker on wall entities that serve as hidden secret-room entrances.
+/// Transparency toggles when the player walks near them.
+#[derive(Component, Clone, Debug)]
+pub struct SecretWall {
+    pub revealed: bool,
+    pub room_id: RoomId,
+}
+
+/// Resource tracking an active challenge run in the current room.
+#[derive(Resource, Clone, Debug)]
+pub struct ChallengeRun {
+    pub wave: u32,
+    pub room_entity: Entity,
 }
 
 // ─── Wave spawning (Phase 2.3) ────────────────────────────────────────────

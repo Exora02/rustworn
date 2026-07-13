@@ -19,8 +19,8 @@ use bevy::sprite::Anchor;
 use log::info;
 
 use crate::components::{
-    AimIndicator, AppState, Biome, Boss, Breakable, Collider, DeathPuff, Enemy, EnemyArchetype,
-    FloorTransitionText, Health, Pickup, Player, Projectile, Room, RoomId, RoomKind,
+    AimIndicator, AppState, Biome, Boss, Breakable, ChallengeState, Collider, DeathPuff, Enemy,
+    EnemyArchetype, FloorTransitionText, Health, Pickup, Player, Projectile, Room, RoomId, RoomKind,
     Shrine, ShrineFocus, TeleportPad, Velocity, Wall, WaveDefinition, WaveSpawner,
 };
 use crate::events::RoomClearedEvent;
@@ -95,6 +95,7 @@ pub mod pads;
 pub mod shop;
 pub mod shop_overlay;
 pub mod transitions;
+pub mod special_rooms;
 
 pub struct RoomsPlugin;
 
@@ -126,6 +127,7 @@ pub(crate) fn generate_room(
     _settings: &GameSettings,
     room_id: RoomId,
     kind: RoomKind,
+    rng: Option<&mut RunRng>,
 ) -> Room {
     let offset_x = room_id.0 as f32 * ROOM_SIZE;
     let bounds_min = Vec2::new(offset_x, -ROOM_SIZE);
@@ -202,6 +204,15 @@ pub(crate) fn generate_room(
                 // so the player has a chance to earn a bit more gold.
                 (vec![], BREAKABLES_PER_ROOM, 0)
             }
+            RoomKind::Treasure | RoomKind::Secret => {
+                // Treasure and Secret rooms have no enemies.
+                (vec![], 0, 0)
+            }
+            RoomKind::Challenge => {
+                // Challenge rooms use custom wave system (special_rooms.rs).
+                // No WaveSpawner — we spawn enemies directly in challenge systems.
+                (vec![], BREAKABLES_PER_ROOM, 0)
+            }
             _ => {
                 // Fight room — standard combat.
                 let base_interval = 1.5;
@@ -272,6 +283,23 @@ pub(crate) fn generate_room(
                 room.bounds_max.y - PAD_SIZE * 1.5,
             );
             commands.spawn(pads::pad_bundle(exit_pos, "Boss"));
+        }
+
+        // Special room types: Treasure, Challenge, Secret
+        if kind == RoomKind::Treasure {
+            if let Some(rng) = rng {
+                special_rooms::spawn_treasure_pedestals(commands, &room, rng);
+            } else {
+                // Fallback: just use a placeholder
+                info!("Treasure room {} skipped (no RNG)", room_id.0);
+            }
+        } else if kind == RoomKind::Challenge {
+            special_rooms::spawn_challenge_blocking_walls(commands, &room);
+            special_rooms::spawn_challenge_setup(commands, &room);
+            commands.spawn(ChallengeState {
+                wave: 1,
+                enemies_spawned: false,
+            });
         }
     }
 
@@ -566,9 +594,9 @@ fn setup_rooms_system(
     floor.current_room = RoomId(0);
     floor.floor_number = 0;
 
-    let r0 = generate_room(&mut commands, &floor, &settings, RoomId(0), RoomKind::Spawn);
+    let r0 = generate_room(&mut commands, &floor, &settings, RoomId(0), RoomKind::Spawn, None);
     floor.rooms.push(r0);
-    let r1 = generate_room(&mut commands, &floor, &settings, RoomId(1), RoomKind::Fight);
+    let r1 = generate_room(&mut commands, &floor, &settings, RoomId(1), RoomKind::Fight, None);
     floor.rooms.push(r1);
 
     // Spawn a teleport pad in the spawn room so the player can
@@ -799,7 +827,8 @@ fn teleport_transition_system(
 
         // Determine next room kind from pad label.
         let next_kind = match teleport.label.as_str() {
-            "Treasure" => RoomKind::Fight,
+            "Treasure" => RoomKind::Treasure,
+            "Challenge" => RoomKind::Challenge,
             "Shop" => RoomKind::Shop,
             "Boss" => RoomKind::Boss,
             "Elite" => RoomKind::MiniBoss,
@@ -825,7 +854,7 @@ fn teleport_transition_system(
         }
 
         // Generate next room.
-        let new_room = generate_room(&mut commands, &floor, &settings, next_room_id, next_kind);
+        let new_room = generate_room(&mut commands, &floor, &settings, next_room_id, next_kind, None);
         floor.rooms.push(new_room);
         floor.current_room = next_room_id;
 

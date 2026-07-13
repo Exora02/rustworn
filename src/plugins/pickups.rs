@@ -14,6 +14,7 @@ use crate::components::{
     AiBehavior, AppState, Health, ItemKind, Pickup, PickupKind, Player, Velocity,
     WeaponArchetype, WeaponInventory,
 };
+use crate::components::synergy::{check_new_synergies, synergy_name, SynergyEffect};
 use crate::events::PickupCollectedEvent;
 use crate::resources::{GameSettings, RunState, UnlockableKind, UNLOCKABLE_COUNT};
 
@@ -108,7 +109,7 @@ fn pickup_collect_system(
         if pos.distance(player_pos) > settings.pickup_collect_radius {
             continue;
         }
-        apply_pickup(
+        let new_synergies = apply_pickup(
             pickup.kind,
             &mut run,
             &settings,
@@ -145,7 +146,8 @@ fn apply_pickup(
     settings: &GameSettings,
     health_q: &mut Query<&mut Health, With<Player>>,
     inventory_q: &mut Query<&mut WeaponInventory, With<Player>>,
-) {
+) -> Vec<SynergyEffect> {
+    let mut new_synergies = Vec::new();
     match kind {
         PickupKind::DamageUp => {
             run.damage_stacks = (run.damage_stacks + 1).min(8);
@@ -183,6 +185,12 @@ fn apply_pickup(
             run.gold = run.gold.saturating_add(amt);
         }
         PickupKind::Item(kind) => {
+            run.collected_items.push(kind);
+            let item_synergies = check_new_synergies(kind, &run.collected_items, &run.active_synergies);
+            for &syn in &item_synergies {
+                run.active_synergies.push(syn);
+                new_synergies.push(syn);
+            }
             match kind {
                 ItemKind::RustyNails => run.base_damage += 0.5,
                 ItemKind::LuckyCharm => run.crit_chance = (run.crit_chance + 0.05).min(1.0),
@@ -219,6 +227,7 @@ fn apply_pickup(
             h.current = (h.current + 1.0).min(h.max);
         }
     }
+    new_synergies
 }
 
 /// Per-frame regen: if `RunState.regen_per_sec > 0`, add

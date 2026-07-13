@@ -23,6 +23,7 @@ pub fn director_credit_rate(kind: RoomKind) -> f32 {
     match kind {
         RoomKind::Horde => spawn::CREDIT_RATE_HORDE,
         RoomKind::MiniBoss | RoomKind::Boss => spawn::CREDIT_RATE_ELITE,
+        RoomKind::Challenge => spawn::CREDIT_RATE_FIGHT,
         _ => spawn::CREDIT_RATE_FIGHT,
     }
 }

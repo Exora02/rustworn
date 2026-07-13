@@ -86,7 +86,8 @@ pub fn teleport_transition_system(
 
         // Determine next room kind from pad label.
         let next_kind = match teleport.label.as_str() {
-            "Treasure" => RoomKind::Fight,
+            "Treasure" => RoomKind::Treasure,
+            "Challenge" => RoomKind::Challenge,
             "Shop" => RoomKind::Shop,
             "Boss" => RoomKind::Boss,
             "Elite" => RoomKind::MiniBoss,
@@ -112,7 +113,7 @@ pub fn teleport_transition_system(
         }
 
         // Generate next room.
-        let new_room = super::generate_room(&mut commands, &floor, &settings, next_room_id, next_kind);
+        let new_room = super::generate_room(&mut commands, &floor, &settings, next_room_id, next_kind, None);
         floor.rooms.push(new_room);
         floor.current_room = next_room_id;
 

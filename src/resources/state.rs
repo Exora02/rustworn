@@ -1,5 +1,7 @@
 use crate::components::GameOverReason;
+use crate::components::ItemKind;
 use crate::components::PlayerClass;
+use crate::components::synergy::SynergyEffect;
 use bevy::prelude::*;
 
 /// Phase 2 P6 (Crab Champions run): tracks the current floor's
@@ -178,6 +180,12 @@ pub struct RunState {
     pub combo: u32,
     /// Combo timer: reset to 3s on each kill; if it finishes, combo resets to 0.
     pub combo_timer: Timer,
+
+    // ─── Item synergies ──────────────────────────────────────────────
+    /// Currently active synergy effects.
+    pub active_synergies: Vec<SynergyEffect>,
+    /// Items the player has collected this run.
+    pub collected_items: Vec<ItemKind>,
 }
 
 impl Default for RunState {
@@ -245,6 +253,10 @@ impl Default for RunState {
             // Phase 6 game feel
             combo: 0,
             combo_timer: Timer::from_seconds(3.0, TimerMode::Once),
+
+            // Item synergies
+            active_synergies: Vec::new(),
+            collected_items: Vec::new(),
         }
     }
 }

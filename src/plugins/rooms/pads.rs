@@ -18,6 +18,7 @@ const PAD_COLOR_HORDE: Color = Color::srgb(0.20, 0.85, 0.60);
 const PAD_COLOR_ENTER: Color = Color::srgb(0.30, 0.85, 0.30);
 const PAD_COLOR_SHOP: Color = Color::srgb(0.95, 0.85, 0.10);
 const PAD_COLOR_FIGHT: Color = Color::srgb(0.20, 0.75, 0.95);
+const PAD_COLOR_CHALLENGE: Color = Color::srgb(0.85, 0.25, 0.15); // red for challenge
 const PAD_SIZE: f32 = 60.0;
 const ROOMS_PER_BOSS: u32 = 6;
 
@@ -92,6 +93,7 @@ pub fn pad_bundle(pos: Vec2, label: &str) -> impl Bundle {
         "Horde" => PAD_COLOR_HORDE,
         "Enter" => PAD_COLOR_ENTER,
         "Shop" => PAD_COLOR_SHOP,
+        "Challenge" => PAD_COLOR_CHALLENGE,
         _ => PAD_COLOR_FIGHT,
     };
     (
