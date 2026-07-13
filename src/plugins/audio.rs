@@ -1,35 +1,45 @@
-//! Placeholder audio plugin.
+//! Audio plugin.
 //!
 //! Listens for game events (DamageEvent, EnemyKilledEvent, PickupCollectedEvent,
 //! WeaponFiredEvent, PlayerDashEvent, etc.) and plays corresponding sound effects
 //! via bevy's built-in `Audio` resource.
 //!
-//! Currently in **placeholder mode**: the systems log every sound that would play,
-//! because no .ogg / .wav files are in `assets/audio/` yet. To activate real audio:
-//!
-//!   1. Drop `.ogg` files into `assets/audio/` (e.g., `pistol.ogg`, `shotgun.ogg`,
-//!      `burst.ogg`, `beam.ogg`, `dash.ogg`, `enemy_hit.ogg`, `enemy_death.ogg`,
-//!      `pickup.ogg`, `cascade_start.ogg`, `cascade_end.ogg`, `extraction.ogg`,
-//!      `menu_press.ogg`, `crown_purchase.ogg`).
-//!   2. Remove the `// STUB:` comments and `log::info!` calls from each sound
-//!      handler.
-//!   3. Load each asset once at startup (see `AudioPlugin::build`) and store
-//!      handles, then call `audio.play(handle)` with optional pitch / speed.
-//!
-//! Bevy's `Audio` resource supports:
-//!   - `audio.play(handle)` — one-shot
-//!   - `audio.play_with_settings(handle, PlaybackSettings { speed, volume, .. })`
-//!     — pitched playback (different pitch per weapon archetype, for example)
-//!
-//! For placeholder testing, every sound is prefixed with "🕹️" so the dev log is
-//! easy to grep (e.g., `cargo run 2>&1 | grep '🕹️'`).
+//! All 21 `.ogg` assets are loaded once at startup via `AudioHandles` and
+//! then dispatched by event-driven systems.
 
+use bevy::audio::AudioPlayer;
 use bevy::prelude::*;
 
 use crate::events::{
     CascadeEndEvent, CascadeStartEvent, DamageEvent, EnemyKilledEvent, PickupCollectedEvent,
     PlayerDashEvent, RoomClearedEvent, WeaponFiredEvent,
 };
+
+/// All 21 audio handles, loaded at plugin startup.
+#[derive(Resource)]
+pub struct AudioHandles {
+    pub pistol_fire: Handle<AudioSource>,
+    pub shotgun_fire: Handle<AudioSource>,
+    pub burst_fire: Handle<AudioSource>,
+    pub beam_fire: Handle<AudioSource>,
+    pub rocket_fire: Handle<AudioSource>,
+    pub sniper_fire: Handle<AudioSource>,
+    pub smg_fire: Handle<AudioSource>,
+    pub arcgun_fire: Handle<AudioSource>,
+    pub enemy_hit: Handle<AudioSource>,
+    pub enemy_death: Handle<AudioSource>,
+    pub pickup_collect: Handle<AudioSource>,
+    pub pickup_heal: Handle<AudioSource>,
+    pub pickup_weapon: Handle<AudioSource>,
+    pub pickup_gold: Handle<AudioSource>,
+    pub dash: Handle<AudioSource>,
+    pub cascade_start: Handle<AudioSource>,
+    pub cascade_end: Handle<AudioSource>,
+    pub room_cleared: Handle<AudioSource>,
+    pub extraction: Handle<AudioSource>,
+    pub menu_press: Handle<AudioSource>,
+    pub crown_purchase: Handle<AudioSource>,
+}
 
 pub struct AudioPlugin;
 
@@ -41,24 +51,31 @@ impl Plugin for AudioPlugin {
             .add_event::<WeaponFiredEvent>()
             .add_event::<PickupCollectedEvent>();
 
-        // Placeholder: in the future, pre-load audio handles here:
-        //
-        //   let asset_server = app.world().resource::<AssetServer>();
-        //   app.insert_resource(AudioHandles {
-        //       pistol:        asset_server.load("audio/pistol.ogg"),
-        //       shotgun:       asset_server.load("audio/shotgun.ogg"),
-        //       burst:         asset_server.load("audio/burst.ogg"),
-        //       beam:          asset_server.load("audio/beam.ogg"),
-        //       dash:          asset_server.load("audio/dash.ogg"),
-        //       enemy_hit:     asset_server.load("audio/enemy_hit.ogg"),
-        //       enemy_death:   asset_server.load("audio/enemy_death.ogg"),
-        //       pickup:        asset_server.load("audio/pickup.ogg"),
-        //       cascade_start: asset_server.load("audio/cascade_start.ogg"),
-        //       cascade_end:   asset_server.load("audio/cascade_end.ogg"),
-        //       extraction:    asset_server.load("audio/extraction.ogg"),
-        //       menu_press:    asset_server.load("audio/menu_press.ogg"),
-        //       crown_purchase: asset_server.load("audio/crown_purchase.ogg"),
-        //   });
+        // Pre-load all 21 audio assets at startup.
+        let asset_server = app.world().resource::<AssetServer>();
+        app.insert_resource(AudioHandles {
+            pistol_fire: asset_server.load("audio/pistol_fire.ogg"),
+            shotgun_fire: asset_server.load("audio/shotgun_fire.ogg"),
+            burst_fire: asset_server.load("audio/burst_fire.ogg"),
+            beam_fire: asset_server.load("audio/beam_fire.ogg"),
+            rocket_fire: asset_server.load("audio/rocket_fire.ogg"),
+            sniper_fire: asset_server.load("audio/sniper_fire.ogg"),
+            smg_fire: asset_server.load("audio/smg_fire.ogg"),
+            arcgun_fire: asset_server.load("audio/arcgun_fire.ogg"),
+            enemy_hit: asset_server.load("audio/enemy_hit.ogg"),
+            enemy_death: asset_server.load("audio/enemy_death.ogg"),
+            pickup_collect: asset_server.load("audio/pickup_collect.ogg"),
+            pickup_heal: asset_server.load("audio/pickup_heal.ogg"),
+            pickup_weapon: asset_server.load("audio/pickup_weapon.ogg"),
+            pickup_gold: asset_server.load("audio/pickup_gold.ogg"),
+            dash: asset_server.load("audio/dash.ogg"),
+            cascade_start: asset_server.load("audio/cascade_start.ogg"),
+            cascade_end: asset_server.load("audio/cascade_end.ogg"),
+            room_cleared: asset_server.load("audio/room_cleared.ogg"),
+            extraction: asset_server.load("audio/extraction.ogg"),
+            menu_press: asset_server.load("audio/menu_press.ogg"),
+            crown_purchase: asset_server.load("audio/crown_purchase.ogg"),
+        });
 
         // Register event-listener systems.
         // All run every frame but early-return if no events are queued.
@@ -88,86 +105,107 @@ impl Plugin for AudioPlugin {
 ///   Beam    → sustained / higher (energy weapon)
 fn weapon_fire_audio_system(
     mut events: EventReader<WeaponFiredEvent>,
-    // STUB: `audio: Res<Audio>` when real assets are loaded
+    mut commands: Commands,
+    handles: Res<AudioHandles>,
 ) {
     for ev in events.read() {
-        let sound_name = match ev.archetype {
-            crate::components::WeaponArchetype::Pistol => "pistol_fire",
-            crate::components::WeaponArchetype::Shotgun => "shotgun_fire",
-            crate::components::WeaponArchetype::Burst => "burst_fire",
-            crate::components::WeaponArchetype::Beam => "beam_fire",
-            crate::components::WeaponArchetype::RocketLauncher => "rocket_fire",
-            crate::components::WeaponArchetype::Sniper => "sniper_fire",
-            crate::components::WeaponArchetype::SMG => "smg_fire",
-            crate::components::WeaponArchetype::ArcGun => "arcgun_fire",
+        let (handle, speed) = match ev.archetype {
+            crate::components::WeaponArchetype::Pistol => (&handles.pistol_fire, 1.0),
+            crate::components::WeaponArchetype::Shotgun => (&handles.shotgun_fire, 0.8),
+            crate::components::WeaponArchetype::Burst => (&handles.burst_fire, 1.1),
+            crate::components::WeaponArchetype::Beam => (&handles.beam_fire, 1.0),
+            crate::components::WeaponArchetype::RocketLauncher => (&handles.rocket_fire, 1.0),
+            crate::components::WeaponArchetype::Sniper => (&handles.sniper_fire, 1.0),
+            crate::components::WeaponArchetype::SMG => (&handles.smg_fire, 1.0),
+            crate::components::WeaponArchetype::ArcGun => (&handles.arcgun_fire, 1.0),
         };
-        // STUB: audio.play_with_settings(
-        //     handles.pistol.clone(),
-        //     PlaybackSettings { speed: pitch, .. },
-        // );
-        log::info!("🕹️ AUDIO: {sound_name}");
+        commands.spawn((
+            AudioPlayer::new(handle.clone()),
+            PlaybackSettings { speed, ..default() },
+        ));
     }
 }
 
 /// Plays a hit sound on every DamageEvent (enemy hit, player hit, etc.)
-fn damage_audio_system(mut events: EventReader<DamageEvent>) {
+fn damage_audio_system(
+    mut events: EventReader<DamageEvent>,
+    mut commands: Commands,
+    handles: Res<AudioHandles>,
+) {
     for _ev in events.read() {
-        // STUB: audio.play(handles.enemy_hit.clone());
-        log::info!("🕹️ AUDIO: enemy_hit");
+        commands.spawn(AudioPlayer::new(handles.enemy_hit.clone()));
     }
 }
 
 /// Plays a death sound on every EnemyKilledEvent
-fn enemy_killed_audio_system(mut events: EventReader<EnemyKilledEvent>) {
+fn enemy_killed_audio_system(
+    mut events: EventReader<EnemyKilledEvent>,
+    mut commands: Commands,
+    handles: Res<AudioHandles>,
+) {
     for _ev in events.read() {
-        // STUB: audio.play(handles.enemy_death.clone());
-        log::info!("🕹️ AUDIO: enemy_death");
+        commands.spawn(AudioPlayer::new(handles.enemy_death.clone()));
     }
 }
 
 /// Plays a pickup sound, choosing between generic "collect" and
 /// special sounds for Heal, Weapon, and Gold.
-fn pickup_collected_audio_system(mut events: EventReader<PickupCollectedEvent>) {
+fn pickup_collected_audio_system(
+    mut events: EventReader<PickupCollectedEvent>,
+    mut commands: Commands,
+    handles: Res<AudioHandles>,
+) {
     for ev in events.read() {
-        let sound_name = match ev.kind {
-            crate::components::PickupKind::Heal => "pickup_heal",
-            crate::components::PickupKind::Weapon(_) => "pickup_weapon",
-            crate::components::PickupKind::Gold(_) => "pickup_gold",
-            _ => "pickup_collect",
+        let handle = match ev.kind {
+            crate::components::PickupKind::Heal => &handles.pickup_heal,
+            crate::components::PickupKind::Weapon(_) => &handles.pickup_weapon,
+            crate::components::PickupKind::Gold(_) => &handles.pickup_gold,
+            _ => &handles.pickup_collect,
         };
-        // STUB: audio.play(handles.pickup.clone());
-        log::info!("🕹️ AUDIO: {sound_name}");
+        commands.spawn(AudioPlayer::new(handle.clone()));
     }
 }
 
 /// Plays a whoosh / wind sound when the player dashes
-fn dash_audio_system(mut events: EventReader<PlayerDashEvent>) {
+fn dash_audio_system(
+    mut events: EventReader<PlayerDashEvent>,
+    mut commands: Commands,
+    handles: Res<AudioHandles>,
+) {
     for _ev in events.read() {
-        // STUB: audio.play(handles.dash.clone());
-        log::info!("🕹️ AUDIO: dash");
+        commands.spawn(AudioPlayer::new(handles.dash.clone()));
     }
 }
 
 /// Plays a cascade-activation sting (speed-up / time-bend effect)
-fn cascade_start_audio_system(mut events: EventReader<CascadeStartEvent>) {
+fn cascade_start_audio_system(
+    mut events: EventReader<CascadeStartEvent>,
+    mut commands: Commands,
+    handles: Res<AudioHandles>,
+) {
     for _ev in events.read() {
-        // STUB: audio.play(handles.cascade_start.clone());
-        log::info!("🕹️ AUDIO: cascade_start");
+        commands.spawn(AudioPlayer::new(handles.cascade_start.clone()));
     }
 }
 
 /// Plays a cascade-deactivation sting (return to normal speed)
-fn cascade_end_audio_system(mut events: EventReader<CascadeEndEvent>) {
+fn cascade_end_audio_system(
+    mut events: EventReader<CascadeEndEvent>,
+    mut commands: Commands,
+    handles: Res<AudioHandles>,
+) {
     for _ev in events.read() {
-        // STUB: audio.play(handles.cascade_end.clone());
-        log::info!("🕹️ AUDIO: cascade_end");
+        commands.spawn(AudioPlayer::new(handles.cascade_end.clone()));
     }
 }
 
 /// Plays a fanfare / success sound when a room is cleared
-fn room_cleared_audio_system(mut events: EventReader<RoomClearedEvent>) {
+fn room_cleared_audio_system(
+    mut events: EventReader<RoomClearedEvent>,
+    mut commands: Commands,
+    handles: Res<AudioHandles>,
+) {
     for _ev in events.read() {
-        // STUB: audio.play(handles.extraction.clone());
-        log::info!("🕹️ AUDIO: room_cleared");
+        commands.spawn(AudioPlayer::new(handles.room_cleared.clone()));
     }
 }
